@@ -1,0 +1,538 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { api } from '@/lib/api';
+import { useAuthStore } from '@/lib/store';
+import { Document as Doc, DocType, DocStatus, User } from '@/lib/types';
+import toast from 'react-hot-toast';
+import { format } from 'date-fns';
+import { vi } from 'date-fns/locale';
+import { AnimatePresence, motion } from 'framer-motion';
+import { OnlyOfficePreview } from '@/components/OnlyOfficePreview';
+
+const statusLabels: Record<DocStatus, string> = {
+  DRAFT: 'Bản nháp',
+  PENDING_HEAD: 'Chờ Trưởng phòng',
+  PENDING_DIRECTOR: 'Chờ Giám đốc duyệt',
+  APPROVED: 'Đã phê duyệt',
+  REJECTED: 'Cần làm lại',
+};
+
+const statusColors: Record<DocStatus, string> = {
+  DRAFT: 'bg-gray-100 text-gray-700',
+  PENDING_HEAD: 'bg-yellow-100 text-yellow-700',
+  PENDING_DIRECTOR: 'bg-blue-100 text-blue-700',
+  APPROVED: 'bg-green-100 text-green-700',
+  REJECTED: 'bg-red-100 text-red-700',
+};
+
+const typeLabels: Record<string, string> = {
+  TT_DUTOAN: 'Tờ trình phê duyệt dự toán',
+  QD_DUTOAN: 'Quyết định phê duyệt dự toán',
+};
+
+export default function DuToanPage() {
+  const { user } = useAuthStore();
+  const [docs, setDocs] = useState<Doc[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [rejectComment, setRejectComment] = useState('');
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [editingDoc, setEditingDoc] = useState<Doc | null>(null);
+  const [detailDoc, setDetailDoc] = useState<Doc | null>(null);
+  const [previewDocId, setPreviewDocId] = useState<string | null>(null);
+
+  // Wizard state
+  const [wizardStep, setWizardStep] = useState(0); // 0 = hidden, 1 = TT, 2 = QD, 3 = choose approver
+  const [directors, setDirectors] = useState<User[]>([]);
+  const [selectedDirector, setSelectedDirector] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  // TT form state
+  const [ttData, setTtData] = useState({
+    tenCoQuan: '', soToTrinh: '', diaDanh: '', ngayLap: new Date().toISOString().slice(0, 10),
+    tenCongTyKinhGui: '', tenDuAn: '', tenHangMuc: '',
+    tenCoQuanThucHien: '', tenCoQuanLapDuToan: '', tongKinhPhi: 0,
+    chiPhiChiTiet: [{ ten: '', soTien: 0 }], chiPhiKhac: 0, chiPhiDuPhong: 0,
+    nguonVon: [''], tenCongTyKienNghi: '', tenDuToanPheDuyet: '',
+  });
+
+  // QD form state
+  const [qdData, setQdData] = useState({
+    tenCoQuanDuyet: '', soQuyetDinh: '', ngayBanHanh: new Date().toISOString().slice(0, 10),
+    namPheDuyet: new Date().getFullYear(), canCuPhapLy: [''],
+    tenDonViDeNghi: '', namDuyetDieu1: new Date().getFullYear(),
+    tenChuDauTu: '', tenDuAn: '', giaTriDuToanDuyet: 0, tenBQLDA: '',
+  });
+
+  const fetchDocs = async () => {
+    try {
+      const data = await api.getDocumentsByType(['TT_DUTOAN', 'QD_DUTOAN']);
+      setDocs(data);
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchDocs(); }, []);
+
+  // Start wizard
+  const startWizard = async () => {
+    setWizardStep(1);
+    try {
+      const d = await api.getUsersByRole('DIRECTOR');
+      setDirectors(d);
+    } catch { /* ignore */ }
+  };
+
+  // When advancing from step 1 → step 2, auto-populate QD from TT
+  const goToStep2 = () => {
+    if (!ttData.tenDuAn.trim()) { toast.error('Vui lòng nhập tên dự án'); return; }
+    setQdData(prev => ({
+      ...prev,
+      tenCoQuanDuyet: ttData.tenCoQuan || prev.tenCoQuanDuyet,
+      tenDuAn: ttData.tenDuAn || prev.tenDuAn,
+      giaTriDuToanDuyet: ttData.tongKinhPhi || prev.giaTriDuToanDuyet,
+      tenBQLDA: ttData.tenCoQuanThucHien || prev.tenBQLDA,
+      tenDonViDeNghi: ttData.tenCoQuanLapDuToan || prev.tenDonViDeNghi,
+      tenChuDauTu: ttData.tenCongTyKinhGui || prev.tenChuDauTu,
+    }));
+    setWizardStep(2);
+  };
+
+  const goToStep3 = () => {
+    setWizardStep(3);
+  };
+
+  // Submit both TT + QD
+  const handleSubmitBatch = async () => {
+    if (!selectedDirector) { toast.error('Vui lòng chọn Giám đốc duyệt'); return; }
+    setSubmitting(true);
+    try {
+      await api.createDuToanBatch(ttData, qdData, selectedDirector);
+      toast.success('Đã tạo Tờ trình & Quyết định, gửi tới Giám đốc duyệt');
+      resetWizard();
+      fetchDocs();
+    } catch (err: any) { toast.error(err.message); }
+    finally { setSubmitting(false); }
+  };
+
+  const resetWizard = () => {
+    setWizardStep(0);
+    setSelectedDirector('');
+    setTtData({
+      tenCoQuan: '', soToTrinh: '', diaDanh: '', ngayLap: new Date().toISOString().slice(0, 10),
+      tenCongTyKinhGui: '', tenDuAn: '', tenHangMuc: '',
+      tenCoQuanThucHien: '', tenCoQuanLapDuToan: '', tongKinhPhi: 0,
+      chiPhiChiTiet: [{ ten: '', soTien: 0 }], chiPhiKhac: 0, chiPhiDuPhong: 0,
+      nguonVon: [''], tenCongTyKienNghi: '', tenDuToanPheDuyet: '',
+    });
+    setQdData({
+      tenCoQuanDuyet: '', soQuyetDinh: '', ngayBanHanh: new Date().toISOString().slice(0, 10),
+      namPheDuyet: new Date().getFullYear(), canCuPhapLy: [''],
+      tenDonViDeNghi: '', namDuyetDieu1: new Date().getFullYear(),
+      tenChuDauTu: '', tenDuAn: '', giaTriDuToanDuyet: 0, tenBQLDA: '',
+    });
+  };
+
+  const handleApprove = async (id: string) => {
+    try {
+      await api.approveDocument(id);
+      toast.success('Đã phê duyệt');
+      fetchDocs();
+    } catch (err: any) { toast.error(err.message); }
+  };
+
+  const handleReject = async (id: string) => {
+    if (!rejectComment.trim()) { toast.error('Vui lòng nhập bình luận'); return; }
+    try {
+      await api.rejectDocument(id, rejectComment);
+      toast.success('Đã yêu cầu làm lại');
+      setRejectingId(null);
+      setRejectComment('');
+      fetchDocs();
+    } catch (err: any) { toast.error(err.message); }
+  };
+
+  const handleResubmit = async (doc: Doc) => {
+    try {
+      await api.resubmitDocument(doc.id, editingDoc?.data || doc.data);
+      toast.success('Đã gửi lại');
+      setEditingDoc(null);
+      fetchDocs();
+    } catch (err: any) { toast.error(err.message); }
+  };
+
+  const handleDownload = async (id: string) => {
+    try {
+      const res = await api.downloadDocument(id);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const disposition = res.headers.get('Content-Disposition');
+      let filename = 'document.docx';
+      if (disposition) {
+        const utf8Match = disposition.match(/filename\*=UTF-8''(.+)/);
+        if (utf8Match) filename = decodeURIComponent(utf8Match[1]);
+      }
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: any) { toast.error(err.message); }
+  };
+
+  const canApprove = user?.role === 'DIRECTOR' || user?.role === 'ADMIN';
+  const canCreate = user?.role === 'INVESTOR' || user?.role === 'ADMIN';
+
+  if (loading) return <div className="flex items-center justify-center h-64"><div className="animate-spin h-8 w-8 border-4 border-primary-500 border-t-transparent rounded-full" /></div>;
+
+  const stepLabels = ['Tờ trình dự toán', 'Quyết định dự toán', 'Chọn người duyệt'];
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Phê duyệt dự toán</h1>
+          <p className="text-gray-500 mt-1">Tạo và quản lý Tờ trình & Quyết định phê duyệt dự toán</p>
+        </div>
+        {canCreate && wizardStep === 0 && (
+          <button onClick={startWizard} className="px-5 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium">
+            + Tạo hồ sơ dự toán
+          </button>
+        )}
+      </div>
+
+      {/* ===== WIZARD ===== */}
+      {wizardStep > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+          {/* Step indicator */}
+          <div className="flex border-b bg-gray-50">
+            {stepLabels.map((label, i) => (
+              <div key={i} className={`flex-1 py-3 px-4 text-center text-sm font-medium border-b-2 transition-colors ${
+                wizardStep === i + 1 ? 'border-primary-600 text-primary-700 bg-white' :
+                wizardStep > i + 1 ? 'border-green-500 text-green-700' :
+                'border-transparent text-gray-400'
+              }`}>
+                <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs mr-2 ${
+                  wizardStep > i + 1 ? 'bg-green-100 text-green-700' :
+                  wizardStep === i + 1 ? 'bg-primary-100 text-primary-700' :
+                  'bg-gray-200 text-gray-500'
+                }`}>{wizardStep > i + 1 ? '✓' : i + 1}</span>
+                {label}
+              </div>
+            ))}
+          </div>
+
+          <div className="p-6">
+            {/* STEP 1: TT Form */}
+            {wizardStep === 1 && (
+              <>
+                <h3 className="text-lg font-semibold mb-4">Bước 1: Tờ trình phê duyệt dự toán</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <input className="inp" placeholder="Tên cơ quan" value={ttData.tenCoQuan} onChange={e => setTtData({...ttData, tenCoQuan: e.target.value})} />
+                  <input className="inp" placeholder="Số tờ trình" value={ttData.soToTrinh} onChange={e => setTtData({...ttData, soToTrinh: e.target.value})} />
+                  <input className="inp" placeholder="Địa danh" value={ttData.diaDanh} onChange={e => setTtData({...ttData, diaDanh: e.target.value})} />
+                  <input className="inp" type="date" value={ttData.ngayLap} onChange={e => setTtData({...ttData, ngayLap: e.target.value})} />
+                  <input className="inp" placeholder="Tên công ty kính gửi" value={ttData.tenCongTyKinhGui} onChange={e => setTtData({...ttData, tenCongTyKinhGui: e.target.value})} />
+                  <input className="inp" placeholder="Tên dự án *" value={ttData.tenDuAn} onChange={e => setTtData({...ttData, tenDuAn: e.target.value})} />
+                  <input className="inp" placeholder="Tên hạng mục" value={ttData.tenHangMuc} onChange={e => setTtData({...ttData, tenHangMuc: e.target.value})} />
+                  <input className="inp" placeholder="Cơ quan thực hiện" value={ttData.tenCoQuanThucHien} onChange={e => setTtData({...ttData, tenCoQuanThucHien: e.target.value})} />
+                  <input className="inp" placeholder="Cơ quan lập dự toán" value={ttData.tenCoQuanLapDuToan} onChange={e => setTtData({...ttData, tenCoQuanLapDuToan: e.target.value})} />
+                  <input className="inp" type="number" placeholder="Tổng kinh phí" value={ttData.tongKinhPhi || ''} onChange={e => setTtData({...ttData, tongKinhPhi: Number(e.target.value)})} />
+                  <input className="inp" type="number" placeholder="Chi phí khác" value={ttData.chiPhiKhac || ''} onChange={e => setTtData({...ttData, chiPhiKhac: Number(e.target.value)})} />
+                  <input className="inp" type="number" placeholder="Chi phí dự phòng" value={ttData.chiPhiDuPhong || ''} onChange={e => setTtData({...ttData, chiPhiDuPhong: Number(e.target.value)})} />
+                  <input className="inp" placeholder="Công ty kiến nghị" value={ttData.tenCongTyKienNghi} onChange={e => setTtData({...ttData, tenCongTyKienNghi: e.target.value})} />
+                  <input className="inp" placeholder="Tên dự toán phê duyệt" value={ttData.tenDuToanPheDuyet} onChange={e => setTtData({...ttData, tenDuToanPheDuyet: e.target.value})} />
+                </div>
+                <div className="mt-4">
+                  <label className="text-sm font-medium text-gray-700">Chi phí chi tiết</label>
+                  {ttData.chiPhiChiTiet.map((cp, i) => (
+                    <div key={i} className="flex gap-2 mt-2">
+                      <input className="inp flex-1" placeholder="Tên chi phí" value={cp.ten} onChange={e => { const arr = [...ttData.chiPhiChiTiet]; arr[i] = {...arr[i], ten: e.target.value}; setTtData({...ttData, chiPhiChiTiet: arr}); }} />
+                      <input className="inp w-40" type="number" placeholder="Số tiền" value={cp.soTien || ''} onChange={e => { const arr = [...ttData.chiPhiChiTiet]; arr[i] = {...arr[i], soTien: Number(e.target.value)}; setTtData({...ttData, chiPhiChiTiet: arr}); }} />
+                      <button onClick={() => { const arr = ttData.chiPhiChiTiet.filter((_, j) => j !== i); setTtData({...ttData, chiPhiChiTiet: arr.length ? arr : [{ten:'',soTien:0}]}); }} className="text-red-500 text-sm">Xóa</button>
+                    </div>
+                  ))}
+                  <button onClick={() => setTtData({...ttData, chiPhiChiTiet: [...ttData.chiPhiChiTiet, {ten:'',soTien:0}]})} className="text-sm text-primary-600 mt-2">+ Thêm</button>
+                </div>
+                <div className="mt-4">
+                  <label className="text-sm font-medium text-gray-700">Nguồn vốn</label>
+                  {ttData.nguonVon.map((nv, i) => (
+                    <div key={i} className="flex gap-2 mt-2">
+                      <input className="inp flex-1" placeholder="Nguồn vốn" value={nv} onChange={e => { const arr = [...ttData.nguonVon]; arr[i] = e.target.value; setTtData({...ttData, nguonVon: arr}); }} />
+                      <button onClick={() => { const arr = ttData.nguonVon.filter((_, j) => j !== i); setTtData({...ttData, nguonVon: arr.length ? arr : ['']}); }} className="text-red-500 text-sm">Xóa</button>
+                    </div>
+                  ))}
+                  <button onClick={() => setTtData({...ttData, nguonVon: [...ttData.nguonVon, '']})} className="text-sm text-primary-600 mt-2">+ Thêm</button>
+                </div>
+                <div className="flex gap-2 mt-6 justify-end">
+                  <button onClick={resetWizard} className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">Hủy</button>
+                  <button onClick={goToStep2} className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700">Tiếp theo →</button>
+                </div>
+              </>
+            )}
+
+            {/* STEP 2: QD Form */}
+            {wizardStep === 2 && (
+              <>
+                <h3 className="text-lg font-semibold mb-1">Bước 2: Quyết định phê duyệt dự toán</h3>
+                <p className="text-sm text-gray-500 mb-4">Các trường trùng với Tờ trình đã được tự động điền</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <input className="inp" placeholder="Tên cơ quan duyệt" value={qdData.tenCoQuanDuyet} onChange={e => setQdData({...qdData, tenCoQuanDuyet: e.target.value})} />
+                  <input className="inp" placeholder="Số quyết định" value={qdData.soQuyetDinh} onChange={e => setQdData({...qdData, soQuyetDinh: e.target.value})} />
+                  <input className="inp" type="date" value={qdData.ngayBanHanh} onChange={e => setQdData({...qdData, ngayBanHanh: e.target.value})} />
+                  <input className="inp" type="number" placeholder="Năm phê duyệt" value={qdData.namPheDuyet} onChange={e => setQdData({...qdData, namPheDuyet: Number(e.target.value)})} />
+                  <input className="inp" placeholder="Tên đơn vị đề nghị" value={qdData.tenDonViDeNghi} onChange={e => setQdData({...qdData, tenDonViDeNghi: e.target.value})} />
+                  <input className="inp" type="number" placeholder="Năm duyệt Điều 1" value={qdData.namDuyetDieu1} onChange={e => setQdData({...qdData, namDuyetDieu1: Number(e.target.value)})} />
+                  <input className="inp" placeholder="Tên chủ đầu tư" value={qdData.tenChuDauTu} onChange={e => setQdData({...qdData, tenChuDauTu: e.target.value})} />
+                  <input className="inp" placeholder="Tên dự án" value={qdData.tenDuAn} onChange={e => setQdData({...qdData, tenDuAn: e.target.value})} />
+                  <input className="inp" type="number" placeholder="Giá trị dự toán duyệt" value={qdData.giaTriDuToanDuyet || ''} onChange={e => setQdData({...qdData, giaTriDuToanDuyet: Number(e.target.value)})} />
+                  <input className="inp" placeholder="Tên BQL dự án" value={qdData.tenBQLDA} onChange={e => setQdData({...qdData, tenBQLDA: e.target.value})} />
+                </div>
+                <div className="mt-4">
+                  <label className="text-sm font-medium text-gray-700">Căn cứ pháp lý</label>
+                  {qdData.canCuPhapLy.map((cc, i) => (
+                    <div key={i} className="flex gap-2 mt-2">
+                      <input className="inp flex-1" placeholder="Căn cứ" value={cc} onChange={e => { const arr = [...qdData.canCuPhapLy]; arr[i] = e.target.value; setQdData({...qdData, canCuPhapLy: arr}); }} />
+                      <button onClick={() => { const arr = qdData.canCuPhapLy.filter((_, j) => j !== i); setQdData({...qdData, canCuPhapLy: arr.length ? arr : ['']}); }} className="text-red-500 text-sm">Xóa</button>
+                    </div>
+                  ))}
+                  <button onClick={() => setQdData({...qdData, canCuPhapLy: [...qdData.canCuPhapLy, '']})} className="text-sm text-primary-600 mt-2">+ Thêm</button>
+                </div>
+                <div className="flex gap-2 mt-6 justify-end">
+                  <button onClick={() => setWizardStep(1)} className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">← Quay lại</button>
+                  <button onClick={goToStep3} className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700">Tiếp theo →</button>
+                </div>
+              </>
+            )}
+
+            {/* STEP 3: Choose approver */}
+            {wizardStep === 3 && (
+              <>
+                <h3 className="text-lg font-semibold mb-4">Bước 3: Chọn Giám đốc phê duyệt</h3>
+                <div className="max-w-md">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Gửi hồ sơ tới Giám đốc</label>
+                  <select className="inp w-full" value={selectedDirector} onChange={e => setSelectedDirector(e.target.value)}>
+                    <option value="">-- Chọn Giám đốc --</option>
+                    {directors.map(d => (
+                      <option key={d.id} value={d.id}>{d.name} ({d.email})</option>
+                    ))}
+                  </select>
+                  {directors.length === 0 && (
+                    <p className="text-sm text-red-500 mt-2">Chưa có Giám đốc nào trong hệ thống</p>
+                  )}
+                </div>
+
+                <div className="mt-6 bg-gray-50 rounded-lg p-4">
+                  <h4 className="text-sm font-medium text-gray-700 mb-3">Tóm tắt hồ sơ</h4>
+                  <div className="grid grid-cols-2 gap-x-8 gap-y-1 text-sm">
+                    <div className="text-gray-500">Dự án:</div>
+                    <div className="font-medium">{ttData.tenDuAn}</div>
+                    <div className="text-gray-500">Tổng kinh phí:</div>
+                    <div className="font-medium">{ttData.tongKinhPhi?.toLocaleString('vi-VN')} đồng</div>
+                    <div className="text-gray-500">Cơ quan:</div>
+                    <div className="font-medium">{ttData.tenCoQuan}</div>
+                    <div className="text-gray-500">Số tờ trình:</div>
+                    <div className="font-medium">{ttData.soToTrinh || '-'}</div>
+                    <div className="text-gray-500">Số quyết định:</div>
+                    <div className="font-medium">{qdData.soQuyetDinh || '-'}</div>
+                  </div>
+                </div>
+
+                <div className="flex gap-2 mt-6 justify-end">
+                  <button onClick={() => setWizardStep(2)} className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">← Quay lại</button>
+                  <button onClick={handleSubmitBatch} disabled={submitting || !selectedDirector}
+                    className="px-6 py-2.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 font-medium">
+                    {submitting ? 'Đang gửi...' : '📤 Tạo & Gửi duyệt'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Documents List */}
+      <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+        <table className="w-full">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Loại</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Thông tin</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Người tạo</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Gửi tới</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Trạng thái</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ngày tạo</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Thao tác</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {docs.length === 0 && (
+              <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400">Chưa có tài liệu nào</td></tr>
+            )}
+            {docs.map(doc => (
+              <tr key={doc.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setDetailDoc(doc)}>
+                <td className="px-4 py-3">
+                  <span className={`text-xs font-medium px-2 py-1 rounded ${doc.type === 'TT_DUTOAN' ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'}`}>
+                    {typeLabels[doc.type]}
+                  </span>
+                </td>
+                <td className="px-4 py-3 text-sm text-gray-700">
+                  {doc.data?.tenDuAn || doc.data?.soToTrinh || doc.data?.soQuyetDinh || '-'}
+                </td>
+                <td className="px-4 py-3 text-sm text-gray-600">{doc.creator.name}</td>
+                <td className="px-4 py-3 text-sm text-gray-600">{(doc as any).assignee?.name || '-'}</td>
+                <td className="px-4 py-3">
+                  <span className={`text-xs px-2 py-1 rounded-full ${statusColors[doc.status]}`}>
+                    {statusLabels[doc.status]}
+                  </span>
+                  {doc.reviews?.[0]?.action === 'REJECT' && doc.reviews[0].comment && (
+                    <p className="text-xs text-red-500 mt-1">💬 {doc.reviews[0].comment}</p>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-sm text-gray-500">
+                  {format(new Date(doc.createdAt), 'dd/MM/yyyy HH:mm', { locale: vi })}
+                </td>
+                <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                  <div className="flex gap-1 flex-wrap">
+                    <button onClick={() => handleDownload(doc.id)} className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">📥 DOCX</button>
+                    <button onClick={() => setPreviewDocId(doc.id)} className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100">👁 Xem</button>
+                    {canApprove && doc.status === 'PENDING_DIRECTOR' && (
+                      <>
+                        <button onClick={() => handleApprove(doc.id)} className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200">✅ Duyệt</button>
+                        {rejectingId === doc.id ? (
+                          <div className="flex gap-1 items-center">
+                            <input className="text-xs border rounded px-2 py-1 w-40" placeholder="Lý do..." value={rejectComment} onChange={e => setRejectComment(e.target.value)} />
+                            <button onClick={() => handleReject(doc.id)} className="text-xs px-2 py-1 bg-red-100 text-red-700 rounded">Gửi</button>
+                            <button onClick={() => setRejectingId(null)} className="text-xs px-2 py-1 bg-gray-100 rounded">Hủy</button>
+                          </div>
+                        ) : (
+                          <button onClick={() => setRejectingId(doc.id)} className="text-xs px-2 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200">🔄 Làm lại</button>
+                        )}
+                      </>
+                    )}
+                    {doc.status === 'REJECTED' && doc.createdBy === user?.id && (
+                      <button onClick={() => handleResubmit(doc)} className="text-xs px-2 py-1 bg-orange-100 text-orange-700 rounded hover:bg-orange-200">📤 Gửi lại</button>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Detail Modal */}
+      <AnimatePresence>
+        {detailDoc && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setDetailDoc(null)}>
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-2xl shadow-xl w-full max-w-2xl mx-4 p-6 max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs font-medium px-2 py-1 rounded ${detailDoc.type === 'TT_DUTOAN' ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'}`}>
+                    {typeLabels[detailDoc.type]}
+                  </span>
+                  <span className={`text-xs px-2 py-1 rounded-full ${statusColors[detailDoc.status]}`}>
+                    {statusLabels[detailDoc.status]}
+                  </span>
+                </div>
+                <button onClick={() => setDetailDoc(null)} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+              </div>
+
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                {detailDoc.data?.tenDuAn || detailDoc.data?.soToTrinh || detailDoc.data?.soQuyetDinh || 'Chi tiết tài liệu'}
+              </h3>
+
+              <div className="space-y-2 text-sm">
+                {detailDoc.type === 'TT_DUTOAN' && (
+                  <>
+                    {detailDoc.data?.tenCoQuan && <div className="flex justify-between py-1.5 border-b"><span className="text-gray-500">Cơ quan</span><span className="font-medium">{detailDoc.data.tenCoQuan}</span></div>}
+                    {detailDoc.data?.soToTrinh && <div className="flex justify-between py-1.5 border-b"><span className="text-gray-500">Số tờ trình</span><span className="font-medium">{detailDoc.data.soToTrinh}</span></div>}
+                    {detailDoc.data?.tenDuAn && <div className="flex justify-between py-1.5 border-b"><span className="text-gray-500">Tên dự án</span><span className="font-medium">{detailDoc.data.tenDuAn}</span></div>}
+                    {detailDoc.data?.tenHangMuc && <div className="flex justify-between py-1.5 border-b"><span className="text-gray-500">Hạng mục</span><span className="font-medium">{detailDoc.data.tenHangMuc}</span></div>}
+                    {detailDoc.data?.tenCoQuanThucHien && <div className="flex justify-between py-1.5 border-b"><span className="text-gray-500">Cơ quan thực hiện</span><span className="font-medium">{detailDoc.data.tenCoQuanThucHien}</span></div>}
+                    {detailDoc.data?.tongKinhPhi != null && <div className="flex justify-between py-1.5 border-b"><span className="text-gray-500">Tổng kinh phí</span><span className="font-medium">{detailDoc.data.tongKinhPhi.toLocaleString('vi-VN')} đồng</span></div>}
+                    {detailDoc.data?.chiPhiChiTiet?.length > 0 && (
+                      <div className="py-1.5 border-b">
+                        <span className="text-gray-500">Chi phí chi tiết:</span>
+                        <div className="mt-1 ml-4 space-y-1">{detailDoc.data.chiPhiChiTiet.map((cp: any, i: number) => (
+                          <div key={i} className="flex justify-between"><span>{cp.ten}</span><span className="font-medium">{cp.soTien?.toLocaleString('vi-VN')} đ</span></div>
+                        ))}</div>
+                      </div>
+                    )}
+                    {detailDoc.data?.nguonVon?.length > 0 && <div className="flex justify-between py-1.5 border-b"><span className="text-gray-500">Nguồn vốn</span><span className="font-medium">{detailDoc.data.nguonVon.join(', ')}</span></div>}
+                  </>
+                )}
+                {detailDoc.type === 'QD_DUTOAN' && (
+                  <>
+                    {detailDoc.data?.tenCoQuanDuyet && <div className="flex justify-between py-1.5 border-b"><span className="text-gray-500">Cơ quan duyệt</span><span className="font-medium">{detailDoc.data.tenCoQuanDuyet}</span></div>}
+                    {detailDoc.data?.soQuyetDinh && <div className="flex justify-between py-1.5 border-b"><span className="text-gray-500">Số quyết định</span><span className="font-medium">{detailDoc.data.soQuyetDinh}</span></div>}
+                    {detailDoc.data?.tenChuDauTu && <div className="flex justify-between py-1.5 border-b"><span className="text-gray-500">Chủ đầu tư</span><span className="font-medium">{detailDoc.data.tenChuDauTu}</span></div>}
+                    {detailDoc.data?.giaTriDuToanDuyet != null && <div className="flex justify-between py-1.5 border-b"><span className="text-gray-500">Giá trị dự toán</span><span className="font-medium">{detailDoc.data.giaTriDuToanDuyet.toLocaleString('vi-VN')} đồng</span></div>}
+                    {detailDoc.data?.tenBQLDA && <div className="flex justify-between py-1.5 border-b"><span className="text-gray-500">Ban QLDA</span><span className="font-medium">{detailDoc.data.tenBQLDA}</span></div>}
+                    {detailDoc.data?.tenDonViDeNghi && <div className="flex justify-between py-1.5 border-b"><span className="text-gray-500">Đơn vị đề nghị</span><span className="font-medium">{detailDoc.data.tenDonViDeNghi}</span></div>}
+                    {detailDoc.data?.canCuPhapLy?.length > 0 && (
+                      <div className="py-1.5 border-b">
+                        <span className="text-gray-500">Căn cứ pháp lý:</span>
+                        <ul className="mt-1 ml-4 list-disc text-gray-700">{detailDoc.data.canCuPhapLy.map((cc: string, i: number) => (
+                          <li key={i}>{cc}</li>
+                        ))}</ul>
+                      </div>
+                    )}
+                  </>
+                )}
+                {(detailDoc as any).assignee && <div className="flex justify-between py-1.5 border-b"><span className="text-gray-500">Gửi tới</span><span className="font-medium">{(detailDoc as any).assignee.name}</span></div>}
+                <div className="flex justify-between py-1.5 border-b"><span className="text-gray-500">Người tạo</span><span className="font-medium">{detailDoc.creator.name}</span></div>
+                <div className="flex justify-between py-1.5"><span className="text-gray-500">Ngày tạo</span><span className="font-medium">{format(new Date(detailDoc.createdAt), 'dd/MM/yyyy HH:mm', { locale: vi })}</span></div>
+                {detailDoc.reviews && detailDoc.reviews.length > 0 && (
+                  <div className="mt-3 pt-3 border-t">
+                    <p className="text-gray-500 font-medium mb-2">Lịch sử xét duyệt:</p>
+                    {detailDoc.reviews.map((r, i) => (
+                      <div key={i} className="flex items-center gap-2 py-1 text-xs">
+                        <span className={`px-2 py-0.5 rounded ${r.action === 'APPROVE' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                          {r.action === 'APPROVE' ? 'Duyệt' : 'Từ chối'}
+                        </span>
+                        <span className="text-gray-600">{r.user.name}</span>
+                        <span className="text-gray-400">{format(new Date(r.createdAt), 'dd/MM/yyyy HH:mm', { locale: vi })}</span>
+                        {r.comment && <span className="text-gray-500">- {r.comment}</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-2 mt-5 justify-end">
+                <button onClick={() => { setPreviewDocId(detailDoc.id); setDetailDoc(null); }} className="px-4 py-2 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 text-sm">👁 Xem trước</button>
+                <button onClick={() => { handleDownload(detailDoc.id); }} className="px-4 py-2 bg-primary-50 text-primary-700 rounded-lg hover:bg-primary-100 text-sm">📥 Tải DOCX</button>
+                <button onClick={() => setDetailDoc(null)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm">Đóng</button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {previewDocId && (
+        <OnlyOfficePreview documentId={previewDocId} onClose={() => setPreviewDocId(null)} />
+      )}
+
+      <style jsx>{`
+        .inp {
+          border: 1px solid #d1d5db;
+          border-radius: 0.5rem;
+          padding: 0.5rem 0.75rem;
+          font-size: 0.875rem;
+          outline: none;
+          transition: border-color 0.2s;
+        }
+        .inp:focus {
+          border-color: #6366f1;
+          box-shadow: 0 0 0 2px rgba(99,102,241,0.1);
+        }
+      `}</style>
+    </div>
+  );
+}

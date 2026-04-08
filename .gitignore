@@ -1,0 +1,34 @@
+# Node modules
+/backend/node_modules/
+/frontend/node_modules/
+
+# Build output
+/backend/dist/
+/frontend/.next/
+/frontend/out/
+/frontend/build/
+
+# Environment files
+/.env
+/.env.local
+/.env.*.local
+/backend/.env
+/frontend/.env
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Generated or local files
+FileMau/
+backend/_test_out*/
+
+# IDE/editor files
+.vscode/
+.idea/
+
+# Misc
+.DS_Store

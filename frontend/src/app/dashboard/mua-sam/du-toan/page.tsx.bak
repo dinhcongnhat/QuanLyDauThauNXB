@@ -1,0 +1,426 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { api } from '@/lib/api';
+import { useAuthStore } from '@/lib/store';
+import { Document as Doc, DocType, DocStatus } from '@/lib/types';
+import toast from 'react-hot-toast';
+import { format } from 'date-fns';
+import { vi } from 'date-fns/locale';
+import { AnimatePresence, motion } from 'framer-motion';
+import { OnlyOfficePreview } from '@/components/OnlyOfficePreview';
+
+const statusLabels: Record<DocStatus, string> = {
+  DRAFT: 'Bản nháp',
+  PENDING_HEAD: 'Chờ Trưởng phòng',
+  PENDING_DIRECTOR: 'Chờ Giám đốc duyệt',
+  APPROVED: 'Đã phê duyệt',
+  REJECTED: 'Cần làm lại',
+};
+
+const statusColors: Record<DocStatus, string> = {
+  DRAFT: 'bg-gray-100 text-gray-700',
+  PENDING_HEAD: 'bg-yellow-100 text-yellow-700',
+  PENDING_DIRECTOR: 'bg-blue-100 text-blue-700',
+  APPROVED: 'bg-green-100 text-green-700',
+  REJECTED: 'bg-red-100 text-red-700',
+};
+
+const typeLabels: Record<string, string> = {
+  TT_DUTOAN: 'Tờ trình phê duyệt dự toán',
+  QD_DUTOAN: 'Quyết định phê duyệt dự toán',
+};
+
+type FormType = 'TT_DUTOAN' | 'QD_DUTOAN';
+
+export default function DuToanPage() {
+  const { user } = useAuthStore();
+  const [docs, setDocs] = useState<Doc[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState<FormType | null>(null);
+  const [rejectComment, setRejectComment] = useState('');
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [editingDoc, setEditingDoc] = useState<Doc | null>(null);
+  const [detailDoc, setDetailDoc] = useState<Doc | null>(null);
+  const [previewDocId, setPreviewDocId] = useState<string | null>(null);
+
+  // TT form state
+  const [ttData, setTtData] = useState({
+    tenCoQuan: '', soToTrinh: '', diaDanh: '', ngayLap: new Date().toISOString().slice(0, 10),
+    tenCongTyKinhGui: '', tenDuAn: '', tenHangMuc: '',
+    tenCoQuanThucHien: '', tenCoQuanLapDuToan: '', tongKinhPhi: 0,
+    chiPhiChiTiet: [{ ten: '', soTien: 0 }], chiPhiKhac: 0, chiPhiDuPhong: 0,
+    nguonVon: [''], tenCongTyKienNghi: '', tenDuToanPheDuyet: '',
+  });
+
+  // QD form state
+  const [qdData, setQdData] = useState({
+    tenCoQuanDuyet: '', soQuyetDinh: '', ngayBanHanh: new Date().toISOString().slice(0, 10),
+    namPheDuyet: new Date().getFullYear(), canCuPhapLy: [''],
+    tenDonViDeNghi: '', namDuyetDieu1: new Date().getFullYear(),
+    tenChuDauTu: '', giaTriDuToanDuyet: 0, tenBQLDA: '',
+  });
+
+  const fetchDocs = async () => {
+    try {
+      const data = await api.getDocumentsByType(['TT_DUTOAN', 'QD_DUTOAN']);
+      setDocs(data);
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchDocs(); }, []);
+
+  const handleCreateTT = async () => {
+    try {
+      await api.createDocument('TT_DUTOAN', ttData);
+      toast.success('Tạo Tờ trình thành công, đã gửi tới Giám đốc');
+      setShowForm(null);
+      fetchDocs();
+    } catch (err: any) { toast.error(err.message); }
+  };
+
+  const handleCreateQD = async () => {
+    try {
+      await api.createDocument('QD_DUTOAN', qdData);
+      toast.success('Tạo Quyết định thành công, đã gửi tới Giám đốc');
+      setShowForm(null);
+      fetchDocs();
+    } catch (err: any) { toast.error(err.message); }
+  };
+
+  const handleApprove = async (id: string) => {
+    try {
+      await api.approveDocument(id);
+      toast.success('Đã phê duyệt');
+      fetchDocs();
+    } catch (err: any) { toast.error(err.message); }
+  };
+
+  const handleReject = async (id: string) => {
+    if (!rejectComment.trim()) { toast.error('Vui lòng nhập bình luận'); return; }
+    try {
+      await api.rejectDocument(id, rejectComment);
+      toast.success('Đã yêu cầu làm lại');
+      setRejectingId(null);
+      setRejectComment('');
+      fetchDocs();
+    } catch (err: any) { toast.error(err.message); }
+  };
+
+  const handleResubmit = async (doc: Doc) => {
+    try {
+      await api.resubmitDocument(doc.id, editingDoc?.data || doc.data);
+      toast.success('Đã gửi lại');
+      setEditingDoc(null);
+      fetchDocs();
+    } catch (err: any) { toast.error(err.message); }
+  };
+
+  const handleDownload = async (id: string) => {
+    try {
+      const res = await api.downloadDocument(id);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const disposition = res.headers.get('Content-Disposition');
+      let filename = 'document.docx';
+      if (disposition) {
+        const utf8Match = disposition.match(/filename\*=UTF-8''(.+)/);
+        if (utf8Match) filename = decodeURIComponent(utf8Match[1]);
+      }
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: any) { toast.error(err.message); }
+  };
+
+  const canApprove = user?.role === 'DIRECTOR' || user?.role === 'ADMIN';
+  const canCreate = user?.role === 'INVESTOR' || user?.role === 'ADMIN';
+
+  if (loading) return <div className="flex items-center justify-center h-64"><div className="animate-spin h-8 w-8 border-4 border-primary-500 border-t-transparent rounded-full" /></div>;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Phê duyệt dự toán</h1>
+          <p className="text-gray-500 mt-1">Tạo và quản lý Tờ trình & Quyết định phê duyệt dự toán</p>
+        </div>
+        {canCreate && (
+          <div className="flex gap-2">
+            <button onClick={() => setShowForm('TT_DUTOAN')} className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm">
+              + Tờ trình dự toán
+            </button>
+            <button onClick={() => setShowForm('QD_DUTOAN')} className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm">
+              + Quyết định dự toán
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Form tạo Tờ trình */}
+      {showForm === 'TT_DUTOAN' && (
+        <div className="bg-white rounded-xl p-6 shadow-sm border">
+          <h3 className="text-lg font-semibold mb-4">Tạo Tờ trình phê duyệt dự toán</h3>
+          <div className="grid grid-cols-2 gap-4">
+            <input className="input-field" placeholder="Tên cơ quan" value={ttData.tenCoQuan} onChange={e => setTtData({...ttData, tenCoQuan: e.target.value})} />
+            <input className="input-field" placeholder="Số tờ trình" value={ttData.soToTrinh} onChange={e => setTtData({...ttData, soToTrinh: e.target.value})} />
+            <input className="input-field" placeholder="Địa danh" value={ttData.diaDanh} onChange={e => setTtData({...ttData, diaDanh: e.target.value})} />
+            <input className="input-field" type="date" value={ttData.ngayLap} onChange={e => setTtData({...ttData, ngayLap: e.target.value})} />
+            <input className="input-field" placeholder="Tên công ty kính gửi" value={ttData.tenCongTyKinhGui} onChange={e => setTtData({...ttData, tenCongTyKinhGui: e.target.value})} />
+            <input className="input-field" placeholder="Tên dự án" value={ttData.tenDuAn} onChange={e => setTtData({...ttData, tenDuAn: e.target.value})} />
+            <input className="input-field" placeholder="Tên hạng mục" value={ttData.tenHangMuc} onChange={e => setTtData({...ttData, tenHangMuc: e.target.value})} />
+            <input className="input-field" placeholder="Cơ quan thực hiện" value={ttData.tenCoQuanThucHien} onChange={e => setTtData({...ttData, tenCoQuanThucHien: e.target.value})} />
+            <input className="input-field" placeholder="Cơ quan lập dự toán" value={ttData.tenCoQuanLapDuToan} onChange={e => setTtData({...ttData, tenCoQuanLapDuToan: e.target.value})} />
+            <input className="input-field" type="number" placeholder="Tổng kinh phí" value={ttData.tongKinhPhi || ''} onChange={e => setTtData({...ttData, tongKinhPhi: Number(e.target.value)})} />
+            <input className="input-field" type="number" placeholder="Chi phí khác" value={ttData.chiPhiKhac || ''} onChange={e => setTtData({...ttData, chiPhiKhac: Number(e.target.value)})} />
+            <input className="input-field" type="number" placeholder="Chi phí dự phòng" value={ttData.chiPhiDuPhong || ''} onChange={e => setTtData({...ttData, chiPhiDuPhong: Number(e.target.value)})} />
+            <input className="input-field" placeholder="Công ty kiến nghị" value={ttData.tenCongTyKienNghi} onChange={e => setTtData({...ttData, tenCongTyKienNghi: e.target.value})} />
+            <input className="input-field" placeholder="Tên dự toán phê duyệt" value={ttData.tenDuToanPheDuyet} onChange={e => setTtData({...ttData, tenDuToanPheDuyet: e.target.value})} />
+          </div>
+          {/* Chi phí chi tiết */}
+          <div className="mt-4">
+            <label className="text-sm font-medium text-gray-700">Chi phí chi tiết</label>
+            {ttData.chiPhiChiTiet.map((cp, i) => (
+              <div key={i} className="flex gap-2 mt-2">
+                <input className="input-field flex-1" placeholder="Tên chi phí" value={cp.ten} onChange={e => { const arr = [...ttData.chiPhiChiTiet]; arr[i] = {...arr[i], ten: e.target.value}; setTtData({...ttData, chiPhiChiTiet: arr}); }} />
+                <input className="input-field w-40" type="number" placeholder="Số tiền" value={cp.soTien || ''} onChange={e => { const arr = [...ttData.chiPhiChiTiet]; arr[i] = {...arr[i], soTien: Number(e.target.value)}; setTtData({...ttData, chiPhiChiTiet: arr}); }} />
+                <button onClick={() => { const arr = ttData.chiPhiChiTiet.filter((_, j) => j !== i); setTtData({...ttData, chiPhiChiTiet: arr.length ? arr : [{ten:'',soTien:0}]}); }} className="text-red-500 text-sm">Xóa</button>
+              </div>
+            ))}
+            <button onClick={() => setTtData({...ttData, chiPhiChiTiet: [...ttData.chiPhiChiTiet, {ten:'',soTien:0}]})} className="text-sm text-primary-600 mt-2">+ Thêm</button>
+          </div>
+          {/* Nguồn vốn */}
+          <div className="mt-4">
+            <label className="text-sm font-medium text-gray-700">Nguồn vốn</label>
+            {ttData.nguonVon.map((nv, i) => (
+              <div key={i} className="flex gap-2 mt-2">
+                <input className="input-field flex-1" placeholder="Nguồn vốn" value={nv} onChange={e => { const arr = [...ttData.nguonVon]; arr[i] = e.target.value; setTtData({...ttData, nguonVon: arr}); }} />
+                <button onClick={() => { const arr = ttData.nguonVon.filter((_, j) => j !== i); setTtData({...ttData, nguonVon: arr.length ? arr : ['']}); }} className="text-red-500 text-sm">Xóa</button>
+              </div>
+            ))}
+            <button onClick={() => setTtData({...ttData, nguonVon: [...ttData.nguonVon, '']})} className="text-sm text-primary-600 mt-2">+ Thêm</button>
+          </div>
+          <div className="flex gap-2 mt-6">
+            <button onClick={handleCreateTT} className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700">Tạo & Gửi duyệt</button>
+            <button onClick={() => setShowForm(null)} className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">Hủy</button>
+          </div>
+        </div>
+      )}
+
+      {/* Form tạo Quyết định */}
+      {showForm === 'QD_DUTOAN' && (
+        <div className="bg-white rounded-xl p-6 shadow-sm border">
+          <h3 className="text-lg font-semibold mb-4">Tạo Quyết định phê duyệt dự toán</h3>
+          <div className="grid grid-cols-2 gap-4">
+            <input className="input-field" placeholder="Tên cơ quan duyệt" value={qdData.tenCoQuanDuyet} onChange={e => setQdData({...qdData, tenCoQuanDuyet: e.target.value})} />
+            <input className="input-field" placeholder="Số quyết định" value={qdData.soQuyetDinh} onChange={e => setQdData({...qdData, soQuyetDinh: e.target.value})} />
+            <input className="input-field" type="date" value={qdData.ngayBanHanh} onChange={e => setQdData({...qdData, ngayBanHanh: e.target.value})} />
+            <input className="input-field" type="number" placeholder="Năm phê duyệt" value={qdData.namPheDuyet} onChange={e => setQdData({...qdData, namPheDuyet: Number(e.target.value)})} />
+            <input className="input-field" placeholder="Tên đơn vị đề nghị" value={qdData.tenDonViDeNghi} onChange={e => setQdData({...qdData, tenDonViDeNghi: e.target.value})} />
+            <input className="input-field" type="number" placeholder="Năm duyệt Điều 1" value={qdData.namDuyetDieu1} onChange={e => setQdData({...qdData, namDuyetDieu1: Number(e.target.value)})} />
+            <input className="input-field" placeholder="Tên chủ đầu tư" value={qdData.tenChuDauTu} onChange={e => setQdData({...qdData, tenChuDauTu: e.target.value})} />
+            <input className="input-field" type="number" placeholder="Giá trị dự toán duyệt" value={qdData.giaTriDuToanDuyet || ''} onChange={e => setQdData({...qdData, giaTriDuToanDuyet: Number(e.target.value)})} />
+            <input className="input-field" placeholder="Tên BQL dự án" value={qdData.tenBQLDA} onChange={e => setQdData({...qdData, tenBQLDA: e.target.value})} />
+          </div>
+          <div className="mt-4">
+            <label className="text-sm font-medium text-gray-700">Căn cứ pháp lý</label>
+            {qdData.canCuPhapLy.map((cc, i) => (
+              <div key={i} className="flex gap-2 mt-2">
+                <input className="input-field flex-1" placeholder="Căn cứ" value={cc} onChange={e => { const arr = [...qdData.canCuPhapLy]; arr[i] = e.target.value; setQdData({...qdData, canCuPhapLy: arr}); }} />
+                <button onClick={() => { const arr = qdData.canCuPhapLy.filter((_, j) => j !== i); setQdData({...qdData, canCuPhapLy: arr.length ? arr : ['']}); }} className="text-red-500 text-sm">Xóa</button>
+              </div>
+            ))}
+            <button onClick={() => setQdData({...qdData, canCuPhapLy: [...qdData.canCuPhapLy, '']})} className="text-sm text-primary-600 mt-2">+ Thêm</button>
+          </div>
+          <div className="flex gap-2 mt-6">
+            <button onClick={handleCreateQD} className="px-6 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700">Tạo & Gửi duyệt</button>
+            <button onClick={() => setShowForm(null)} className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">Hủy</button>
+          </div>
+        </div>
+      )}
+
+      {/* Documents List */}
+      <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+        <table className="w-full">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Loại</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Thông tin</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Người tạo</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Trạng thái</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ngày tạo</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Thao tác</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {docs.length === 0 && (
+              <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">Chưa có tài liệu nào</td></tr>
+            )}
+            {docs.map(doc => (
+              <tr key={doc.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setDetailDoc(doc)}>
+                <td className="px-4 py-3">
+                  <span className={`text-xs font-medium px-2 py-1 rounded ${doc.type === 'TT_DUTOAN' ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'}`}>
+                    {typeLabels[doc.type]}
+                  </span>
+                </td>
+                <td className="px-4 py-3 text-sm text-gray-700">
+                  {doc.data?.tenDuAn || doc.data?.soToTrinh || doc.data?.soQuyetDinh || '-'}
+                </td>
+                <td className="px-4 py-3 text-sm text-gray-600">{doc.creator.name}</td>
+                <td className="px-4 py-3">
+                  <span className={`text-xs px-2 py-1 rounded-full ${statusColors[doc.status]}`}>
+                    {statusLabels[doc.status]}
+                  </span>
+                  {doc.reviews?.[0]?.action === 'REJECT' && doc.reviews[0].comment && (
+                    <p className="text-xs text-red-500 mt-1">💬 {doc.reviews[0].comment}</p>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-sm text-gray-500">
+                  {format(new Date(doc.createdAt), 'dd/MM/yyyy HH:mm', { locale: vi })}
+                </td>
+                <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                  <div className="flex gap-1 flex-wrap">
+                    <button onClick={() => handleDownload(doc.id)} className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">📥 DOCX</button>
+                    <button onClick={() => setPreviewDocId(doc.id)} className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100">👁 Xem</button>
+                    {canApprove && doc.status === 'PENDING_DIRECTOR' && (
+                      <>
+                        <button onClick={() => handleApprove(doc.id)} className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200">✅ Duyệt</button>
+                        {rejectingId === doc.id ? (
+                          <div className="flex gap-1 items-center">
+                            <input className="text-xs border rounded px-2 py-1 w-40" placeholder="Lý do..." value={rejectComment} onChange={e => setRejectComment(e.target.value)} />
+                            <button onClick={() => handleReject(doc.id)} className="text-xs px-2 py-1 bg-red-100 text-red-700 rounded">Gửi</button>
+                            <button onClick={() => setRejectingId(null)} className="text-xs px-2 py-1 bg-gray-100 rounded">Hủy</button>
+                          </div>
+                        ) : (
+                          <button onClick={() => setRejectingId(doc.id)} className="text-xs px-2 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200">🔄 Làm lại</button>
+                        )}
+                      </>
+                    )}
+                    {doc.status === 'REJECTED' && doc.createdBy === user?.id && (
+                      <button onClick={() => handleResubmit(doc)} className="text-xs px-2 py-1 bg-orange-100 text-orange-700 rounded hover:bg-orange-200">📤 Gửi lại</button>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Detail Modal */}
+      <AnimatePresence>
+        {detailDoc && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setDetailDoc(null)}>
+            <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-2xl shadow-xl w-full max-w-2xl mx-4 p-6 max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs font-medium px-2 py-1 rounded ${detailDoc.type === 'TT_DUTOAN' ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'}`}>
+                    {typeLabels[detailDoc.type]}
+                  </span>
+                  <span className={`text-xs px-2 py-1 rounded-full ${statusColors[detailDoc.status]}`}>
+                    {statusLabels[detailDoc.status]}
+                  </span>
+                </div>
+                <button onClick={() => setDetailDoc(null)} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+              </div>
+
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                {detailDoc.data?.tenDuAn || detailDoc.data?.soToTrinh || detailDoc.data?.soQuyetDinh || 'Chi tiết tài liệu'}
+              </h3>
+
+              <div className="space-y-2 text-sm">
+                {detailDoc.type === 'TT_DUTOAN' && (
+                  <>
+                    {detailDoc.data?.tenCoQuan && <div className="flex justify-between py-1.5 border-b"><span className="text-gray-500">Cơ quan</span><span className="font-medium">{detailDoc.data.tenCoQuan}</span></div>}
+                    {detailDoc.data?.soToTrinh && <div className="flex justify-between py-1.5 border-b"><span className="text-gray-500">Số tờ trình</span><span className="font-medium">{detailDoc.data.soToTrinh}</span></div>}
+                    {detailDoc.data?.tenDuAn && <div className="flex justify-between py-1.5 border-b"><span className="text-gray-500">Tên dự án</span><span className="font-medium">{detailDoc.data.tenDuAn}</span></div>}
+                    {detailDoc.data?.tenHangMuc && <div className="flex justify-between py-1.5 border-b"><span className="text-gray-500">Hạng mục</span><span className="font-medium">{detailDoc.data.tenHangMuc}</span></div>}
+                    {detailDoc.data?.tenCoQuanThucHien && <div className="flex justify-between py-1.5 border-b"><span className="text-gray-500">Cơ quan thực hiện</span><span className="font-medium">{detailDoc.data.tenCoQuanThucHien}</span></div>}
+                    {detailDoc.data?.tongKinhPhi != null && <div className="flex justify-between py-1.5 border-b"><span className="text-gray-500">Tổng kinh phí</span><span className="font-medium">{detailDoc.data.tongKinhPhi.toLocaleString('vi-VN')} đồng</span></div>}
+                    {detailDoc.data?.chiPhiChiTiet?.length > 0 && (
+                      <div className="py-1.5 border-b">
+                        <span className="text-gray-500">Chi phí chi tiết:</span>
+                        <div className="mt-1 ml-4 space-y-1">{detailDoc.data.chiPhiChiTiet.map((cp: any, i: number) => (
+                          <div key={i} className="flex justify-between"><span>{cp.ten}</span><span className="font-medium">{cp.soTien?.toLocaleString('vi-VN')} đ</span></div>
+                        ))}</div>
+                      </div>
+                    )}
+                    {detailDoc.data?.nguonVon?.length > 0 && <div className="flex justify-between py-1.5 border-b"><span className="text-gray-500">Nguồn vốn</span><span className="font-medium">{detailDoc.data.nguonVon.join(', ')}</span></div>}
+                  </>
+                )}
+                {detailDoc.type === 'QD_DUTOAN' && (
+                  <>
+                    {detailDoc.data?.tenCoQuanDuyet && <div className="flex justify-between py-1.5 border-b"><span className="text-gray-500">Cơ quan duyệt</span><span className="font-medium">{detailDoc.data.tenCoQuanDuyet}</span></div>}
+                    {detailDoc.data?.soQuyetDinh && <div className="flex justify-between py-1.5 border-b"><span className="text-gray-500">Số quyết định</span><span className="font-medium">{detailDoc.data.soQuyetDinh}</span></div>}
+                    {detailDoc.data?.tenChuDauTu && <div className="flex justify-between py-1.5 border-b"><span className="text-gray-500">Chủ đầu tư</span><span className="font-medium">{detailDoc.data.tenChuDauTu}</span></div>}
+                    {detailDoc.data?.giaTriDuToanDuyet != null && <div className="flex justify-between py-1.5 border-b"><span className="text-gray-500">Giá trị dự toán</span><span className="font-medium">{detailDoc.data.giaTriDuToanDuyet.toLocaleString('vi-VN')} đồng</span></div>}
+                    {detailDoc.data?.tenBQLDA && <div className="flex justify-between py-1.5 border-b"><span className="text-gray-500">Ban QLDA</span><span className="font-medium">{detailDoc.data.tenBQLDA}</span></div>}
+                    {detailDoc.data?.tenDonViDeNghi && <div className="flex justify-between py-1.5 border-b"><span className="text-gray-500">Đơn vị đề nghị</span><span className="font-medium">{detailDoc.data.tenDonViDeNghi}</span></div>}
+                    {detailDoc.data?.canCuPhapLy?.length > 0 && (
+                      <div className="py-1.5 border-b">
+                        <span className="text-gray-500">Căn cứ pháp lý:</span>
+                        <ul className="mt-1 ml-4 list-disc text-gray-700">{detailDoc.data.canCuPhapLy.map((cc: string, i: number) => (
+                          <li key={i}>{cc}</li>
+                        ))}</ul>
+                      </div>
+                    )}
+                  </>
+                )}
+                <div className="flex justify-between py-1.5 border-b"><span className="text-gray-500">Người tạo</span><span className="font-medium">{detailDoc.creator.name}</span></div>
+                <div className="flex justify-between py-1.5"><span className="text-gray-500">Ngày tạo</span><span className="font-medium">{format(new Date(detailDoc.createdAt), 'dd/MM/yyyy HH:mm', { locale: vi })}</span></div>
+                {detailDoc.reviews && detailDoc.reviews.length > 0 && (
+                  <div className="mt-3 pt-3 border-t">
+                    <p className="text-gray-500 font-medium mb-2">Lịch sử xét duyệt:</p>
+                    {detailDoc.reviews.map((r, i) => (
+                      <div key={i} className="flex items-center gap-2 py-1 text-xs">
+                        <span className={`px-2 py-0.5 rounded ${r.action === 'APPROVE' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                          {r.action === 'APPROVE' ? 'Duyệt' : 'Từ chối'}
+                        </span>
+                        <span className="text-gray-600">{r.user.name}</span>
+                        <span className="text-gray-400">{format(new Date(r.createdAt), 'dd/MM/yyyy HH:mm', { locale: vi })}</span>
+                        {r.comment && <span className="text-gray-500">- {r.comment}</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-2 mt-5 justify-end">
+                <button onClick={() => { setPreviewDocId(detailDoc.id); setDetailDoc(null); }} className="px-4 py-2 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 text-sm">👁 Xem trước</button>
+                <button onClick={() => { handleDownload(detailDoc.id); }} className="px-4 py-2 bg-primary-50 text-primary-700 rounded-lg hover:bg-primary-100 text-sm">📥 Tải DOCX</button>
+                <button onClick={() => setDetailDoc(null)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm">Đóng</button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {previewDocId && (
+        <OnlyOfficePreview documentId={previewDocId} onClose={() => setPreviewDocId(null)} />
+      )}
+
+      <style jsx>{`
+        .input-field {
+          border: 1px solid #d1d5db;
+          border-radius: 0.5rem;
+          padding: 0.5rem 0.75rem;
+          font-size: 0.875rem;
+          outline: none;
+          transition: border-color 0.2s;
+        }
+        .input-field:focus {
+          border-color: #6366f1;
+          box-shadow: 0 0 0 2px rgba(99,102,241,0.1);
+        }
+      `}</style>
+    </div>
+  );
+}

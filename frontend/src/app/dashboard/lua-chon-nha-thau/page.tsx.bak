@@ -1,0 +1,943 @@
+'use client';
+
+import { useEffect, useState, useRef, useCallback } from 'react';
+import { api } from '@/lib/api';
+import { useAuthStore } from '@/lib/store';
+import { ContractorSelection, ProcurementStep } from '@/lib/types';
+import toast from 'react-hot-toast';
+import { format } from 'date-fns';
+import { vi } from 'date-fns/locale';
+import { motion, AnimatePresence } from 'framer-motion';
+
+const METHOD_LABELS: Record<string, string> = {
+  CHI_DINH_THAU: 'Chỉ định thầu',
+  CHAO_HANG_CANH_TRANH: 'Chào hàng cạnh tranh',
+  DAU_THAU_RONG_RAI: 'Đấu thầu rộng rãi',
+};
+
+const STEP_STATUS_LABELS: Record<string, string> = {
+  NOT_STARTED: 'Chưa bắt đầu',
+  IN_PROGRESS: 'Đang thực hiện',
+  COMPLETED: 'Hoàn thành',
+};
+const STEP_STATUS_COLORS: Record<string, string> = {
+  NOT_STARTED: 'bg-gray-100 text-gray-600',
+  IN_PROGRESS: 'bg-yellow-100 text-yellow-700',
+  COMPLETED: 'bg-green-100 text-green-700',
+};
+
+const ATTACHMENT_ONLY = new Set([
+  'cong_van_tham_gia', 'thong_tin_to_chuyen_gia', 'san_pham_hsmt',
+  'bao_cao_tham_dinh_hsmt', 'dang_tai_hsmt', 'bao_cao_danh_gia_hsdt',
+  'bien_ban_doi_chieu', 'bao_cao_tham_dinh_kqlcnt', 'dang_tai_lcnt',
+]);
+
+const HYBRID_STEPS = new Set(['dang_tai_hsmt']);
+
+const CDT_STEP_FIELDS: Record<string, { key: string; label: string; type?: 'textarea' | 'date' }[]> = {
+  thu_moi_hoan_thien: [
+    { key: 'diaDanh', label: 'Địa danh' },
+    { key: 'tenGoiThau', label: 'Tên gói thầu' },
+    { key: 'tenDuAn', label: 'Tên dự án/dự toán mua sắm' },
+    { key: 'chuDauTu', label: 'Chủ đầu tư' },
+    { key: 'donViMoi', label: 'Đơn vị mời' },
+    { key: 'nhaThau', label: 'Nhà thầu' },
+    { key: 'diaChiNhaThau', label: 'Địa chỉ nhà thầu' },
+    { key: 'canCuPhapLy', label: 'Căn cứ pháp lý', type: 'textarea' },
+    { key: 'daiDienChuDauTu', label: 'Đại diện chủ đầu tư' },
+    { key: 'diaChiChuDauTu', label: 'Địa chỉ chủ đầu tư' },
+    { key: 'daiDienDonVi', label: 'Đại diện đơn vị ký' },
+  ],
+  bien_ban_hoan_thien: [
+    { key: 'diaDanh', label: 'Địa danh' },
+    { key: 'tenGoiThau', label: 'Tên gói thầu' },
+    { key: 'tenDuAn', label: 'Tên dự án/dự toán mua sắm' },
+    { key: 'chuDauTu', label: 'Chủ đầu tư' },
+    { key: 'daiDienChuDauTu', label: 'Đại diện chủ đầu tư' },
+    { key: 'chucVuDaiDien', label: 'Chức vụ đại diện CĐT' },
+    { key: 'diaChiChuDauTu', label: 'Địa chỉ CĐT' },
+    { key: 'sdtChuDauTu', label: 'SĐT chủ đầu tư' },
+    { key: 'soTaiKhoanCDT', label: 'Số tài khoản CĐT' },
+    { key: 'nganHangCDT', label: 'Ngân hàng CĐT' },
+    { key: 'maSoNHCDT', label: 'Mã số ngân hàng CĐT' },
+    { key: 'maSoThueCDT', label: 'Mã số thuế CĐT' },
+    { key: 'nhaThau', label: 'Nhà thầu' },
+    { key: 'chucVuDaiDienNT', label: 'Chức vụ đại diện NT' },
+    { key: 'diaChiNhaThau', label: 'Địa chỉ nhà thầu' },
+    { key: 'sdtNhaThau', label: 'SĐT nhà thầu' },
+    { key: 'soTaiKhoanNT', label: 'Số tài khoản NT' },
+    { key: 'nganHangNT', label: 'Ngân hàng NT' },
+    { key: 'maSoNHNT', label: 'Mã số ngân hàng NT' },
+    { key: 'maSoThueNT', label: 'Mã số thuế NT' },
+    { key: 'canCuPhapLy', label: 'Căn cứ pháp lý', type: 'textarea' },
+    { key: 'loaiHopDong', label: 'Loại hợp đồng' },
+    { key: 'giaTriHopDong', label: 'Giá trị hợp đồng (số)' },
+    { key: 'giaTriHopDongChu', label: 'Giá trị hợp đồng (chữ)' },
+    { key: 'soNgayThucHien', label: 'Số ngày thực hiện HĐ' },
+    { key: 'sanPhamGoiThau', label: 'Sản phẩm gói thầu' },
+    { key: 'soLuong', label: 'Số lượng' },
+  ],
+  to_trinh_kqlcnt: [
+    { key: 'diaDanh', label: 'Địa danh' },
+    { key: 'tenGoiThau', label: 'Tên gói thầu' },
+    { key: 'tenDuAn', label: 'Tên dự án/dự toán mua sắm' },
+    { key: 'chuDauTu', label: 'Chủ đầu tư' },
+    { key: 'donViTrinh', label: 'Đơn vị trình' },
+    { key: 'vietTatDonViTrinh', label: 'Viết tắt đơn vị trình' },
+    { key: 'daiDienChuDauTu', label: 'Đại diện CĐT' },
+    { key: 'canCuPhapLy', label: 'Căn cứ pháp lý', type: 'textarea' },
+    { key: 'nhaThau', label: 'Nhà thầu' },
+    { key: 'giaTriHopDong', label: 'Giá trị hợp đồng (số)' },
+    { key: 'giaTriHopDongChu', label: 'Giá trị hợp đồng (chữ)' },
+    { key: 'nguonVon', label: 'Nguồn vốn' },
+    { key: 'loaiHopDong', label: 'Loại hợp đồng' },
+    { key: 'thoiGianLCNT', label: 'Thời gian lựa chọn nhà thầu' },
+    { key: 'thoiGianBatDauLCNT', label: 'Thời gian bắt đầu tổ chức LCNT' },
+    { key: 'thoiGianThucHienGT', label: 'Thời gian thực hiện gói thầu' },
+    { key: 'thoiGianThucHienHD', label: 'Thời gian thực hiện HĐ' },
+    { key: 'giaTriDuToan', label: 'Giá trị dự toán được duyệt' },
+    { key: 'giaTrungThau', label: 'Giá trúng thầu' },
+    { key: 'apDung', label: 'Có/Không áp dụng ưu đãi' },
+    { key: 'maSoThueNT', label: 'Mã số thuế NT' },
+    { key: 'diaChiNhaThau', label: 'Địa chỉ nhà thầu' },
+    { key: 'daiDienDonVi', label: 'Đại diện đơn vị ký' },
+  ],
+  quyet_dinh_kqlcnt: [
+    { key: 'diaDanh', label: 'Địa danh' },
+    { key: 'tenGoiThau', label: 'Tên gói thầu' },
+    { key: 'tenDuAn', label: 'Tên dự án/dự toán mua sắm' },
+    { key: 'chuDauTu', label: 'Chủ đầu tư' },
+    { key: 'daiDienChuDauTu', label: 'Đại diện CĐT' },
+    { key: 'donViTrinh', label: 'Đơn vị trình' },
+    { key: 'vietTatDonViTrinh', label: 'Viết tắt đơn vị trình' },
+    { key: 'canCuPhapLy', label: 'Căn cứ pháp lý', type: 'textarea' },
+    { key: 'nhaThau', label: 'Nhà thầu' },
+    { key: 'giaTriDuToan', label: 'Giá trị dự toán được duyệt' },
+    { key: 'loaiHopDong', label: 'Loại hợp đồng' },
+    { key: 'thoiGianThucHienGT', label: 'Thời gian thực hiện gói thầu' },
+    { key: 'maSoThueNT', label: 'Mã số thuế NT' },
+    { key: 'giaTrungThau', label: 'Giá trúng thầu' },
+    { key: 'thoiGianThucHienHD', label: 'Thời gian thực hiện HĐ' },
+    { key: 'daiDienDonVi', label: 'Đại diện đơn vị ký' },
+  ],
+  hop_dong: [
+    { key: 'diaDanh', label: 'Địa danh' },
+    { key: 'namThucHien', label: 'Năm thực hiện' },
+    { key: 'tenGoiThau', label: 'Tên gói thầu' },
+    { key: 'tenDuAn', label: 'Tên dự án/dự toán mua sắm' },
+    { key: 'chuDauTu', label: 'Chủ đầu tư' },
+    { key: 'goiTatBenA', label: 'Gọi tắt bên A' },
+    { key: 'daiDienChuDauTu', label: 'Đại diện CĐT' },
+    { key: 'chucVuDaiDien', label: 'Chức vụ đại diện CĐT' },
+    { key: 'diaChiChuDauTu', label: 'Địa chỉ CĐT' },
+    { key: 'sdtChuDauTu', label: 'SĐT chủ đầu tư' },
+    { key: 'soTaiKhoanCDT', label: 'Số tài khoản CĐT' },
+    { key: 'nganHangCDT', label: 'Ngân hàng CĐT' },
+    { key: 'maSoNHCDT', label: 'Mã số ngân hàng CĐT' },
+    { key: 'maSoThueCDT', label: 'Mã số thuế CĐT' },
+    { key: 'nhaThau', label: 'Nhà thầu' },
+    { key: 'goiTatBenB', label: 'Gọi tắt bên B' },
+    { key: 'chucVuDaiDienNT', label: 'Chức vụ đại diện NT' },
+    { key: 'diaChiNhaThau', label: 'Địa chỉ nhà thầu' },
+    { key: 'sdtNhaThau', label: 'SĐT nhà thầu' },
+    { key: 'soTaiKhoanNT', label: 'Số tài khoản NT' },
+    { key: 'nganHangNT', label: 'Ngân hàng NT' },
+    { key: 'maSoNHNT', label: 'Mã số ngân hàng NT' },
+    { key: 'maSoThueNT', label: 'Mã số thuế NT' },
+    { key: 'coQuanCapMST', label: 'Cơ quan cấp MST cho NT' },
+    { key: 'ngayCapMST', label: 'Ngày cấp MST nhà thầu' },
+    { key: 'vietTatCDT', label: 'Viết tắt CĐT' },
+    { key: 'vietTatNT', label: 'Viết tắt nhà thầu' },
+    { key: 'canCuPhapLy', label: 'Căn cứ pháp lý', type: 'textarea' },
+    { key: 'sanPhamGoiThau', label: 'Sản phẩm gói thầu' },
+    { key: 'soLuong', label: 'Số lượng' },
+    { key: 'soNgayThucHien', label: 'Số ngày thực hiện HĐ' },
+    { key: 'giaTriHopDong', label: 'Giá trị hợp đồng (số)' },
+    { key: 'giaTriHopDongChu', label: 'Giá trị hợp đồng (chữ)' },
+    { key: 'loaiHopDong', label: 'Loại hợp đồng' },
+    { key: 'nguonVon', label: 'Nguồn vốn' },
+  ],
+};
+
+const CHCT_STEP_FIELDS: Record<string, { key: string; label: string; type?: 'textarea' | 'date' }[]> = {
+  to_trinh_hsmt: [
+    { key: 'tenToChuc', label: 'Tên tổ chức, đơn vị' },
+    { key: 'tenGoiThau', label: 'Tên gói thầu' },
+    { key: 'tenKeHoachLCNT', label: 'Tên kế hoạch LCNT' },
+    { key: 'tenDuAn', label: 'Tên dự án/dự toán mua sắm' },
+    { key: 'chuDauTu', label: 'Tên chủ đầu tư' },
+    { key: 'soNgayPheDuyet', label: 'Số, ngày, người phê duyệt' },
+    { key: 'canCuNghiDinh', label: 'Căn cứ pháp lý (NĐ 214/2025)', type: 'textarea' },
+    { key: 'canCuKhac', label: 'Căn cứ khác', type: 'textarea' },
+    { key: 'chuDauTuTuVan', label: 'CĐT/đơn vị tư vấn đấu thầu' },
+    { key: 'soNgayBanHanh', label: 'Số và ngày ban hành văn bản' },
+    { key: 'soHieuHopDong', label: 'Số hiệu hợp đồng' },
+    { key: 'thoiGianKyHD', label: 'Thời gian ký hợp đồng' },
+    { key: 'donViTuVan', label: 'Đơn vị tư vấn đấu thầu' },
+    { key: 'tomTatHSMT', label: 'Tóm tắt thông tin HSMT', type: 'textarea' },
+    { key: 'yKienBaoLuu', label: 'Ý kiến bảo lưu' },
+    { key: 'thanhVienKy', label: 'Thành viên tổ CG ký tên' },
+    { key: 'keHoachTongThe', label: 'Kế hoạch tổng thể LCNT (nếu có)' },
+  ],
+  quyet_dinh_hsmt: [
+    { key: 'chuDauTu', label: 'Tên chủ đầu tư' },
+    { key: 'tenGoiThau', label: 'Tên gói thầu' },
+    { key: 'tenKeHoachLCNT', label: 'Tên kế hoạch LCNT' },
+    { key: 'tenDuAn', label: 'Tên dự án/dự toán mua sắm' },
+    { key: 'daiDienChuDauTu', label: 'Đại diện theo pháp luật' },
+    { key: 'ngayThangNam', label: 'Ngày tháng năm' },
+    { key: 'ngayThamDinh', label: 'Ngày thẩm định (kèm BC)' },
+    { key: 'donViThamDinh', label: 'Đơn vị thẩm định' },
+    { key: 'canCuPhapLy', label: 'Căn cứ pháp lý', type: 'textarea' },
+    { key: 'donViDuocGiao', label: 'Đơn vị được giao' },
+    { key: 'hoTenChucVuKy', label: 'Họ tên, chức vụ người ký' },
+  ],
+  to_trinh_kqlcnt: [
+    { key: 'daiDienDonViTrinh', label: 'Đại diện đơn vị trình' },
+    { key: 'toChuyenGia', label: 'Tổ chuyên gia' },
+    { key: 'vietTatCDT', label: 'Tên viết tắt CĐT' },
+    { key: 'daiDienChuDauTu', label: 'Đại diện chủ đầu tư' },
+    { key: 'chuDauTu', label: 'Chủ đầu tư' },
+    { key: 'tenGoiThau', label: 'Tên gói thầu' },
+    { key: 'tenDuAn', label: 'Tên dự án/dự toán mua sắm' },
+    { key: 'nhaThau', label: 'Nhà thầu đề nghị trúng thầu' },
+    { key: 'nhaThauDoiChieu', label: 'Nhà thầu được mời đối chiếu' },
+    { key: 'giaTriHopDong', label: 'Giá trị hợp đồng (số)' },
+    { key: 'giaTriHopDongChu', label: 'Giá trị hợp đồng (chữ)' },
+    { key: 'donViLapBCDG', label: 'Đơn vị lập BCĐG' },
+    { key: 'tenKeHoachLCNT', label: 'Tên kế hoạch LCNT' },
+    { key: 'canCuPhapLy', label: 'Căn cứ pháp lý', type: 'textarea' },
+    { key: 'maSoThueNT', label: 'Mã số thuế nhà thầu' },
+    { key: 'giaDuThau', label: 'Giá dự thầu' },
+    { key: 'giaDuThauHieuChinh', label: 'Giá dự thầu sau hiệu chỉnh' },
+    { key: 'diemKyThuat', label: 'Điểm kỹ thuật (nếu có)' },
+    { key: 'giaDanhGia', label: 'Giá đánh giá (nếu có)' },
+    { key: 'phanLoThamDu', label: 'Phần/lô nhà thầu tham dự' },
+    { key: 'lyDo', label: 'Lý do đề nghị trúng thầu' },
+  ],
+  quyet_dinh_lcnt: [
+    { key: 'chuDauTu', label: 'Tên chủ đầu tư' },
+    { key: 'tenGoiThau', label: 'Tên gói thầu' },
+    { key: 'tenKeHoachLCNT', label: 'Tên kế hoạch LCNT' },
+    { key: 'tenDuAn', label: 'Tên dự án/dự toán mua sắm' },
+    { key: 'daiDienChuDauTu', label: 'Đại diện theo pháp luật' },
+    { key: 'soGoiThau', label: 'Số gói thầu' },
+    { key: 'giaGoiThau', label: 'Giá gói thầu/dự toán' },
+    { key: 'hinhThucLCNT', label: 'Hình thức lựa chọn NT' },
+    { key: 'loaiHopDong', label: 'Loại hợp đồng' },
+    { key: 'thoiGianThucHien', label: 'Thời gian thực hiện' },
+    { key: 'nhaThau', label: 'Tên nhà thầu' },
+    { key: 'maSoThueNT', label: 'Mã số thuế nhà thầu' },
+    { key: 'giaDuThau', label: 'Giá dự thầu' },
+    { key: 'giaDuThauHieuChinh', label: 'Giá dự thầu sau hiệu chỉnh' },
+    { key: 'diemKyThuat', label: 'Điểm KT' },
+    { key: 'giaDanhGia', label: 'Giá đánh giá' },
+    { key: 'phanLoThamDu', label: 'Phần/lô nhà thầu tham dự' },
+    { key: 'donViDuocGiao', label: 'Đơn vị được giao' },
+    { key: 'hoTenChucVuKy', label: 'Họ tên, chức vụ người ký' },
+    { key: 'canCuPhapLy', label: 'Căn cứ pháp lý', type: 'textarea' },
+  ],
+  hop_dong: [
+    { key: 'chuDauTu', label: 'Chủ đầu tư' },
+    { key: 'daiDienChuDauTu', label: 'Đại diện CĐT' },
+    { key: 'diaChiChuDauTu', label: 'Địa chỉ CĐT' },
+    { key: 'nhaThau', label: 'Nhà thầu' },
+    { key: 'diaChiNhaThau', label: 'Địa chỉ nhà thầu' },
+    { key: 'tenGoiThau', label: 'Tên gói thầu' },
+    { key: 'tenDuAn', label: 'Tên dự án/dự toán mua sắm' },
+    { key: 'giaTriHopDong', label: 'Giá trị hợp đồng (số)' },
+    { key: 'giaTriHopDongChu', label: 'Giá trị hợp đồng (chữ)' },
+    { key: 'loaiHopDong', label: 'Loại hợp đồng' },
+    { key: 'thoiGianThucHien', label: 'Thời gian thực hiện' },
+    { key: 'thongTinCDT', label: 'Thông tin CĐT bổ sung' },
+    { key: 'canCuPhapLy', label: 'Căn cứ pháp lý', type: 'textarea' },
+  ],
+};
+
+const DANG_TAI_HSMT_FIELDS: { key: string; label: string; type?: string }[] = [
+  { key: 'maThongBaoMoiThau', label: 'Mã thông báo mời thầu' },
+  { key: 'thoiGianDongThau', label: 'Thời gian đóng thầu', type: 'datetime-local' },
+  { key: 'thoiGianMoThau', label: 'Thời gian mở thầu', type: 'datetime-local' },
+];
+
+const ONLYOFFICE_URL = 'https://jtsconlyoffice.duckdns.org';
+
+export default function LuaChonNhaThauPage() {
+  const { user } = useAuthStore();
+  const [qdList, setQdList] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedQD, setSelectedQD] = useState<any>(null);
+  const [selections, setSelections] = useState<ContractorSelection[]>([]);
+  const [activeSelection, setActiveSelection] = useState<ContractorSelection | null>(null);
+  const [editingStep, setEditingStep] = useState<ProcurementStep | null>(null);
+  const [stepFormData, setStepFormData] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [generating, setGenerating] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadStepId, setUploadStepId] = useState<string | null>(null);
+  const [expandedStepId, setExpandedStepId] = useState<string | null>(null);
+
+  useEffect(() => { loadData(); }, []);
+
+  const loadData = async () => {
+    try {
+      const data = await api.getApprovedQDForLCNT();
+      setQdList(data);
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSelectQD = async (qd: any) => {
+    setSelectedQD(qd);
+    setActiveSelection(null);
+    setEditingStep(null);
+    try {
+      const sels = await api.getContractorSelectionsByQD(qd.id);
+      setSelections(sels);
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  };
+
+  const handleCreateSelection = async (goiThauIndex: number) => {
+    if (!selectedQD) return;
+    try {
+      const sel = await api.createContractorSelection(selectedQD.id, goiThauIndex);
+      toast.success('Đã tạo quy trình lựa chọn nhà thầu');
+      setSelections(prev => [...prev, sel]);
+      setActiveSelection(sel);
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  };
+
+  const refreshSelection = useCallback(async () => {
+    if (!activeSelection) return;
+    try {
+      const updated = await api.getContractorSelection(activeSelection.id);
+      setActiveSelection(updated);
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  }, [activeSelection]);
+
+  const handleOpenSelection = async (sel: ContractorSelection) => {
+    try {
+      const detail = await api.getContractorSelection(sel.id);
+      setActiveSelection(detail);
+      setEditingStep(null);
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  };
+
+  const handleEditStep = (step: ProcurementStep) => {
+    setEditingStep(step);
+    const rawData = (step.data || {}) as Record<string, any>;
+    const stringData: Record<string, string> = {};
+    for (const [k, v] of Object.entries(rawData)) {
+      if (k !== '_attachments') stringData[k] = String(v ?? '');
+    }
+    setStepFormData(stringData);
+  };
+
+  const handleSaveStep = async () => {
+    if (!editingStep) return;
+    setSaving(true);
+    try {
+      await api.updateLCNTStep(editingStep.id, stepFormData);
+      toast.success('Đã lưu thông tin bước');
+      await refreshSelection();
+      setEditingStep(null);
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCompleteStep = async (stepId: string) => {
+    try {
+      await api.completeLCNTStep(stepId);
+      toast.success('Đã hoàn thành bước');
+      await refreshSelection();
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  };
+
+  const handleReopenStep = async (stepId: string) => {
+    try {
+      await api.reopenLCNTStep(stepId);
+      toast.success('Đã mở lại bước để chỉnh sửa');
+      await refreshSelection();
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  };
+
+  const handleGenerateDocx = async (stepId: string) => {
+    setGenerating(stepId);
+    try {
+      const result = await api.generateLCNTDocx(stepId);
+      toast.success('Đã tạo file DOCX thành công');
+      await refreshSelection();
+      setPreviewUrl(result.url);
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setGenerating(null);
+    }
+  };
+
+  const handleDownloadDocx = async (stepId: string) => {
+    try {
+      const res = await api.downloadLCNTStepDocx(stepId);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: 'Lỗi tải file' }));
+        toast.error(err.message);
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'document.docx';
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  };
+
+  const handleUploadFile = async (stepId: string, file: File) => {
+    setUploading(true);
+    try {
+      await api.uploadLCNTAttachment(stepId, file);
+      toast.success('Đã tải lên: ' + file.name);
+      await refreshSelection();
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handlePreviewFile = async (objectPath: string) => {
+    try {
+      const { url } = await api.getLCNTFileUrl(objectPath);
+      setPreviewUrl(url);
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  };
+
+  const triggerFileUpload = (stepId: string) => {
+    setUploadStepId(stepId);
+    fileInputRef.current?.click();
+  };
+
+  const onFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && uploadStepId) {
+      handleUploadFile(uploadStepId, file);
+    }
+    e.target.value = '';
+    setUploadStepId(null);
+  };
+
+  const getStepFields = (step: ProcurementStep): { key: string; label: string; type?: string }[] => {
+    if (!activeSelection) return [];
+    const method = activeSelection.procurementMethod;
+    if (method === 'CHI_DINH_THAU') return CDT_STEP_FIELDS[step.stepKey] || [];
+    return CHCT_STEP_FIELDS[step.stepKey] || [];
+  };
+
+  const getAttachments = (step: ProcurementStep): string[] => {
+    return (step.data as any)?._attachments || [];
+  };
+
+  const toggleStep = (stepId: string) => {
+    setExpandedStepId(prev => prev === stepId ? null : stepId);
+  };
+
+  const filteredQD = qdList.filter(qd => {
+    if (!searchTerm) return true;
+    const d = qd.data || {};
+    const text = (d.tenDuAn || '') + ' ' + (d.soQuyetDinh || '') + ' ' + (d.chuDauTu || '');
+    return text.toLowerCase().includes(searchTerm.toLowerCase());
+  });
+
+  const goiThauList = selectedQD?.data?.goiThau || [];
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <input ref={fileInputRef} type="file" className="hidden" onChange={onFileSelected}
+        accept=".doc,.docx,.pdf,.xlsx,.xls,.jpg,.jpeg,.png,.zip,.rar" />
+
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900">Lựa chọn nhà thầu</h1>
+        <p className="mt-1 text-sm text-gray-500">Quản lý quy trình lựa chọn nhà thầu theo từng gói thầu đã phê duyệt</p>
+      </div>
+
+      <div className="flex gap-2">
+        {activeSelection && (
+          <button onClick={() => { setActiveSelection(null); setEditingStep(null); setExpandedStepId(null); }}
+            className="text-sm text-primary-600 hover:text-primary-700 flex items-center gap-1">
+            ← Quay lại danh sách gói thầu
+          </button>
+        )}
+        {selectedQD && !activeSelection && (
+          <button onClick={() => { setSelectedQD(null); setSelections([]); }}
+            className="text-sm text-primary-600 hover:text-primary-700 flex items-center gap-1">
+            ← Quay lại danh sách QĐ
+          </button>
+        )}
+      </div>
+
+      {/* === Step workflow === */}
+      {activeSelection && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-xl shadow-sm border p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">{activeSelection.tenGoiThau}</h2>
+                <div className="flex items-center gap-3 mt-1">
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700">
+                    {METHOD_LABELS[activeSelection.procurementMethod]}
+                  </span>
+                  <span className="text-sm text-gray-500">
+                    {activeSelection.steps.filter(s => s.status === 'COMPLETED').length}/{activeSelection.steps.length} bước hoàn thành
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="w-full bg-gray-200 rounded-full h-2 mb-6">
+              <div className="bg-green-500 h-2 rounded-full transition-all"
+                style={{ width: `${(activeSelection.steps.filter(s => s.status === 'COMPLETED').length / activeSelection.steps.length) * 100}%` }} />
+            </div>
+
+            <div className="space-y-3">
+              {activeSelection.steps.map((step, idx) => {
+                const isAttachment = ATTACHMENT_ONLY.has(step.stepKey);
+                const isHybrid = HYBRID_STEPS.has(step.stepKey);
+                const hasFields = getStepFields(step).length > 0;
+                const prevCompleted = idx === 0 || activeSelection.steps[idx - 1]?.status === 'COMPLETED';
+                const canWork = prevCompleted && step.status !== 'COMPLETED';
+                const isCompleted = step.status === 'COMPLETED';
+                const isExpanded = expandedStepId === step.id;
+                const attachments = getAttachments(step);
+                const hasGeneratedDocx = !!step.attachmentPath;
+                const stepData = (step.data || {}) as Record<string, any>;
+                const dataEntries = Object.entries(stepData).filter(([k]) => !k.startsWith('_'));
+
+                return (
+                  <div key={step.id}
+                    className={`border rounded-lg transition-colors ${
+                      isCompleted ? 'bg-green-50 border-green-200' :
+                      step.status === 'IN_PROGRESS' ? 'bg-yellow-50 border-yellow-200' :
+                      'bg-white border-gray-200'
+                    }`}>
+                    {/* Step header - always clickable */}
+                    <div
+                      className="flex items-center justify-between p-4 cursor-pointer hover:bg-black/5 rounded-lg transition-colors"
+                      onClick={() => toggleStep(step.id)}
+                    >
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0 ${
+                          isCompleted ? 'bg-green-500 text-white' :
+                          step.status === 'IN_PROGRESS' ? 'bg-yellow-500 text-white' :
+                          'bg-gray-200 text-gray-500'
+                        }`}>
+                          {isCompleted ? '✓' : step.stepOrder}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-medium text-gray-900 truncate">{step.title}</p>
+                          <div className="flex items-center gap-2 mt-1 flex-wrap">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${STEP_STATUS_COLORS[step.status]}`}>
+                              {STEP_STATUS_LABELS[step.status]}
+                            </span>
+                            {step.completedAt && (
+                              <span className="text-xs text-gray-400">
+                                {format(new Date(step.completedAt), 'dd/MM/yyyy HH:mm', { locale: vi })}
+                              </span>
+                            )}
+                            {isAttachment && !isHybrid && (
+                              <span className="text-xs text-blue-500">📎 Chỉ đính kèm file</span>
+                            )}
+                            {isHybrid && (
+                              <span className="text-xs text-purple-500">📎 Đính kèm + Nhập liệu</span>
+                            )}
+                            {dataEntries.length > 0 && (
+                              <span className="text-xs text-gray-400">📝 {dataEntries.length} trường</span>
+                            )}
+                            {attachments.length > 0 && (
+                              <span className="text-xs text-gray-400">📎 {attachments.length} file</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="shrink-0 ml-2 text-gray-400">
+                        <span className={`inline-block transition-transform ${isExpanded ? 'rotate-90' : ''}`}>▶</span>
+                      </div>
+                    </div>
+
+                    {/* Expanded detail + actions */}
+                    <AnimatePresence>
+                      {isExpanded && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.2 }}
+                          className="overflow-hidden"
+                        >
+                          <div className="px-4 pb-4 pt-1 border-t border-gray-100">
+                            {/* Action buttons */}
+                            <div className="flex items-center gap-2 flex-wrap mb-3">
+                              {(canWork || isCompleted) && (hasFields || isHybrid) && (
+                                <button onClick={(e) => { e.stopPropagation(); handleEditStep(step); }}
+                                  className="px-3 py-1.5 bg-primary-600 text-white rounded-lg text-sm hover:bg-primary-700">
+                                  ✏️ {isCompleted ? 'Chỉnh sửa dữ liệu' : 'Nhập liệu'}
+                                </button>
+                              )}
+
+                              {(canWork || isCompleted) && (isAttachment || isHybrid) && (
+                                <button onClick={(e) => { e.stopPropagation(); triggerFileUpload(step.id); }} disabled={uploading}
+                                  className="px-3 py-1.5 bg-orange-500 text-white rounded-lg text-sm hover:bg-orange-600 disabled:opacity-50">
+                                  {uploading ? '⏳' : '📤'} Tải file lên
+                                </button>
+                              )}
+
+                              {(canWork || isCompleted) && !isAttachment && hasFields && stepData && dataEntries.length > 0 && (
+                                <button onClick={(e) => { e.stopPropagation(); handleGenerateDocx(step.id); }}
+                                  disabled={generating === step.id}
+                                  className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50">
+                                  {generating === step.id ? '⏳ Đang tạo...' : '📄 Tạo DOCX'}
+                                </button>
+                              )}
+
+                              {hasFields && !isAttachment && stepData && dataEntries.length > 0 && (
+                                <button onClick={(e) => { e.stopPropagation(); handleDownloadDocx(step.id); }}
+                                  className="px-3 py-1.5 bg-gray-600 text-white rounded-lg text-sm hover:bg-gray-700">
+                                  📥 Tải DOCX
+                                </button>
+                              )}
+
+                              {canWork && (
+                                <button onClick={(e) => { e.stopPropagation(); handleCompleteStep(step.id); }}
+                                  className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700">
+                                  ✅ Hoàn thành
+                                </button>
+                              )}
+
+                              {isCompleted && (
+                                <button onClick={(e) => { e.stopPropagation(); handleReopenStep(step.id); }}
+                                  className="px-3 py-1.5 bg-amber-500 text-white rounded-lg text-sm hover:bg-amber-600">
+                                  🔄 Mở lại
+                                </button>
+                              )}
+                            </div>
+
+                            {/* Show current data */}
+                            {dataEntries.length > 0 && (
+                              <div className="mb-3 p-3 bg-white rounded-lg border border-gray-100">
+                                <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Dữ liệu đã nhập</p>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1.5">
+                                  {dataEntries.map(([k, v]) => {
+                                    const fieldDef = getStepFields(step).find(f => f.key === k);
+                                    const label = fieldDef?.label || k;
+                                    return (
+                                      <div key={k} className="flex text-sm">
+                                        <span className="text-gray-500 shrink-0 w-44 truncate">{label}:</span>
+                                        <span className="text-gray-900 font-medium truncate">{String(v)}</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Attachments */}
+                            {attachments.length > 0 && (
+                              <div className="mb-3 p-3 bg-white rounded-lg border border-gray-100">
+                                <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">📎 File đính kèm ({attachments.length})</p>
+                                <div className="space-y-1.5">
+                                  {attachments.map((att, i) => {
+                                    const filename = att.split('/').pop() || att;
+                                    return (
+                                      <div key={i} className="flex items-center gap-2 text-sm">
+                                        <span className="text-gray-600 truncate flex-1">{decodeURIComponent(filename)}</span>
+                                        <button onClick={(e) => { e.stopPropagation(); handlePreviewFile(att); }}
+                                          className="text-xs text-blue-600 hover:text-blue-700 whitespace-nowrap px-2 py-1 bg-blue-50 rounded">
+                                          👁 Xem trước
+                                        </button>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Generated DOCX */}
+                            {hasGeneratedDocx && (
+                              <div className="p-3 bg-white rounded-lg border border-gray-100">
+                                <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">📄 File DOCX đã tạo</p>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm text-gray-600 truncate flex-1">{step.attachmentPath?.split('/').pop()}</span>
+                                  <button onClick={(e) => { e.stopPropagation(); handlePreviewFile(step.attachmentPath!); }}
+                                    className="text-xs text-blue-600 hover:text-blue-700 whitespace-nowrap px-2 py-1 bg-blue-50 rounded">
+                                    👁 Xem trước (OnlyOffice)
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Empty state */}
+                            {dataEntries.length === 0 && attachments.length === 0 && !hasGeneratedDocx && (
+                              <p className="text-sm text-gray-400 italic">Chưa có dữ liệu hoặc file nào cho bước này</p>
+                            )}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Step edit form */}
+          <AnimatePresence>
+            {editingStep && (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+                onClick={() => setEditingStep(null)}>
+                <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+                  className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[85vh] overflow-y-auto p-6"
+                  onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+                  <h3 className="text-lg font-semibold mb-4">{editingStep.title}</h3>
+
+                  {editingStep.stepKey === 'dang_tai_hsmt' && (
+                    <div className="mb-4 p-4 bg-purple-50 rounded-lg border border-purple-200">
+                      <p className="text-sm font-semibold text-purple-800 mb-3">Thông tin đăng tải HSMT</p>
+                      <div className="space-y-3">
+                        {DANG_TAI_HSMT_FIELDS.map(field => (
+                          <div key={field.key}>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">{field.label}</label>
+                            <input type={field.type || 'text'}
+                              className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-purple-500"
+                              value={stepFormData[field.key] || ''}
+                              onChange={e => setStepFormData({ ...stepFormData, [field.key]: e.target.value })} />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="space-y-3">
+                    {getStepFields(editingStep).map(field => (
+                      <div key={field.key}>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">{field.label}</label>
+                        {field.type === 'textarea' ? (
+                          <textarea rows={3}
+                            className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500"
+                            value={stepFormData[field.key] || ''}
+                            onChange={e => setStepFormData({ ...stepFormData, [field.key]: e.target.value })} />
+                        ) : (
+                          <input type={field.type || 'text'}
+                            className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500"
+                            value={stepFormData[field.key] || ''}
+                            onChange={e => setStepFormData({ ...stepFormData, [field.key]: e.target.value })} />
+                        )}
+                      </div>
+                    ))}
+                    {getStepFields(editingStep).length === 0 && editingStep.stepKey !== 'dang_tai_hsmt' && (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Ghi chú</label>
+                        <textarea rows={4}
+                          className="w-full border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500"
+                          value={stepFormData.ghiChu || ''}
+                          onChange={e => setStepFormData({ ...stepFormData, ghiChu: e.target.value })} />
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex gap-2 mt-5 justify-end">
+                    <button onClick={() => setEditingStep(null)}
+                      className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm">Hủy</button>
+                    <button onClick={handleSaveStep} disabled={saving}
+                      className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm disabled:opacity-50">
+                      {saving ? 'Đang lưu...' : 'Lưu'}
+                    </button>
+                  </div>
+                </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* File preview */}
+          <AnimatePresence>
+            {previewUrl && (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60]">
+                <div className="bg-white rounded-2xl shadow-xl w-[95vw] h-[90vh] flex flex-col overflow-hidden">
+                  <div className="flex items-center justify-between px-5 py-3 border-b shrink-0">
+                    <h3 className="text-lg font-semibold">Xem trước tài liệu</h3>
+                    <div className="flex items-center gap-3">
+                      <a href={previewUrl} target="_blank" rel="noopener noreferrer"
+                        className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">
+                        📥 Tải về
+                      </a>
+                      <button onClick={() => setPreviewUrl(null)}
+                        className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+                    </div>
+                  </div>
+                  <div className="flex-1 relative">
+                    <iframe
+                      src={ONLYOFFICE_URL + '/op/embed?url=' + encodeURIComponent(previewUrl)}
+                      className="w-full h-full border-0"
+                    />
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
+
+      {/* === Packages for selected QD === */}
+      {selectedQD && !activeSelection && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-xl shadow-sm border p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-1">
+              {selectedQD.data?.tenDuAn || 'QĐ phê duyệt KHLCNT'}
+            </h2>
+            <p className="text-sm text-gray-500 mb-4">
+              Số QĐ: {selectedQD.data?.soQuyetDinh || '—'} | Ngày: {selectedQD.data?.ngayBanHanh ? format(new Date(selectedQD.data.ngayBanHanh), 'dd/MM/yyyy') : '—'}
+            </p>
+
+            <h3 className="font-medium text-gray-800 mb-3">Danh sách gói thầu ({goiThauList.length})</h3>
+            <div className="space-y-3">
+              {goiThauList.map((gt: any, idx: number) => {
+                const existingSelection = selections.find(s => s.goiThauIndex === idx);
+                const method = (gt.hinhThucLuaChon || '').toLowerCase();
+                let methodLabel = '';
+                if (method.includes('chỉ định') || method.includes('chi dinh')) methodLabel = 'Chỉ định thầu';
+                else if (method.includes('chào hàng') || method.includes('chao hang')) methodLabel = 'Chào hàng cạnh tranh';
+                else if (method.includes('đấu thầu rộng') || method.includes('dau thau rong')) methodLabel = 'Đấu thầu rộng rãi';
+
+                return (
+                  <div key={idx} className="border rounded-lg p-4 hover:border-primary-300 transition-colors">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <p className="font-medium text-gray-900">Gói {idx + 1}: {gt.tenGoiThau || '—'}</p>
+                        <div className="flex flex-wrap gap-2 mt-2 text-xs text-gray-500">
+                          <span>💰 {gt.giaGoiThau ? Number(gt.giaGoiThau).toLocaleString('vi-VN') + ' đ' : '—'}</span>
+                          <span>📋 {gt.hinhThucLuaChon || '—'}</span>
+                          <span>📄 {gt.loaiHopDong || '—'}</span>
+                        </div>
+                        {methodLabel && (
+                          <span className="inline-flex items-center mt-2 px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-600">
+                            → {methodLabel}
+                          </span>
+                        )}
+                      </div>
+                      <div>
+                        {existingSelection ? (
+                          <button onClick={() => handleOpenSelection(existingSelection)}
+                            className="px-4 py-2 bg-primary-600 text-white rounded-lg text-sm hover:bg-primary-700">
+                            📂 Mở quy trình
+                          </button>
+                        ) : (
+                          <button onClick={() => handleCreateSelection(idx)}
+                            className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700">
+                            ➕ Tạo quy trình LCNT
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {existingSelection && (
+                      <div className="mt-2 flex items-center gap-2">
+                        <span className="text-xs text-gray-400">
+                          Tiến độ: {existingSelection.steps.filter(s => s.status === 'COMPLETED').length}/{existingSelection.steps.length} bước
+                        </span>
+                        <div className="flex-1 bg-gray-200 rounded-full h-1.5">
+                          <div className="bg-green-500 h-1.5 rounded-full"
+                            style={{ width: `${(existingSelection.steps.filter(s => s.status === 'COMPLETED').length / existingSelection.steps.length) * 100}%` }} />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              {goiThauList.length === 0 && (
+                <p className="text-gray-500 text-sm text-center py-4">QĐ này chưa có gói thầu nào</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* === QD List === */}
+      {!selectedQD && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            <input type="text" placeholder="Tìm kiếm theo tên dự án, số QĐ..."
+              className="flex-1 border rounded-lg px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary-500"
+              value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+          </div>
+
+          {filteredQD.length === 0 ? (
+            <div className="bg-white rounded-xl shadow-sm border p-8 text-center">
+              <p className="text-gray-500">Chưa có QĐ phê duyệt KHLCNT nào</p>
+            </div>
+          ) : (
+            <div className="grid gap-4">
+              {filteredQD.map(qd => {
+                const d = qd.data || {};
+                const selCount = qd.contractorSelections?.length || 0;
+                const gtCount = d.goiThau?.length || 0;
+
+                return (
+                  <div key={qd.id}
+                    className="bg-white rounded-xl shadow-sm border p-5 hover:border-primary-300 cursor-pointer transition-colors"
+                    onClick={() => handleSelectQD(qd)}>
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <h3 className="font-semibold text-gray-900">{d.tenDuAn || 'Chưa có tên'}</h3>
+                        <div className="flex flex-wrap gap-3 mt-2 text-sm text-gray-500">
+                          <span>📋 Số QĐ: {d.soQuyetDinh || '—'}</span>
+                          <span>📅 {d.ngayBanHanh ? format(new Date(d.ngayBanHanh), 'dd/MM/yyyy') : '—'}</span>
+                          <span>📦 {gtCount} gói thầu</span>
+                          {selCount > 0 && (
+                            <span className="text-primary-600 font-medium">🏗️ {selCount} quy trình LCNT</span>
+                          )}
+                        </div>
+                      </div>
+                      <span className="text-gray-400 text-xl">→</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

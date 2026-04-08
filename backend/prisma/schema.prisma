@@ -1,0 +1,268 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  ADMIN
+  INVESTOR
+  HEAD_OF_DEPARTMENT
+  DIRECTOR
+}
+
+enum DocType {
+  TT_DUTOAN
+  QD_DUTOAN
+  TT_KHLCNT
+  BC_KHLCNT
+  QD_KHLCNT
+  // Contractor selection document types
+  LCNT_STEP
+}
+
+enum DocStatus {
+  DRAFT
+  PENDING_HEAD
+  PENDING_DIRECTOR
+  APPROVED
+  REJECTED
+}
+
+enum ProcurementMethod {
+  CHI_DINH_THAU
+  CHAO_HANG_CANH_TRANH
+  DAU_THAU_RONG_RAI
+}
+
+enum ContractPackageType {
+  GOI_THAU_TU_VAN
+  GOI_THAU_PHI_TU_VAN
+  GOI_THAU_TRIEN_KHAI
+}
+
+enum StepApprovalStatus {
+  NO_APPROVAL_REQUIRED
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+}
+
+// StepApprovalRequest must be declared before User since User references it
+model StepApprovalRequest {
+  id        String   @id @default(uuid())
+  stepId    String   @map("step_id")
+  userId    String   @map("user_id")
+  action    String   // PENDING_APPROVAL, APPROVED, REJECTED
+  comment   String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  step ProcurementStep @relation(fields: [stepId], references: [id])
+  user User            @relation(fields: [userId], references: [id])
+
+  @@map("step_approval_requests")
+}
+
+model User {
+  id              String   @id @default(uuid())
+  name            String
+  email           String   @unique
+  password        String
+  role            Role     @default(INVESTOR)
+  isInvestor      Boolean  @default(false) @map("is_investor")
+  isContractor    Boolean  @default(false) @map("is_contractor")
+  department      String?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  createdDocs     Document[]  @relation("DocCreator")
+  delegatedDocs   Document[]  @relation("DocDelegatee")
+  assignedDocs    Document[]  @relation("DocAssignee")
+  reviews         Review[]
+  contractorSelections ContractorSelection[] @relation("ContractorSelectionCreator")
+  stepApprovalRequests StepApprovalRequest[]
+  payments            Payment[]             @relation("PaymentCreator")
+  bidParticipations   BidParticipation[]    @relation("BidParticipationCreator")
+
+  @@map("users")
+}
+
+model RolePermission {
+  id            String   @id @default(uuid())
+  role          Role
+  permissionKey String   @map("permission_key")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@unique([role, permissionKey])
+  @@map("roles_permissions")
+}
+
+model Document {
+  id              String     @id @default(uuid())
+  type            DocType
+  status          DocStatus  @default(DRAFT)
+  data            Json       @default("{}")
+  parentId        String?    @map("parent_id")
+  createdBy       String     @map("created_by")
+  delegatedTo     String?    @map("delegated_to")
+  assignedTo      String?    @map("assigned_to")
+  createdAt       DateTime   @default(now()) @map("created_at")
+  updatedAt       DateTime   @updatedAt @map("updated_at")
+
+  creator         User       @relation("DocCreator", fields: [createdBy], references: [id])
+  delegatee       User?      @relation("DocDelegatee", fields: [delegatedTo], references: [id])
+  assignee        User?      @relation("DocAssignee", fields: [assignedTo], references: [id])
+  parent          Document?  @relation("DocParent", fields: [parentId], references: [id])
+  children        Document[] @relation("DocParent")
+  reviews         Review[]
+  contractorSelections ContractorSelection[] @relation("ContractorSelectionDoc")
+
+  @@map("documents")
+}
+
+model Review {
+  id          String   @id @default(uuid())
+  documentId  String   @map("document_id")
+  userId      String   @map("user_id")
+  action      String
+  comment     String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  document    Document @relation(fields: [documentId], references: [id])
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@map("reviews")
+}
+
+model ContractorSelection {
+  id                  String              @id @default(uuid())
+  qdKhlcntId          String              @map("qd_khlcnt_id")
+  goiThauIndex        Int                 @map("goi_thau_index")
+  tenGoiThau          String              @map("ten_goi_thau")
+  procurementMethod   ProcurementMethod   @map("procurement_method")
+  data                Json                @default("{}")
+  createdBy           String              @map("created_by")
+  createdAt           DateTime            @default(now()) @map("created_at")
+  updatedAt           DateTime            @updatedAt @map("updated_at")
+
+  contractPackageType  ContractPackageType? @map("contract_package_type")
+
+  qdKhlcnt            Document            @relation("ContractorSelectionDoc", fields: [qdKhlcntId], references: [id])
+  creator             User                @relation("ContractorSelectionCreator", fields: [createdBy], references: [id])
+  steps               ProcurementStep[]
+  payments            Payment[]
+
+  @@unique([qdKhlcntId, goiThauIndex])
+  @@map("contractor_selections")
+}
+
+model ProcurementStep {
+  id                    String              @id @default(uuid())
+  contractorSelectionId String              @map("contractor_selection_id")
+  stepKey               String              @map("step_key")
+  stepOrder             Int                 @map("step_order")
+  title                 String
+  status                String              @default("NOT_STARTED")
+  data                  Json                @default("{}")
+  attachmentPath        String?             @map("attachment_path")
+  completedAt           DateTime?           @map("completed_at")
+  createdAt             DateTime            @default(now()) @map("created_at")
+  updatedAt             DateTime            @updatedAt @map("updated_at")
+
+  // Approval fields
+  requiresApproval      Boolean             @default(false) @map("requires_approval")
+  approvalStatus       StepApprovalStatus  @default(NO_APPROVAL_REQUIRED) @map("approval_status")
+  approvedBy           String?             @map("approved_by")
+  approvedAt           DateTime?           @map("approved_at")
+  approverRole         String?             @map("approver_role")
+  approvalComment      String?             @map("approval_comment")
+
+  contractorSelection   ContractorSelection @relation(fields: [contractorSelectionId], references: [id])
+  approvalRequests      StepApprovalRequest[]
+
+  @@unique([contractorSelectionId, stepKey])
+  @@map("procurement_steps")
+}
+
+model Payment {
+  id                    String              @id @default(uuid())
+  contractorSelectionId String              @map("contractor_selection_id")
+  contractPackageType   ContractPackageType @map("contract_package_type")
+  maSoHD                String?             @map("ma_so_hd")
+  data                  Json                @default("{}")
+  createdBy             String              @map("created_by")
+  createdAt             DateTime            @default(now()) @map("created_at")
+  updatedAt             DateTime            @updatedAt @map("updated_at")
+
+  contractorSelection   ContractorSelection @relation(fields: [contractorSelectionId], references: [id])
+  creator               User                @relation("PaymentCreator", fields: [createdBy], references: [id])
+  steps                 PaymentStep[]
+
+  @@map("payments")
+}
+
+model PaymentStep {
+  id            String   @id @default(uuid())
+  paymentId     String   @map("payment_id")
+  stepKey       String   @map("step_key")
+  stepOrder     Int      @map("step_order")
+  title         String
+  status        String   @default("NOT_STARTED")
+  data          Json     @default("{}")
+  attachmentPath String? @map("attachment_path")
+  completedAt   DateTime? @map("completed_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  payment       Payment  @relation(fields: [paymentId], references: [id])
+
+  @@unique([paymentId, stepKey])
+  @@map("payment_steps")
+}
+
+// ====================== Nhà thầu - Tham dự đấu thầu ======================
+
+enum BidResult {
+  PENDING
+  WON
+  LOST
+}
+
+model BidParticipation {
+  id                String      @id @default(uuid())
+  maThongBaoMoiThau String      @map("ma_thong_bao_moi_thau")
+  tenChuDauTu       String      @map("ten_chu_dau_tu")
+  tenGoiThau        String?     @map("ten_goi_thau")
+  result            BidResult   @default(PENDING)
+  data              Json        @default("{}")
+  createdBy         String      @map("created_by")
+  createdAt         DateTime    @default(now()) @map("created_at")
+  updatedAt         DateTime    @updatedAt @map("updated_at")
+
+  creator           User        @relation("BidParticipationCreator", fields: [createdBy], references: [id])
+  steps             BidStep[]
+
+  @@map("bid_participations")
+}
+
+model BidStep {
+  id                  String    @id @default(uuid())
+  bidParticipationId  String    @map("bid_participation_id")
+  stepKey             String    @map("step_key")
+  stepOrder           Int       @map("step_order")
+  title               String
+  status              String    @default("NOT_STARTED")
+  data                Json      @default("{}")
+  attachments         Json      @default("[]")
+  completedAt         DateTime? @map("completed_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  bidParticipation    BidParticipation @relation(fields: [bidParticipationId], references: [id])
+
+  @@unique([bidParticipationId, stepKey])
+  @@map("bid_steps")
+}

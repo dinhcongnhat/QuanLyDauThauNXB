@@ -1,0 +1,791 @@
+
+// Helper: create standard document header
+function createHeader(leftTop: string, leftBottom: string, soVanBan: string, diaDanh: string, dt: { day: string; month: string; year: string }): Paragraph[] {
+  return [
+    new Paragraph({
+      children: [
+        new TextRun({ text: leftTop, font: FONT, size: FONT_SIZE, bold: true }),
+        new TextRun({ text: '\t' }),
+        new TextRun({ text: 'CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM', font: FONT, size: FONT_SIZE, bold: true }),
+      ],
+      tabStops: [{ type: TabStopType.CENTER, position: TabStopPosition.MAX / 2 + 2000 }],
+    }),
+    new Paragraph({
+      children: [
+        new TextRun({ text: leftBottom, font: FONT, size: FONT_SIZE, bold: true }),
+        new TextRun({ text: '\t' }),
+        new TextRun({ text: 'Độc lập - Tự do - Hạnh phúc', font: FONT, size: FONT_SIZE, bold: true }),
+      ],
+      tabStops: [{ type: TabStopType.CENTER, position: TabStopPosition.MAX / 2 + 2000 }],
+    }),
+    new Paragraph({
+      children: [
+        new TextRun({ text: '-------', font: FONT, size: FONT_SIZE }),
+        new TextRun({ text: '\t' }),
+        new TextRun({ text: '---------------', font: FONT, size: FONT_SIZE }),
+      ],
+      tabStops: [{ type: TabStopType.CENTER, position: TabStopPosition.MAX / 2 + 2000 }],
+    }),
+    new Paragraph({ text: '', spacing: { after: 100 } }),
+    new Paragraph({
+      children: [
+        new TextRun({ text: `Số: ${soVanBan}`, font: FONT, size: FONT_SIZE }),
+        new TextRun({ text: '\t' }),
+        new TextRun({ text: `${diaDanh}, ngày ${dt.day} tháng ${dt.month} năm ${dt.year}`, font: FONT, size: FONT_SIZE, italics: true }),
+      ],
+      tabStops: [{ type: TabStopType.RIGHT, position: TabStopPosition.MAX }],
+    }),
+  ];
+}
+
+// Helper: create footer with Nơi nhận
+function createFooter(rightTitle: string, noiNhan: string[]): Paragraph[] {
+  const result: Paragraph[] = [
+    new Paragraph({ text: '', spacing: { after: 300 } }),
+    new Paragraph({
+      children: [
+        new TextRun({ text: 'Nơi nhận:', font: FONT, size: FONT_SIZE, bold: true, italics: true }),
+        new TextRun({ text: '\t' }),
+        new TextRun({ text: rightTitle, font: FONT, size: FONT_SIZE, bold: true }),
+      ],
+      tabStops: [{ type: TabStopType.CENTER, position: TabStopPosition.MAX / 2 + 2500 }],
+    }),
+  ];
+  noiNhan.forEach((item, i) => {
+    result.push(new Paragraph({
+      children: [
+        new TextRun({ text: `- ${item};`, font: FONT, size: 22, italics: true }),
+        ...(i === 0 ? [
+          new TextRun({ text: '\t' }),
+          new TextRun({ text: '(Ký tên, đóng dấu)', font: FONT, size: FONT_SIZE, italics: true }),
+        ] : []),
+      ],
+      tabStops: [{ type: TabStopType.CENTER, position: TabStopPosition.MAX / 2 + 2500 }],
+    }));
+  });
+  return result;
+}
+
+// Helper: standard page margin properties
+const PAGE_MARGINS = {
+  top: convertMillimetersToTwip(20),
+  bottom: convertMillimetersToTwip(20),
+  left: convertMillimetersToTwip(30),
+  right: convertMillimetersToTwip(20),
+};
+
+// Helper: create a table cell with text
+function tc(text: string, opts: { bold?: boolean; width?: number; span?: number; align?: (typeof AlignmentType)[keyof typeof AlignmentType]; size?: number } = {}): TableCell {
+  return new TableCell({
+    children: [new Paragraph({
+      children: [new TextRun({ text, font: FONT, size: opts.size || 22, bold: opts.bold })],
+      alignment: opts.align || AlignmentType.CENTER,
+    })],
+    width: opts.width ? { size: opts.width, type: WidthType.DXA } : undefined,
+    columnSpan: opts.span,
+    verticalAlign: VerticalAlign.CENTER,
+  });
+}
+
+// Helper: create a simple table (STT, columns..., values)
+function createSimpleTable(headers: string[], rows: any[][], colWidths?: number[]): Table {
+  const headerCells = headers.map((h, i) => tc(h, { bold: true, width: colWidths?.[i] }));
+  const tableRows = [new TableRow({ children: headerCells, tableHeader: true })];
+  rows.forEach(row => {
+    tableRows.push(new TableRow({
+      children: row.map((cell, i) => tc(String(cell ?? ''), { width: colWidths?.[i] })),
+    }));
+  });
+  return new Table({
+    rows: tableRows,
+    width: { size: 100, type: WidthType.PERCENTAGE },
+  });
+}
+
+// =========================================================================
+// generateToTrinhKHLCNT - Mẫu 02A
+// =========================================================================
+export async function generateToTrinhKHLCNT(data: ToTrinhKHLCNTData): Promise<Buffer> {
+  const dt = formatDate(data.ngayLap);
+  const children: (Paragraph | Table)[] = [];
+
+  // Header
+  children.push(...createHeader('ĐƠN VỊ TRÌNH', data.donViTrinh || '...............', data.soToTrinh, data.diaDanh, dt));
+
+  // Title
+  children.push(new Paragraph({ text: '', spacing: { after: 200 } }));
+  children.push(new Paragraph({
+    children: [new TextRun({ text: 'TỜ TRÌNH', font: FONT, size: 28, bold: true })],
+    alignment: AlignmentType.CENTER, spacing: { after: 50 },
+  }));
+  children.push(new Paragraph({
+    children: [new TextRun({ text: `Kế hoạch lựa chọn nhà thầu`, font: FONT, size: FONT_SIZE, bold: true })],
+    alignment: AlignmentType.CENTER, spacing: { after: 50 },
+  }));
+  children.push(new Paragraph({
+    children: [new TextRun({ text: `dự án, dự toán mua sắm: ${data.tenDuAn}`, font: FONT, size: FONT_SIZE, bold: true })],
+    alignment: AlignmentType.CENTER, spacing: { after: 200 },
+  }));
+
+  // Kính gửi
+  children.push(new Paragraph({
+    children: [
+      new TextRun({ text: 'Kính gửi: ', font: FONT, size: FONT_SIZE, bold: true }),
+      new TextRun({ text: data.kinhGui, font: FONT, size: FONT_SIZE }),
+    ],
+    alignment: AlignmentType.CENTER, spacing: { after: 200 },
+  }));
+
+  // Intro paragraph
+  children.push(new Paragraph({
+    children: [
+      new TextRun({ text: data.donViTrinh || '[Đơn vị trình]', font: FONT, size: FONT_SIZE }),
+      new TextRun({ text: ' trình ', font: FONT, size: FONT_SIZE }),
+      new TextRun({ text: data.kinhGui || '[người phê duyệt KHLCNT]', font: FONT, size: FONT_SIZE }),
+      new TextRun({ text: ' xem xét, phê duyệt kế hoạch lựa chọn nhà thầu trên cơ sở những nội dung dưới đây:', font: FONT, size: FONT_SIZE }),
+    ],
+    indent: { firstLine: convertMillimetersToTwip(12.7) }, spacing: { after: 150 },
+  }));
+
+  // ---- I. Mô tả tóm tắt dự án ----
+  children.push(new Paragraph({
+    children: [new TextRun({ text: 'I. Mô tả tóm tắt dự án, dự toán mua sắm', font: FONT, size: FONT_SIZE, bold: true })],
+    spacing: { after: 100 },
+  }));
+  const infoItems = [
+    { label: 'Tên dự án', value: data.tenDuAn },
+    { label: 'Tổng mức đầu tư', value: data.tongMucDauTu ? `${formatCurrency(data.tongMucDauTu)} đồng` : '' },
+    { label: 'Chủ đầu tư', value: data.chuDauTu },
+    { label: 'Nguồn vốn', value: data.nguonVon },
+    { label: 'Thời gian thực hiện dự án', value: data.thoiGianThucHien },
+    { label: 'Địa điểm, quy mô dự án', value: `${data.diaDiem || ''}${data.quyMo ? '; Quy mô: ' + data.quyMo : ''}` },
+  ];
+  infoItems.forEach(item => {
+    children.push(new Paragraph({
+      children: [
+        new TextRun({ text: `- ${item.label}: `, font: FONT, size: FONT_SIZE }),
+        new TextRun({ text: item.value || '...............', font: FONT, size: FONT_SIZE, bold: !!item.value }),
+      ],
+      indent: { firstLine: convertMillimetersToTwip(12.7) }, spacing: { after: 60 },
+    }));
+  });
+
+  // ---- II. Căn cứ pháp lý ----
+  children.push(new Paragraph({ text: '', spacing: { after: 100 } }));
+  children.push(new Paragraph({
+    children: [new TextRun({ text: 'II. Căn cứ pháp lý', font: FONT, size: FONT_SIZE, bold: true })],
+    spacing: { after: 100 },
+  }));
+  for (const cc of (data.canCuPhapLy || [])) {
+    children.push(new Paragraph({
+      children: [new TextRun({ text: `- Căn cứ ${cc};`, font: FONT, size: FONT_SIZE })],
+      indent: { firstLine: convertMillimetersToTwip(12.7) }, spacing: { after: 60 },
+    }));
+  }
+
+  // ---- III. Phần công việc đã thực hiện (Bảng số 1) ----
+  children.push(new Paragraph({ text: '', spacing: { after: 100 } }));
+  children.push(new Paragraph({
+    children: [new TextRun({ text: 'III. Phần công việc đã thực hiện', font: FONT, size: FONT_SIZE, bold: true })],
+    spacing: { after: 100 },
+  }));
+  children.push(new Paragraph({
+    children: [new TextRun({ text: 'Bảng số 1', font: FONT, size: FONT_SIZE, bold: true, italics: true })],
+    alignment: AlignmentType.CENTER, spacing: { after: 50 },
+  }));
+
+  const b1Rows = (data.congViecDaThucHien || []).map((item, i) => [
+    i + 1, item.noiDung, item.donViThucHien, item.giaTri ? formatCurrency(item.giaTri) : '', item.vanBanPheDuyet,
+  ]);
+  const tongB1 = (data.congViecDaThucHien || []).reduce((s, v) => s + (v.giaTri || 0), 0);
+  b1Rows.push(['', 'Tổng giá trị', '', tongB1 ? formatCurrency(tongB1) : '0', '']);
+  children.push(createSimpleTable(
+    ['STT', 'Nội dung công việc hoặc tên gói thầu', 'Đơn vị thực hiện', 'Giá trị', 'Văn bản phê duyệt'],
+    b1Rows, [600, 3000, 1800, 1800, 2000],
+  ));
+
+  // ---- IV. Phần công việc không áp dụng được HTLCNT (Bảng số 2) ----
+  children.push(new Paragraph({ text: '', spacing: { after: 100 } }));
+  children.push(new Paragraph({
+    children: [new TextRun({ text: 'IV. Phần công việc không áp dụng được một trong các hình thức lựa chọn nhà thầu', font: FONT, size: FONT_SIZE, bold: true })],
+    spacing: { after: 100 },
+  }));
+  children.push(new Paragraph({
+    children: [new TextRun({ text: 'Bảng số 2', font: FONT, size: FONT_SIZE, bold: true, italics: true })],
+    alignment: AlignmentType.CENTER, spacing: { after: 50 },
+  }));
+
+  const b2Rows = (data.congViecKhongApDung || []).map((item, i) => [
+    i + 1, item.noiDung, item.donViThucHien, item.giaTri ? formatCurrency(item.giaTri) : '',
+  ]);
+  const tongB2 = (data.congViecKhongApDung || []).reduce((s, v) => s + (v.giaTri || 0), 0);
+  b2Rows.push(['', 'Tổng giá trị', '', tongB2 ? formatCurrency(tongB2) : '0']);
+  children.push(createSimpleTable(
+    ['STT', 'Nội dung công việc', 'Đơn vị thực hiện', 'Giá trị'],
+    b2Rows, [600, 4000, 2200, 2400],
+  ));
+
+  // ---- V. Phần công việc thuộc KHLCNT (Bảng số 3) ----
+  children.push(new Paragraph({ text: '', spacing: { after: 100 } }));
+  children.push(new Paragraph({
+    children: [new TextRun({ text: 'V. Phần công việc thuộc kế hoạch lựa chọn nhà thầu', font: FONT, size: FONT_SIZE, bold: true })],
+    spacing: { after: 50 },
+  }));
+  children.push(new Paragraph({
+    children: [new TextRun({ text: '1. Bảng tổng hợp phần công việc thuộc kế hoạch lựa chọn nhà thầu:', font: FONT, size: FONT_SIZE, bold: true })],
+    spacing: { after: 100 },
+  }));
+  children.push(new Paragraph({
+    children: [new TextRun({ text: 'Bảng số 3', font: FONT, size: FONT_SIZE, bold: true, italics: true })],
+    alignment: AlignmentType.CENTER, spacing: { after: 50 },
+  }));
+
+  // Bảng số 3 - simplified to 10 columns for A4 readability
+  const b3Headers = ['STT', 'Tên gói thầu', 'Tóm tắt công việc', 'Giá gói thầu', 'Nguồn vốn',
+    'Hình thức lựa chọn NT', 'Phương thức lựa chọn NT', 'Loại hợp đồng',
+    'Thời gian tổ chức', 'Thời gian thực hiện'];
+  const b3ColWidths = [500, 1500, 1500, 1200, 1000, 1200, 1200, 900, 900, 900];
+
+  const b3HeaderCells = b3Headers.map((h, i) => tc(h, { bold: true, width: b3ColWidths[i], size: 18 }));
+  const b3TableRows = [new TableRow({ children: b3HeaderCells, tableHeader: true })];
+
+  const tongB3 = (data.goiThau || []).reduce((s, g) => s + (g.giaGoiThau || 0), 0);
+  (data.goiThau || []).forEach((g, i) => {
+    b3TableRows.push(new TableRow({
+      children: [
+        tc(String(i + 1), { width: b3ColWidths[0], size: 18 }),
+        tc(g.tenGoiThau, { width: b3ColWidths[1], size: 18, align: AlignmentType.LEFT }),
+        tc(g.tomTatCongViec, { width: b3ColWidths[2], size: 18, align: AlignmentType.LEFT }),
+        tc(g.giaGoiThau ? formatCurrency(g.giaGoiThau) : '', { width: b3ColWidths[3], size: 18 }),
+        tc(g.nguonVon, { width: b3ColWidths[4], size: 18 }),
+        tc(g.hinhThucLuaChon, { width: b3ColWidths[5], size: 18 }),
+        tc(g.phuongThucLuaChon, { width: b3ColWidths[6], size: 18 }),
+        tc(g.loaiHopDong, { width: b3ColWidths[7], size: 18 }),
+        tc(g.thoiGianToChuc, { width: b3ColWidths[8], size: 18 }),
+        tc(g.thoiGianThucHien, { width: b3ColWidths[9], size: 18 }),
+      ],
+    }));
+  });
+  // Tổng row
+  b3TableRows.push(new TableRow({
+    children: [
+      tc('', { width: b3ColWidths[0], size: 18 }),
+      tc('Tổng giá gói thầu', { width: b3ColWidths[1], size: 18, bold: true, align: AlignmentType.LEFT, span: 2 }),
+      tc(tongB3 ? formatCurrency(tongB3) : '0', { width: b3ColWidths[3], size: 18, bold: true }),
+      tc('', { width: b3ColWidths[4], size: 18 }), tc('', { width: b3ColWidths[5], size: 18 }),
+      tc('', { width: b3ColWidths[6], size: 18 }), tc('', { width: b3ColWidths[7], size: 18 }),
+      tc('', { width: b3ColWidths[8], size: 18 }),
+    ],
+  }));
+
+  children.push(new Table({
+    rows: b3TableRows,
+    width: { size: 100, type: WidthType.PERCENTAGE },
+  }));
+
+  // V.2 Giải trình
+  children.push(new Paragraph({ text: '', spacing: { after: 100 } }));
+  children.push(new Paragraph({
+    children: [new TextRun({ text: '2. Giải trình nội dung kế hoạch lựa chọn nhà thầu:', font: FONT, size: FONT_SIZE, bold: true })],
+    spacing: { after: 100 },
+  }));
+  children.push(new Paragraph({
+    children: [new TextRun({ text: data.giaiTrinh || '(Giải trình cơ sở phân chia gói thầu, giá gói thầu, nguồn vốn, hình thức và phương thức lựa chọn nhà thầu, loại hợp đồng, thời gian...)', font: FONT, size: FONT_SIZE })],
+    indent: { firstLine: convertMillimetersToTwip(12.7) }, spacing: { after: 150 },
+  }));
+
+  // ---- VI. Phần công việc chưa đủ điều kiện (Bảng số 4) ----
+  children.push(new Paragraph({
+    children: [new TextRun({ text: 'VI. Phần công việc chưa đủ điều kiện lập kế hoạch lựa chọn nhà thầu (nếu có)', font: FONT, size: FONT_SIZE, bold: true })],
+    spacing: { after: 100 },
+  }));
+  children.push(new Paragraph({
+    children: [new TextRun({ text: 'Bảng số 4', font: FONT, size: FONT_SIZE, bold: true, italics: true })],
+    alignment: AlignmentType.CENTER, spacing: { after: 50 },
+  }));
+  const b4Rows = (data.congViecChuaDuDK || []).map((item, i) => [
+    i + 1, item.noiDung, item.giaTri ? formatCurrency(item.giaTri) : '',
+  ]);
+  const tongB4 = (data.congViecChuaDuDK || []).reduce((s, v) => s + (v.giaTri || 0), 0);
+  b4Rows.push(['', 'Tổng giá trị', tongB4 ? formatCurrency(tongB4) : '0']);
+  children.push(createSimpleTable(['STT', 'Nội dung', 'Giá trị'], b4Rows, [800, 6000, 2400]));
+
+  // ---- VII. Tổng giá trị các phần công việc (Bảng số 5) ----
+  children.push(new Paragraph({ text: '', spacing: { after: 100 } }));
+  children.push(new Paragraph({
+    children: [new TextRun({ text: 'VII. Tổng hợp', font: FONT, size: FONT_SIZE, bold: true })],
+    spacing: { after: 100 },
+  }));
+  children.push(new Paragraph({
+    children: [new TextRun({ text: 'Bảng số 5', font: FONT, size: FONT_SIZE, bold: true, italics: true })],
+    alignment: AlignmentType.CENTER, spacing: { after: 50 },
+  }));
+  const tongAll = tongB1 + tongB2 + tongB3 + tongB4;
+  children.push(createSimpleTable(['STT', 'Nội dung', 'Giá trị'], [
+    [1, 'Tổng giá trị phần công việc đã thực hiện', tongB1 ? formatCurrency(tongB1) : '0'],
+    [2, 'Tổng giá trị phần công việc không áp dụng được một trong các hình thức lựa chọn nhà thầu', tongB2 ? formatCurrency(tongB2) : '0'],
+    [3, 'Tổng giá trị phần công việc thuộc kế hoạch lựa chọn nhà thầu', tongB3 ? formatCurrency(tongB3) : '0'],
+    [4, 'Tổng giá trị phần công việc chưa đủ điều kiện lập KHLCNT (nếu có)', tongB4 ? formatCurrency(tongB4) : '0'],
+    ['', 'Tổng giá trị các phần công việc', tongAll ? formatCurrency(tongAll) : '0'],
+    ['', 'Tổng mức đầu tư của dự án, dự toán mua sắm', data.tongMucDauTu ? formatCurrency(data.tongMucDauTu) : '...............'],
+  ], [800, 6000, 2400]));
+
+  // ---- VIII. Kiến nghị ----
+  children.push(new Paragraph({ text: '', spacing: { after: 150 } }));
+  children.push(new Paragraph({
+    children: [new TextRun({ text: 'VIII. Kiến nghị', font: FONT, size: FONT_SIZE, bold: true })],
+    spacing: { after: 100 },
+  }));
+  children.push(new Paragraph({
+    children: [
+      new TextRun({ text: 'Trên cơ sở những nội dung phân tích nêu trên, ', font: FONT, size: FONT_SIZE }),
+      new TextRun({ text: data.donViTrinh || '[đơn vị trình]', font: FONT, size: FONT_SIZE, bold: true }),
+      new TextRun({ text: ' đề nghị ', font: FONT, size: FONT_SIZE }),
+      new TextRun({ text: data.kinhGui || '[người phê duyệt KHLCNT]', font: FONT, size: FONT_SIZE, bold: true }),
+      new TextRun({ text: ` xem xét, phê duyệt kế hoạch lựa chọn nhà thầu dự án, dự toán mua sắm: `, font: FONT, size: FONT_SIZE }),
+      new TextRun({ text: data.tenDuAn, font: FONT, size: FONT_SIZE, bold: true }),
+      new TextRun({ text: '.', font: FONT, size: FONT_SIZE }),
+    ],
+    indent: { firstLine: convertMillimetersToTwip(12.7) }, spacing: { after: 100 },
+  }));
+  children.push(new Paragraph({
+    children: [
+      new TextRun({ text: 'Kính trình ', font: FONT, size: FONT_SIZE }),
+      new TextRun({ text: data.kinhGui || '[người phê duyệt KHLCNT]', font: FONT, size: FONT_SIZE }),
+      new TextRun({ text: ' xem xét, quyết định./.', font: FONT, size: FONT_SIZE }),
+    ],
+    indent: { firstLine: convertMillimetersToTwip(12.7) }, spacing: { after: 200 },
+  }));
+
+  // Footer
+  children.push(...createFooter('ĐẠI DIỆN HỢP PHÁP CỦA ĐƠN VỊ TRÌNH', ['Như trên', 'Đơn vị thẩm định', 'Lưu VT']));
+
+  const doc = new Document({
+    sections: [{
+      properties: { page: { margin: PAGE_MARGINS } },
+      children,
+    }],
+  });
+  return Buffer.from(await Packer.toBuffer(doc));
+}
+
+// =========================================================================
+// Báo cáo thẩm định KHLCNT (Mẫu 02B)
+// =========================================================================
+export interface BaoCaoKHLCNTData {
+  donViThamDinh: string;
+  soVanBan: string;
+  diaDanh: string;
+  ngayLap: Date;
+  tenDuAn: string;
+  kinhGui: string;
+  donViTrinh: string;
+  ngayNhanHoSo: string;
+  // I.1 Căn cứ pháp lý
+  canCuPhapLy: string[];
+  // I.2 Thông tin cơ bản
+  tongMucDauTu: number;
+  chuDauTu: string;
+  nguonVon: string;
+  thoiGianThucHien: string;
+  diaDiem: string;
+  // I.3 Tóm tắt
+  giaTriDaThucHien: number;
+  giaTriKhongApDung: number;
+  giaTriKHLCNT: number;
+  giaTriChuaDuDK: number;
+  tongMucDauTuDuAn: number;
+  // I.4 Tổ chức thẩm định
+  tenDonViThamDinh: string;
+  cachThucThamDinh: string;
+  // II Kết quả thẩm định
+  ketQuaThamDinh: string;
+  deXuat: string;
+}
+
+export async function generateBaoCaoKHLCNT(data: BaoCaoKHLCNTData): Promise<Buffer> {
+  const dt = formatDate(data.ngayLap);
+  const children: (Paragraph | Table)[] = [];
+
+  // Header
+  children.push(...createHeader('ĐƠN VỊ THẨM ĐỊNH', data.donViThamDinh || '...............', data.soVanBan, data.diaDanh, dt));
+
+  // Title
+  children.push(new Paragraph({ text: '', spacing: { after: 200 } }));
+  children.push(new Paragraph({
+    children: [new TextRun({ text: 'BÁO CÁO THẨM ĐỊNH', font: FONT, size: 28, bold: true })],
+    alignment: AlignmentType.CENTER, spacing: { after: 50 },
+  }));
+  children.push(new Paragraph({
+    children: [new TextRun({ text: `Kế hoạch lựa chọn nhà thầu dự án, dự toán mua sắm: ${data.tenDuAn}`, font: FONT, size: FONT_SIZE, bold: true })],
+    alignment: AlignmentType.CENTER, spacing: { after: 200 },
+  }));
+
+  // Kính gửi
+  children.push(new Paragraph({
+    children: [
+      new TextRun({ text: 'Kính gửi: ', font: FONT, size: FONT_SIZE, bold: true }),
+      new TextRun({ text: data.kinhGui || '...............', font: FONT, size: FONT_SIZE }),
+    ],
+    alignment: AlignmentType.CENTER, spacing: { after: 200 },
+  }));
+
+  // Intro paragraph
+  children.push(new Paragraph({
+    children: [
+      new TextRun({ text: `Trên cơ sở tờ trình của `, font: FONT, size: FONT_SIZE }),
+      new TextRun({ text: data.donViTrinh || '[đơn vị trình]', font: FONT, size: FONT_SIZE, bold: true }),
+      new TextRun({ text: ` về việc phê duyệt kế hoạch lựa chọn nhà thầu và các tài liệu liên quan được cung cấp, `, font: FONT, size: FONT_SIZE }),
+      new TextRun({ text: data.donViThamDinh || '[đơn vị thẩm định]', font: FONT, size: FONT_SIZE, bold: true }),
+      new TextRun({ text: ` đã tiến hành thẩm định kế hoạch lựa chọn nhà thầu dự án, dự toán mua sắm `, font: FONT, size: FONT_SIZE }),
+      new TextRun({ text: data.tenDuAn, font: FONT, size: FONT_SIZE, bold: true }),
+      new TextRun({ text: ` từ ngày ${data.ngayNhanHoSo || '..../..../....'} và báo cáo về kết quả thẩm định như sau:`, font: FONT, size: FONT_SIZE }),
+    ],
+    indent: { firstLine: convertMillimetersToTwip(12.7) }, spacing: { after: 200 },
+  }));
+
+  // ---- I. CĂN CỨ PHÁP LÝ VÀ THÔNG TIN CƠ BẢN ----
+  children.push(new Paragraph({
+    children: [new TextRun({ text: 'I. CĂN CỨ PHÁP LÝ VÀ THÔNG TIN CƠ BẢN', font: FONT, size: FONT_SIZE, bold: true })],
+    spacing: { after: 100 },
+  }));
+
+  // I.1 Căn cứ pháp lý
+  children.push(new Paragraph({
+    children: [new TextRun({ text: '1. Căn cứ pháp lý', font: FONT, size: FONT_SIZE, bold: true })],
+    spacing: { after: 80 },
+  }));
+  for (const cc of (data.canCuPhapLy || [])) {
+    children.push(new Paragraph({
+      children: [new TextRun({ text: `- Căn cứ ${cc};`, font: FONT, size: FONT_SIZE })],
+      indent: { firstLine: convertMillimetersToTwip(12.7) }, spacing: { after: 60 },
+    }));
+  }
+
+  // I.2 Thông tin cơ bản
+  children.push(new Paragraph({ text: '', spacing: { after: 80 } }));
+  children.push(new Paragraph({
+    children: [new TextRun({ text: '2. Thông tin cơ bản', font: FONT, size: FONT_SIZE, bold: true })],
+    spacing: { after: 80 },
+  }));
+  const infoItems2 = [
+    { label: 'Tên dự án', value: data.tenDuAn },
+    { label: 'Tổng mức đầu tư', value: data.tongMucDauTu ? `${formatCurrency(data.tongMucDauTu)} đồng` : '' },
+    { label: 'Chủ đầu tư', value: data.chuDauTu },
+    { label: 'Nguồn vốn', value: data.nguonVon },
+    { label: 'Thời gian thực hiện dự án', value: data.thoiGianThucHien },
+    { label: 'Địa điểm', value: data.diaDiem },
+  ];
+  infoItems2.forEach(item => {
+    children.push(new Paragraph({
+      children: [
+        new TextRun({ text: `- ${item.label}: `, font: FONT, size: FONT_SIZE }),
+        new TextRun({ text: item.value || '...............', font: FONT, size: FONT_SIZE }),
+      ],
+      indent: { firstLine: convertMillimetersToTwip(12.7) }, spacing: { after: 60 },
+    }));
+  });
+
+  // I.3 Tóm tắt nội dung văn bản trình duyệt
+  children.push(new Paragraph({ text: '', spacing: { after: 80 } }));
+  children.push(new Paragraph({
+    children: [new TextRun({ text: '3. Tóm tắt nội dung văn bản trình duyệt kế hoạch lựa chọn nhà thầu:', font: FONT, size: FONT_SIZE, bold: true })],
+    spacing: { after: 80 },
+  }));
+  const tongGiaTri = (data.giaTriDaThucHien || 0) + (data.giaTriKhongApDung || 0) + (data.giaTriKHLCNT || 0) + (data.giaTriChuaDuDK || 0);
+  const tomTatItems = [
+    { label: 'a) Tổng giá trị phần công việc đã thực hiện', value: data.giaTriDaThucHien },
+    { label: 'b) Tổng giá trị phần công việc không áp dụng được HTLCNT', value: data.giaTriKhongApDung },
+    { label: 'c) Tổng giá trị phần công việc thuộc KHLCNT', value: data.giaTriKHLCNT },
+    { label: 'd) Tổng giá trị phần công việc chưa đủ điều kiện', value: data.giaTriChuaDuDK },
+    { label: 'đ) Tổng giá trị các phần công việc', value: tongGiaTri },
+    { label: 'e) Tổng mức đầu tư của dự án, dự toán mua sắm', value: data.tongMucDauTuDuAn },
+  ];
+  tomTatItems.forEach(item => {
+    children.push(new Paragraph({
+      children: [
+        new TextRun({ text: `${item.label}: `, font: FONT, size: FONT_SIZE }),
+        new TextRun({ text: item.value ? `${formatCurrency(item.value)} đồng` : '...............', font: FONT, size: FONT_SIZE, bold: !!item.value }),
+      ],
+      indent: { firstLine: convertMillimetersToTwip(12.7) }, spacing: { after: 60 },
+    }));
+  });
+
+  // I.4 Tổ chức thẩm định
+  children.push(new Paragraph({ text: '', spacing: { after: 80 } }));
+  children.push(new Paragraph({
+    children: [new TextRun({ text: '4. Tổ chức thẩm định:', font: FONT, size: FONT_SIZE, bold: true })],
+    spacing: { after: 80 },
+  }));
+  children.push(new Paragraph({
+    children: [
+      new TextRun({ text: 'a) Đơn vị thẩm định: ', font: FONT, size: FONT_SIZE }),
+      new TextRun({ text: data.tenDonViThamDinh || data.donViThamDinh || '...............', font: FONT, size: FONT_SIZE }),
+    ],
+    indent: { firstLine: convertMillimetersToTwip(12.7) }, spacing: { after: 60 },
+  }));
+  children.push(new Paragraph({
+    children: [
+      new TextRun({ text: 'b) Cách thức làm việc: ', font: FONT, size: FONT_SIZE }),
+      new TextRun({ text: data.cachThucThamDinh || '...............', font: FONT, size: FONT_SIZE }),
+    ],
+    indent: { firstLine: convertMillimetersToTwip(12.7) }, spacing: { after: 100 },
+  }));
+
+  // ---- II. TỔNG HỢP KẾT QUẢ THẨM ĐỊNH ----
+  children.push(new Paragraph({ text: '', spacing: { after: 100 } }));
+  children.push(new Paragraph({
+    children: [new TextRun({ text: 'II. TỔNG HỢP KẾT QUẢ THẨM ĐỊNH', font: FONT, size: FONT_SIZE, bold: true })],
+    spacing: { after: 100 },
+  }));
+  children.push(new Paragraph({
+    children: [new TextRun({ text: data.ketQuaThamDinh || '(Nội dung tổng hợp kết quả thẩm định về căn cứ pháp lý, nội dung KHLCNT...)', font: FONT, size: FONT_SIZE })],
+    indent: { firstLine: convertMillimetersToTwip(12.7) }, spacing: { after: 150 },
+  }));
+
+  // Đề xuất
+  children.push(new Paragraph({
+    children: [new TextRun({ text: 'III. ĐỀ XUẤT', font: FONT, size: FONT_SIZE, bold: true })],
+    spacing: { after: 100 },
+  }));
+  children.push(new Paragraph({
+    children: [new TextRun({ text: data.deXuat || '(Đề xuất phê duyệt/không phê duyệt KHLCNT...)', font: FONT, size: FONT_SIZE })],
+    indent: { firstLine: convertMillimetersToTwip(12.7) }, spacing: { after: 200 },
+  }));
+
+  // Footer
+  children.push(...createFooter('ĐẠI DIỆN ĐƠN VỊ THẨM ĐỊNH', ['Như trên', 'Lưu VT']));
+
+  const doc = new Document({
+    sections: [{
+      properties: { page: { margin: PAGE_MARGINS } },
+      children,
+    }],
+  });
+  return Buffer.from(await Packer.toBuffer(doc));
+}
+
+// =========================================================================
+// Quyết định phê duyệt KHLCNT (Mẫu 02C)
+// =========================================================================
+export interface QuyetDinhKHLCNTData {
+  coQuanPheDuyet: string;
+  soQuyetDinh: string;
+  diaDanh: string;
+  ngayBanHanh: Date;
+  tenDuAn: string;
+  nguoiPheDuyet: string;
+  canCuPhapLy: string[];
+  ngayBaoCaoThamDinh: string;
+  donViThamDinh: string;
+  donViTrinh: string;
+  soHieuToTrinh: string;
+  ngayToTrinh: string;
+  chuDauTu: string;
+  donViGiamSat: string;
+  goiThau: GoiThau[];
+}
+
+export async function generateQuyetDinhKHLCNT(data: QuyetDinhKHLCNTData): Promise<Buffer> {
+  const dt = formatDate(data.ngayBanHanh);
+  const children: (Paragraph | Table)[] = [];
+
+  // Header
+  children.push(...createHeader(
+    'CƠ QUAN CỦA NGƯỜI PHÊ DUYỆT\nKẾ HOẠCH LỰA CHỌN NHÀ THẦU',
+    data.coQuanPheDuyet || '...............',
+    data.soQuyetDinh, data.diaDanh, dt,
+  ));
+
+  // Title
+  children.push(new Paragraph({ text: '', spacing: { after: 200 } }));
+  children.push(new Paragraph({
+    children: [new TextRun({ text: 'QUYẾT ĐỊNH', font: FONT, size: 28, bold: true })],
+    alignment: AlignmentType.CENTER, spacing: { after: 50 },
+  }));
+  children.push(new Paragraph({
+    children: [new TextRun({ text: 'Về việc phê duyệt kế hoạch lựa chọn nhà thầu', font: FONT, size: FONT_SIZE, bold: true })],
+    alignment: AlignmentType.CENTER, spacing: { after: 50 },
+  }));
+  children.push(new Paragraph({
+    children: [new TextRun({ text: `dự án, dự toán mua sắm: ${data.tenDuAn}`, font: FONT, size: FONT_SIZE, bold: true })],
+    alignment: AlignmentType.CENTER, spacing: { after: 200 },
+  }));
+
+  // Người phê duyệt
+  children.push(new Paragraph({
+    children: [new TextRun({ text: data.nguoiPheDuyet || 'NGƯỜI PHÊ DUYỆT KẾ HOẠCH LỰA CHỌN NHÀ THẦU', font: FONT, size: FONT_SIZE, bold: true })],
+    alignment: AlignmentType.CENTER, spacing: { after: 200 },
+  }));
+
+  // Căn cứ pháp lý
+  children.push(new Paragraph({
+    children: [new TextRun({ text: 'Căn cứ Luật Đấu thầu ngày 23 tháng 6 năm 2023;', font: FONT, size: FONT_SIZE })],
+    indent: { firstLine: convertMillimetersToTwip(12.7) }, spacing: { after: 60 },
+  }));
+  children.push(new Paragraph({
+    children: [new TextRun({ text: 'Căn cứ Nghị định số 24/2024/NĐ-CP quy định chi tiết một số điều và biện pháp thi hành Luật Đấu thầu về lựa chọn nhà thầu;', font: FONT, size: FONT_SIZE })],
+    indent: { firstLine: convertMillimetersToTwip(12.7) }, spacing: { after: 60 },
+  }));
+  for (const cc of (data.canCuPhapLy || [])) {
+    children.push(new Paragraph({
+      children: [new TextRun({ text: `Căn cứ ${cc};`, font: FONT, size: FONT_SIZE })],
+      indent: { firstLine: convertMillimetersToTwip(12.7) }, spacing: { after: 60 },
+    }));
+  }
+  // Căn cứ báo cáo thẩm định
+  children.push(new Paragraph({
+    children: [
+      new TextRun({ text: `Căn cứ báo cáo thẩm định ngày `, font: FONT, size: FONT_SIZE }),
+      new TextRun({ text: data.ngayBaoCaoThamDinh || '..../..../....', font: FONT, size: FONT_SIZE }),
+      new TextRun({ text: ` của `, font: FONT, size: FONT_SIZE }),
+      new TextRun({ text: data.donViThamDinh || '[đơn vị thẩm định]', font: FONT, size: FONT_SIZE, bold: true }),
+      new TextRun({ text: ` về việc thẩm định KHLCNT dự án, dự toán mua sắm `, font: FONT, size: FONT_SIZE }),
+      new TextRun({ text: data.tenDuAn, font: FONT, size: FONT_SIZE, bold: true }),
+      new TextRun({ text: ';', font: FONT, size: FONT_SIZE }),
+    ],
+    indent: { firstLine: convertMillimetersToTwip(12.7) }, spacing: { after: 60 },
+  }));
+  // Theo đề nghị của đơn vị trình
+  children.push(new Paragraph({
+    children: [
+      new TextRun({ text: `Theo đề nghị của `, font: FONT, size: FONT_SIZE }),
+      new TextRun({ text: data.donViTrinh || '[đơn vị trình]', font: FONT, size: FONT_SIZE, bold: true }),
+      new TextRun({ text: ` tại tờ trình số `, font: FONT, size: FONT_SIZE }),
+      new TextRun({ text: data.soHieuToTrinh || '...........', font: FONT, size: FONT_SIZE }),
+      new TextRun({ text: ` ngày `, font: FONT, size: FONT_SIZE }),
+      new TextRun({ text: data.ngayToTrinh || '..../..../....', font: FONT, size: FONT_SIZE }),
+      new TextRun({ text: ` về việc trình KHLCNT dự án, dự toán mua sắm `, font: FONT, size: FONT_SIZE }),
+      new TextRun({ text: data.tenDuAn, font: FONT, size: FONT_SIZE, bold: true }),
+      new TextRun({ text: ',', font: FONT, size: FONT_SIZE }),
+    ],
+    indent: { firstLine: convertMillimetersToTwip(12.7) }, spacing: { after: 200 },
+  }));
+
+  // QUYẾT ĐỊNH:
+  children.push(new Paragraph({
+    children: [new TextRun({ text: 'QUYẾT ĐỊNH:', font: FONT, size: FONT_SIZE, bold: true })],
+    alignment: AlignmentType.CENTER, spacing: { after: 200 },
+  }));
+
+  // Điều 1
+  children.push(new Paragraph({
+    children: [
+      new TextRun({ text: 'Điều 1. ', font: FONT, size: FONT_SIZE, bold: true }),
+      new TextRun({ text: 'Phê duyệt kế hoạch lựa chọn nhà thầu dự án, dự toán mua sắm: ', font: FONT, size: FONT_SIZE }),
+      new TextRun({ text: data.tenDuAn, font: FONT, size: FONT_SIZE, bold: true }),
+      new TextRun({ text: ' với nội dung chi tiết theo phụ lục đính kèm.', font: FONT, size: FONT_SIZE }),
+    ],
+    indent: { firstLine: convertMillimetersToTwip(12.7) }, spacing: { after: 100 },
+  }));
+
+  // Điều 2
+  children.push(new Paragraph({
+    children: [
+      new TextRun({ text: 'Điều 2. ', font: FONT, size: FONT_SIZE, bold: true }),
+      new TextRun({ text: data.chuDauTu || '[Chủ đầu tư]', font: FONT, size: FONT_SIZE }),
+      new TextRun({ text: ' chịu trách nhiệm tổ chức lựa chọn nhà thầu theo kế hoạch lựa chọn nhà thầu được duyệt đảm bảo tuân thủ các quy định hiện hành.', font: FONT, size: FONT_SIZE }),
+    ],
+    indent: { firstLine: convertMillimetersToTwip(12.7) }, spacing: { after: 100 },
+  }));
+  if (data.donViGiamSat) {
+    children.push(new Paragraph({
+      children: [
+        new TextRun({ text: data.donViGiamSat, font: FONT, size: FONT_SIZE }),
+        new TextRun({ text: ' chịu trách nhiệm tổ chức giám sát hoạt động đấu thầu được giao theo Phụ lục kèm theo Quyết định này.', font: FONT, size: FONT_SIZE }),
+      ],
+      indent: { firstLine: convertMillimetersToTwip(12.7) }, spacing: { after: 100 },
+    }));
+  }
+
+  // Điều 3
+  children.push(new Paragraph({
+    children: [
+      new TextRun({ text: 'Điều 3. ', font: FONT, size: FONT_SIZE, bold: true }),
+      new TextRun({ text: 'Quyết định này có hiệu lực thi hành kể từ ngày ký. ', font: FONT, size: FONT_SIZE }),
+      new TextRun({ text: data.chuDauTu || '[Người đứng đầu cơ quan chủ đầu tư]', font: FONT, size: FONT_SIZE }),
+      new TextRun({ text: ' chịu trách nhiệm thi hành Quyết định này.', font: FONT, size: FONT_SIZE }),
+    ],
+    indent: { firstLine: convertMillimetersToTwip(12.7) }, spacing: { after: 200 },
+  }));
+
+  // Footer
+  children.push(...createFooter(
+    data.nguoiPheDuyet || 'NGƯỜI PHÊ DUYỆT KẾ HOẠCH\nLỰA CHỌN NHÀ THẦU',
+    ['Như Điều 2', 'Lưu VT'],
+  ));
+
+  // ---- PHỤ LỤC: Bảng KHLCNT ----
+  const phuLucChildren: (Paragraph | Table)[] = [];
+  phuLucChildren.push(new Paragraph({
+    children: [new TextRun({ text: 'Phụ lục', font: FONT, size: FONT_SIZE, bold: true, italics: true })],
+    alignment: AlignmentType.RIGHT, spacing: { after: 100 },
+  }));
+  phuLucChildren.push(new Paragraph({
+    children: [new TextRun({ text: 'KẾ HOẠCH LỰA CHỌN NHÀ THẦU', font: FONT, size: 28, bold: true })],
+    alignment: AlignmentType.CENTER, spacing: { after: 50 },
+  }));
+  phuLucChildren.push(new Paragraph({
+    children: [new TextRun({ text: `DỰ ÁN, DỰ TOÁN MUA SẮM: ${data.tenDuAn}`, font: FONT, size: FONT_SIZE, bold: true })],
+    alignment: AlignmentType.CENTER, spacing: { after: 50 },
+  }));
+  phuLucChildren.push(new Paragraph({
+    children: [new TextRun({ text: `(Kèm theo Quyết định số ${data.soQuyetDinh} ngày ${dt.day} tháng ${dt.month} năm ${dt.year})`, font: FONT, size: FONT_SIZE, italics: true })],
+    alignment: AlignmentType.CENTER, spacing: { after: 150 },
+  }));
+
+  // Phụ lục table - same as Bảng số 3
+  const plHeaders = ['STT', 'Tên gói thầu', 'Tóm tắt công việc', 'Giá gói thầu', 'Nguồn vốn',
+    'Hình thức lựa chọn NT', 'Phương thức lựa chọn NT', 'Loại hợp đồng',
+    'Thời gian tổ chức', 'Thời gian thực hiện'];
+  const plColWidths = [500, 1500, 1500, 1200, 1000, 1200, 1200, 900, 900, 900];
+  const plHeaderCells = plHeaders.map((h, i) => tc(h, { bold: true, width: plColWidths[i], size: 18 }));
+  const plRows = [new TableRow({ children: plHeaderCells, tableHeader: true })];
+
+  const tongPL = (data.goiThau || []).reduce((s, g) => s + (g.giaGoiThau || 0), 0);
+  (data.goiThau || []).forEach((g, i) => {
+    plRows.push(new TableRow({
+      children: [
+        tc(String(i + 1), { width: plColWidths[0], size: 18 }),
+        tc(g.tenGoiThau, { width: plColWidths[1], size: 18, align: AlignmentType.LEFT }),
+        tc(g.tomTatCongViec, { width: plColWidths[2], size: 18, align: AlignmentType.LEFT }),
+        tc(g.giaGoiThau ? formatCurrency(g.giaGoiThau) : '', { width: plColWidths[3], size: 18 }),
+        tc(g.nguonVon, { width: plColWidths[4], size: 18 }),
+        tc(g.hinhThucLuaChon, { width: plColWidths[5], size: 18 }),
+        tc(g.phuongThucLuaChon, { width: plColWidths[6], size: 18 }),
+        tc(g.loaiHopDong, { width: plColWidths[7], size: 18 }),
+        tc(g.thoiGianToChuc, { width: plColWidths[8], size: 18 }),
+        tc(g.thoiGianThucHien, { width: plColWidths[9], size: 18 }),
+      ],
+    }));
+  });
+  plRows.push(new TableRow({
+    children: [
+      tc('', { width: plColWidths[0], size: 18 }),
+      tc('Tổng giá gói thầu', { width: plColWidths[1], size: 18, bold: true, align: AlignmentType.LEFT, span: 2 }),
+      tc(tongPL ? formatCurrency(tongPL) : '0', { width: plColWidths[3], size: 18, bold: true }),
+      tc('', { width: plColWidths[4], size: 18 }), tc('', { width: plColWidths[5], size: 18 }),
+      tc('', { width: plColWidths[6], size: 18 }), tc('', { width: plColWidths[7], size: 18 }),
+      tc('', { width: plColWidths[8], size: 18 }),
+    ],
+  }));
+
+  phuLucChildren.push(new Table({
+    rows: plRows,
+    width: { size: 100, type: WidthType.PERCENTAGE },
+  }));
+
+  const doc = new Document({
+    sections: [
+      {
+        properties: { page: { margin: PAGE_MARGINS } },
+        children,
+      },
+      {
+        properties: { page: { margin: PAGE_MARGINS } },
+        children: phuLucChildren,
+      },
+    ],
+  });
+  return Buffer.from(await Packer.toBuffer(doc));
+}
