@@ -380,4 +380,92 @@ export const api = {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
   },
+
+  // ====================== DatSach / Thầu Sách ======================
+  createDatSachProject: (parentId: string, tenDuAn: string, procurementType: string) =>
+    request<any>('/dat-sach/projects', {
+      method: 'POST',
+      body: JSON.stringify({ parentId, tenDuAn, procurementType }),
+    }),
+
+  getDatSachProjects: (parentId: string) =>
+    request<any[]>(`/dat-sach/projects?parentId=${encodeURIComponent(parentId)}`),
+
+  getDatSachProject: (id: string) =>
+    request<any>(`/dat-sach/projects/${encodeURIComponent(id)}`),
+
+  createGDNInSach: (projectId: string, data: any) =>
+    request<any>('/dat-sach/gdn', {
+      method: 'POST',
+      body: JSON.stringify({ projectId, data }),
+    }),
+
+  updateGDNInSach: (id: string, data: any) =>
+    request<any>(`/dat-sach/gdn/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ data }),
+    }),
+
+  assignUsersForSL: (gdnId: string, userIds: string[]) =>
+    request<any>(`/dat-sach/gdn/${encodeURIComponent(gdnId)}/assign`, {
+      method: 'POST',
+      body: JSON.stringify({ userIds }),
+    }),
+
+  fillSL: (gdnId: string, userId: string, soLuong: number) =>
+    request<any>(`/dat-sach/gdn/${encodeURIComponent(gdnId)}/fill-sl`, {
+      method: 'PATCH',
+      body: JSON.stringify({ userId, soLuong }),
+    }),
+
+  getMyAssignments: () =>
+    request<any[]>('/dat-sach/my-assignments'),
+
+  approveGDN: (gdnId: string) =>
+    request<any>(`/dat-sach/gdn/${encodeURIComponent(gdnId)}/approve`, {
+      method: 'POST',
+    }),
+
+  createPCDICoSoIn: (projectId: string, data: any) =>
+    request<any>('/dat-sach/pcdi', {
+      method: 'POST',
+      body: JSON.stringify({ projectId, data }),
+    }),
+
+  updatePCDICoSoIn: (id: string, data: any) =>
+    request<any>(`/dat-sach/pcdi/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ data }),
+    }),
+
+  approvePCDI: (pcdiId: string) =>
+    request<any>(`/dat-sach/pcdi/${encodeURIComponent(pcdiId)}/approve`, {
+      method: 'POST',
+    }),
+
+  downloadGDNDatSach: (gdnId: string) => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    return fetch(`/api/dat-sach/gdn/${encodeURIComponent(gdnId)}/download`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+  },
+
+  downloadPCDIDatSach: (pcdiId: string) => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    return fetch(`/api/dat-sach/pcdi/${encodeURIComponent(pcdiId)}/download`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+  },
+
+  generateQuyetDinhDatSach: (projectId: string) => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    return fetch(`/api/dat-sach/project/${encodeURIComponent(projectId)}/generate`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+  },
+
+  markDatSachCompleted: (projectId: string) =>
+    request<any>(`/dat-sach/projects/${encodeURIComponent(projectId)}/complete`, {
+      method: 'PATCH',
+    }),
 };

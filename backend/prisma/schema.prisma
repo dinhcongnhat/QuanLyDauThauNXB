@@ -51,6 +51,78 @@ enum StepApprovalStatus {
   REJECTED
 }
 
+// ====================== DatSach / Thầu Sách ======================
+
+enum ProcurementType {
+  THAU_THIET_BI
+  THAU_SACH
+}
+
+model DatSachProject {
+  id              String          @id @default(uuid())
+  parentId        String          @map("parent_id")
+  procurementType ProcurementType @default(THAU_SACH) @map("procurement_type")
+  tenDuAn        String          @map("ten_du_an")
+  status         String          @default("DRAFT")
+  createdBy      String          @map("created_by")
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+
+  creator        User        @relation("DatSachProjectCreator", fields: [createdBy], references: [id])
+  gdnDocuments  GDNInSach[] @relation("DatSachProjectGdn")
+  pcdiDocuments PCDICoSoIn[] @relation("DatSachProjectPcdi")
+
+  @@map("dat_sach_projects")
+}
+
+model GDNInSach {
+  id                String          @id @default(uuid())
+  datSachProjectId  String          @map("dat_sach_project_id")
+  status            String          @default("DRAFT")
+  data              Json            @default("{}")
+  createdBy         String          @map("created_by")
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+
+  datSachProject DatSachProject @relation("DatSachProjectGdn", fields: [datSachProjectId], references: [id])
+  creator        User           @relation("GDNInSachCreator", fields: [createdBy], references: [id])
+  assignments    GDNAssignment[] @relation("GDNInSachAssignments")
+
+  @@map("gdn_in_sach")
+}
+
+model GDNAssignment {
+  id            String    @id @default(uuid())
+  gdnInSachId  String    @map("gdn_in_sach_id")
+  userId        String    @map("user_id")
+  assignedBy    String    @map("assigned_by")
+  assignedAt    DateTime  @default(now()) @map("assigned_at")
+  soLuong       Int       @default(0) @map("so_luong")
+  completedAt   DateTime? @map("completed_at")
+
+  gdnInSach GDNInSach @relation("GDNInSachAssignments", fields: [gdnInSachId], references: [id])
+  user      User       @relation("GDNAssignmentUser", fields: [userId], references: [id])
+  assignee  User       @relation("AssignmentAssignee", fields: [assignedBy], references: [id])
+
+  @@unique([gdnInSachId, userId])
+  @@map("gdn_assignments")
+}
+
+model PCDICoSoIn {
+  id                String          @id @default(uuid())
+  datSachProjectId  String          @map("dat_sach_project_id")
+  status            String          @default("DRAFT")
+  data              Json            @default("{}")
+  createdBy         String          @map("created_by")
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+
+  datSachProject DatSachProject @relation("DatSachProjectPcdi", fields: [datSachProjectId], references: [id])
+  creator        User           @relation("PCDICoSoInCreator", fields: [createdBy], references: [id])
+
+  @@map("pcdi_co_so_in")
+}
+
 // StepApprovalRequest must be declared before User since User references it
 model StepApprovalRequest {
   id        String   @id @default(uuid())
@@ -86,6 +158,11 @@ model User {
   stepApprovalRequests StepApprovalRequest[]
   payments            Payment[]             @relation("PaymentCreator")
   bidParticipations   BidParticipation[]    @relation("BidParticipationCreator")
+  gdnDocuments     GDNInSach[] @relation("GDNInSachCreator")
+  gdnAssignments  GDNAssignment[] @relation("GDNAssignmentUser")
+  gdnAssignmentsGiven GDNAssignment[] @relation("AssignmentAssignee")
+  pcdiDocuments   PCDICoSoIn[] @relation("PCDICoSoInCreator")
+  datSachProjects DatSachProject[] @relation("DatSachProjectCreator")
 
   @@map("users")
 }

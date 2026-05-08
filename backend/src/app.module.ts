@@ -8,6 +8,7 @@ import { ContractorSelectionModule } from './contractor-selection/contractor-sel
 import { MinioModule } from './minio/minio.module';
 import { PaymentModule } from './payment/payment.module';
 import { BidParticipationModule } from './bid-participation/bid-participation.module';
+import { DatSachModule } from './dat-sach/dat-sach.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { BidParticipationModule } from './bid-participation/bid-participation.mo
     ContractorSelectionModule,
     PaymentModule,
     BidParticipationModule,
+    DatSachModule,
   ],
 })
 export class AppModule {}

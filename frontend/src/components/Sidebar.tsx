@@ -253,6 +253,9 @@ export function Sidebar() {
                   <Link href="/dashboard/mua-sam/khlcnt" className={linkCls('/dashboard/mua-sam/khlcnt')}>
                     {Icon.docText}<span>Phê duyệt KH LCNT</span>
                   </Link>
+                  <Link href="/dashboard/mua-sam/dat-sach" className={linkCls('/dashboard/mua-sam/dat-sach')}>
+                    {Icon.docText}<span>Thầu Sách</span>
+                  </Link>
                 </div>
               )}
             </div>
