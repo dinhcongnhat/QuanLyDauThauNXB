@@ -4,9 +4,12 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { motion } from 'framer-motion';
 
+export type PreviewType = 'document' | 'gdn' | 'pcdi' | 'qd';
+
 interface Props {
   documentId: string;
   onClose: () => void;
+  type?: PreviewType;
 }
 
 declare global {
@@ -15,22 +18,30 @@ declare global {
   }
 }
 
-export function OnlyOfficePreview({ documentId, onClose }: Props) {
+export function OnlyOfficePreview({ documentId, onClose, type = 'document' }: Props) {
   const editorRef = useRef<any>(null);
-  const containerRef = useRef<string>(`oo-editor-${Date.now()}`);
+  const containerRef = useRef<string>(`oo-editor-${Date.now()}-${Math.random()}`);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  const getConfig = async (docId: string, docType: PreviewType) => {
+    switch (docType) {
+      case 'gdn': return api.getOnlyofficeConfigForGdn(docId);
+      case 'pcdi': return api.getOnlyofficeConfigForPcdi(docId);
+      case 'qd': return api.getOnlyofficeConfigForQD(docId);
+      default: return api.getOnlyofficeConfig(docId);
+    }
+  };
 
   useEffect(() => {
     let destroyed = false;
 
     const init = async () => {
       try {
-        const { onlyofficeUrl, editorConfig } = await api.getOnlyofficeConfig(documentId);
+        const { onlyofficeUrl, editorConfig } = await getConfig(documentId, type);
 
         if (destroyed) return;
 
-        // Load OnlyOffice API script if not already loaded
         if (!window.DocsAPI) {
           await new Promise<void>((resolve, reject) => {
             const script = document.createElement('script');
@@ -68,11 +79,15 @@ export function OnlyOfficePreview({ documentId, onClose }: Props) {
         editorRef.current.destroyEditor();
       }
     };
-  }, [documentId]);
+  }, [documentId, type]);
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60]">
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60]"
+    >
       <div className="bg-white rounded-2xl shadow-xl w-[95vw] h-[90vh] flex flex-col overflow-hidden">
         <div className="flex items-center justify-between px-5 py-3 border-b shrink-0">
           <h3 className="text-lg font-semibold">Xem trước tài liệu</h3>

@@ -58,19 +58,46 @@ enum ProcurementType {
   THAU_SACH
 }
 
+enum ProjectStatus {
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model Project {
+  id              String          @id @default(uuid())
+  tenDuAn         String          @map("ten_du_an")
+  procurementType ProcurementType @map("procurement_type")
+  status          ProjectStatus   @default(IN_PROGRESS) @map("project_status")
+  createdBy       String          @map("created_by")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  creator             User                 @relation("ProjectCreator", fields: [createdBy], references: [id])
+  documents           Document[]            @relation("ProjectDocuments")
+  contractorSelections ContractorSelection[] @relation("ProjectContractorSelections")
+  payments            Payment[]             @relation("ProjectPayments")
+  datSachProjects    DatSachProject[]     @relation("ProjectDatSachProjects")
+
+  @@map("projects")
+}
+
 model DatSachProject {
   id              String          @id @default(uuid())
+  projectId       String?         @map("project_id")
   parentId        String          @map("parent_id")
   procurementType ProcurementType @default(THAU_SACH) @map("procurement_type")
-  tenDuAn        String          @map("ten_du_an")
-  status         String          @default("DRAFT")
-  createdBy      String          @map("created_by")
-  createdAt      DateTime        @default(now()) @map("created_at")
-  updatedAt      DateTime        @updatedAt @map("updated_at")
+  tenDuAn         String          @map("ten_du_an")
+  status          String          @default("DRAFT")
+  qdData          Json            @default("{}") @map("qd_data")
+  createdBy       String          @map("created_by")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
 
-  creator        User        @relation("DatSachProjectCreator", fields: [createdBy], references: [id])
-  gdnDocuments  GDNInSach[] @relation("DatSachProjectGdn")
-  pcdiDocuments PCDICoSoIn[] @relation("DatSachProjectPcdi")
+  project        Project?     @relation("ProjectDatSachProjects", fields: [projectId], references: [id])
+  creator        User         @relation("DatSachProjectCreator", fields: [createdBy], references: [id])
+  gdnDocuments   GDNInSach[] @relation("DatSachProjectGdn")
+  pcdiDocuments  PCDICoSoIn[] @relation("DatSachProjectPcdi")
 
   @@map("dat_sach_projects")
 }
@@ -138,6 +165,57 @@ model StepApprovalRequest {
   @@map("step_approval_requests")
 }
 
+enum NotificationType {
+  DOC_APPROVED
+  DOC_REJECTED
+  DOC_SUBMITTED
+  GDN_APPROVED
+  PCDI_APPROVED
+  QD_APPROVED
+  STEP_APPROVED
+  STEP_REJECTED
+  STEP_PENDING_APPROVAL
+  STEP_COMPLETED
+  PAYMENT_CREATED
+  PAYMENT_COMPLETED
+  BID_RESULT
+  ASSIGNMENT
+  PROJECT_COMPLETED
+  SYSTEM
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String           @map("user_id")
+  type      NotificationType
+  title     String
+  message   String
+  link      String?
+  isRead    Boolean          @default(false) @map("is_read")
+  metadata  Json?
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
+
+model PushSubscription {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  endpoint  String
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, endpoint])
+  @@map("push_subscriptions")
+}
+
 model User {
   id              String   @id @default(uuid())
   name            String
@@ -150,19 +228,22 @@ model User {
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
-  createdDocs     Document[]  @relation("DocCreator")
-  delegatedDocs   Document[]  @relation("DocDelegatee")
-  assignedDocs    Document[]  @relation("DocAssignee")
-  reviews         Review[]
-  contractorSelections ContractorSelection[] @relation("ContractorSelectionCreator")
+  createdDocs          Document[]              @relation("DocCreator")
+  delegatedDocs        Document[]              @relation("DocDelegatee")
+  assignedDocs         Document[]              @relation("DocAssignee")
+  reviews              Review[]
+  contractorSelections ContractorSelection[]  @relation("ContractorSelectionCreator")
   stepApprovalRequests StepApprovalRequest[]
-  payments            Payment[]             @relation("PaymentCreator")
-  bidParticipations   BidParticipation[]    @relation("BidParticipationCreator")
-  gdnDocuments     GDNInSach[] @relation("GDNInSachCreator")
-  gdnAssignments  GDNAssignment[] @relation("GDNAssignmentUser")
-  gdnAssignmentsGiven GDNAssignment[] @relation("AssignmentAssignee")
-  pcdiDocuments   PCDICoSoIn[] @relation("PCDICoSoInCreator")
-  datSachProjects DatSachProject[] @relation("DatSachProjectCreator")
+  payments             Payment[]               @relation("PaymentCreator")
+  bidParticipations    BidParticipation[]      @relation("BidParticipationCreator")
+  gdnDocuments         GDNInSach[]            @relation("GDNInSachCreator")
+  gdnAssignments       GDNAssignment[]        @relation("GDNAssignmentUser")
+  gdnAssignmentsGiven  GDNAssignment[]        @relation("AssignmentAssignee")
+  pcdiDocuments        PCDICoSoIn[]           @relation("PCDICoSoInCreator")
+  datSachProjects      DatSachProject[]       @relation("DatSachProjectCreator")
+  createdProjects      Project[]              @relation("ProjectCreator")
+  notifications        Notification[]
+  pushSubscriptions    PushSubscription[]
 
   @@map("users")
 }
@@ -179,6 +260,8 @@ model RolePermission {
 
 model Document {
   id              String     @id @default(uuid())
+  projectId       String?    @map("project_id")
+  procurementType ProcurementType? @map("procurement_type")
   type            DocType
   status          DocStatus  @default(DRAFT)
   data            Json       @default("{}")
@@ -189,6 +272,7 @@ model Document {
   createdAt       DateTime   @default(now()) @map("created_at")
   updatedAt       DateTime   @updatedAt @map("updated_at")
 
+  project         Project?  @relation("ProjectDocuments", fields: [projectId], references: [id])
   creator         User       @relation("DocCreator", fields: [createdBy], references: [id])
   delegatee       User?      @relation("DocDelegatee", fields: [delegatedTo], references: [id])
   assignee        User?      @relation("DocAssignee", fields: [assignedTo], references: [id])
@@ -216,6 +300,7 @@ model Review {
 
 model ContractorSelection {
   id                  String              @id @default(uuid())
+  projectId           String?             @map("project_id")
   qdKhlcntId          String              @map("qd_khlcnt_id")
   goiThauIndex        Int                 @map("goi_thau_index")
   tenGoiThau          String              @map("ten_goi_thau")
@@ -227,6 +312,7 @@ model ContractorSelection {
 
   contractPackageType  ContractPackageType? @map("contract_package_type")
 
+  project             Project?             @relation("ProjectContractorSelections", fields: [projectId], references: [id])
   qdKhlcnt            Document            @relation("ContractorSelectionDoc", fields: [qdKhlcntId], references: [id])
   creator             User                @relation("ContractorSelectionCreator", fields: [createdBy], references: [id])
   steps               ProcurementStep[]
@@ -266,6 +352,7 @@ model ProcurementStep {
 
 model Payment {
   id                    String              @id @default(uuid())
+  projectId             String?             @map("project_id")
   contractorSelectionId String              @map("contractor_selection_id")
   contractPackageType   ContractPackageType @map("contract_package_type")
   maSoHD                String?             @map("ma_so_hd")
@@ -274,9 +361,10 @@ model Payment {
   createdAt             DateTime            @default(now()) @map("created_at")
   updatedAt             DateTime            @updatedAt @map("updated_at")
 
-  contractorSelection   ContractorSelection @relation(fields: [contractorSelectionId], references: [id])
-  creator               User                @relation("PaymentCreator", fields: [createdBy], references: [id])
-  steps                 PaymentStep[]
+  project             Project?             @relation("ProjectPayments", fields: [projectId], references: [id])
+  contractorSelection ContractorSelection   @relation(fields: [contractorSelectionId], references: [id])
+  creator             User                  @relation("PaymentCreator", fields: [createdBy], references: [id])
+  steps              PaymentStep[]
 
   @@map("payments")
 }
@@ -306,6 +394,80 @@ enum BidResult {
   PENDING
   WON
   LOST
+}
+
+// ====================== Document Library ======================
+
+enum LibraryType {
+  THONG_TIN_TO_CHUC
+  THONG_TIN_NHA_THAU
+  DIA_CHI
+  KY_TUONG
+  CUSTOM
+}
+
+enum FieldType {
+  TEXT
+  TEXTAREA
+  DATE
+  MONEY
+  NUMBER
+  EMAIL
+  PHONE
+}
+
+model Organization {
+  id        String      @id @default(cuid())
+  ten       String
+  moTa      String?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  libraries Library[]
+
+  @@map("organizations")
+}
+
+model Library {
+  id             String       @id @default(cuid())
+  ten            String
+  loai           LibraryType
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  fields         LibraryField[]
+  savedValues    SavedValue[]
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@map("libraries")
+}
+
+model LibraryField {
+  id            String     @id @default(cuid())
+  libraryId     String     @map("library_id")
+  library       Library    @relation(fields: [libraryId], references: [id], onDelete: Cascade)
+  tenTruong     String     @map("ten_truong")
+  khoa          String     @unique @default(cuid())
+  kieuDuLieu    FieldType  @map("kieu_du_lieu")
+  giaTriMacDinh String?    @map("gia_tri_mac_dinh")
+  batBuoc       Boolean    @default(false) @map("bat_buoc")
+  thuTu         Int        @default(0) @map("thu_tu")
+  nhom          String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@map("library_fields")
+}
+
+model SavedValue {
+  id        String   @id @default(cuid())
+  libraryId String   @map("library_id")
+  library   Library  @relation(fields: [libraryId], references: [id], onDelete: Cascade)
+  tenGiaTri String   @map("ten_gia_tri")
+  duLieu    Json     @map("du_lieu")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("saved_values")
 }
 
 model BidParticipation {

@@ -1,15 +1,17 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuthStore } from '@/lib/store';
 import { Sidebar } from '@/components/Sidebar';
 import { motion, AnimatePresence } from 'framer-motion';
+import NotificationPanel from '@/components/NotificationPanel';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, isLoading, hydrate } = useAuthStore();
+  const [notifOpen, setNotifOpen] = useState(false);
 
   useEffect(() => {
     hydrate();
@@ -33,8 +35,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="flex min-h-screen">
-      <Sidebar />
-      <main className="flex-1 p-6 bg-gray-50 overflow-auto relative">
+      <Sidebar onOpenNotifications={() => setNotifOpen(true)} />
+      <main className="flex-1 p-6 bg-gray-50 overflow-y-auto relative">
         {/* Brand watermark */}
         <div
           aria-hidden="true"
@@ -84,6 +86,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </motion.div>
         </AnimatePresence>
       </main>
+
+      <NotificationPanel isOpen={notifOpen} onClose={() => setNotifOpen(false)} />
     </div>
   );
 }

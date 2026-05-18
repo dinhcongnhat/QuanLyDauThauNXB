@@ -8,6 +8,7 @@ import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useSearchParams } from 'next/navigation';
 
 const PACKAGE_TYPE_LABELS: Record<string, string> = {
   GOI_THAU_TU_VAN: 'Gói thầu tư vấn',
@@ -29,6 +30,9 @@ const STEP_STATUS_COLORS: Record<string, string> = {
 
 export default function ThanhToanPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const [projects, setProjects] = useState<any[]>([]);
+  const [selectedProject, setSelectedProject] = useState<string>(searchParams.get('project') || '');
   const [payments, setPayments] = useState<any[]>([]);
   const [contracts, setContracts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,30 +40,32 @@ export default function ThanhToanPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
 
-  useEffect(() => {
-    loadPayments();
-  }, []);
-
   const loadPayments = async () => {
     setLoading(true);
     try {
-      const data = await api.getAllPayments();
+      const data = await api.getAllPayments(selectedProject || undefined);
       setPayments(data);
+      const projectList = await api.getProjects();
+      setProjects(projectList);
     } catch (err: any) { toast.error(err.message); }
     finally { setLoading(false); }
   };
 
+  useEffect(() => {
+    loadPayments();
+  }, [selectedProject]);
+
   const handleSearch = async () => {
     if (!search.trim()) { loadPayments(); return; }
     try {
-      const data = await api.searchPayments(search);
+      const data = await api.searchPayments(search, selectedProject || undefined);
       setPayments(data);
     } catch (err: any) { toast.error(err.message); }
   };
 
   const openCreateDialog = async () => {
     try {
-      const data = await api.getPaymentContracts();
+      const data = await api.getPaymentContracts(selectedProject || undefined);
       setContracts(data);
       setShowCreate(true);
     } catch (err: any) { toast.error(err.message); }
@@ -68,7 +74,7 @@ export default function ThanhToanPage() {
   const handleCreate = async (contractorSelectionId: string) => {
     setCreating(true);
     try {
-      const payment = await api.createPayment(contractorSelectionId);
+      const payment = await api.createPayment(contractorSelectionId, selectedProject || undefined);
       toast.success('Đã tạo hồ sơ thanh toán');
       setShowCreate(false);
       router.push(`/dashboard/thanh-toan/${payment.id}`);
@@ -89,13 +95,28 @@ export default function ThanhToanPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">💰 Thanh toán</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Thanh toán</h1>
           <p className="text-sm text-gray-500 mt-1">Quản lý quy trình thanh toán hợp đồng</p>
         </div>
         <button onClick={openCreateDialog}
           className="px-4 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 font-medium text-sm">
-          ➕ Tạo hồ sơ thanh toán
+          + Tạo hồ sơ thanh toán
         </button>
+      </div>
+
+      {/* Project Selector */}
+      <div className="bg-indigo-50 rounded-xl p-4 border border-indigo-100">
+        <label className="block text-sm font-medium text-indigo-900 mb-2">Chọn dự án</label>
+        <select
+          className="w-full max-w-xs bg-white border border-indigo-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-400 outline-none"
+          value={selectedProject}
+          onChange={e => setSelectedProject(e.target.value)}
+        >
+          <option value="">— Tất cả dự án —</option>
+          {projects.map((p: any) => (
+            <option key={p.id} value={p.id}>{p.tenDuAn}</option>
+          ))}
+        </select>
       </div>
 
       {/* Search */}

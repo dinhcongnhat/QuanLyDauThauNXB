@@ -10,6 +10,8 @@ import { vi } from 'date-fns/locale';
 import { motion } from 'framer-motion';
 import { SmartFormField, FieldDef } from '@/components/SmartFormField';
 import { CDT_STEP_FIELDS, CHCT_STEP_FIELDS, ATTACHMENT_ONLY, getFieldsForStep } from '@/lib/lcnt-field-defs';
+import { LibraryPicker, SaveToLibraryModal } from '@/components/LibraryPicker';
+import { SavedValue } from '@/lib/document-library-types';
 
 const STEP_STATUS_LABELS: Record<string, string> = {
   NOT_STARTED: 'Chưa bắt đầu',
@@ -62,6 +64,8 @@ export default function LCNTStepDetailPage() {
   const [contractPackageType, setContractPackageType] = useState<string>('');
   const [approvers, setApprovers] = useState<any[]>([]);
   const [selectedApproverId, setSelectedApproverId] = useState<string>('');
+  const [showLibraryPicker, setShowLibraryPicker] = useState(false);
+  const [showSaveToLibraryModal, setShowSaveToLibraryModal] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -197,6 +201,20 @@ export default function LCNTStepDetailPage() {
       toast.success('Đã mở lại bước để chỉnh sửa');
       await loadData();
     } catch (err: any) { toast.error(err.message); }
+  };
+
+  const handleSelectLibraryValue = (savedValue: SavedValue) => {
+    const data = savedValue.duLieu as Record<string, any>;
+    const newFormData = { ...formData };
+    for (const [key, value] of Object.entries(data)) {
+      newFormData[key] = String(value ?? '');
+    }
+    setFormData(newFormData);
+    toast.success('Đã điền thông tin từ thư viện văn bản');
+  };
+
+  const handleSaveToLibrarySuccess = () => {
+    toast.success('Đã lưu vào thư viện văn bản');
   };
 
   const handleGenerateDocx = async () => {
@@ -368,6 +386,32 @@ export default function LCNTStepDetailPage() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Library Picker & Save to Library */}
+      {fields.length > 0 && canEdit && (
+        <div className="flex items-center gap-3 p-4 bg-blue-50 border border-blue-100 rounded-xl">
+          <span className="text-blue-600 text-sm font-medium">Thư viện văn bản:</span>
+          <LibraryPicker
+            libraryType="THONG_TIN_TO_CHUC"
+            onSelect={handleSelectLibraryValue}
+            onSaveToLibrary={handleSaveToLibrarySuccess}
+          />
+          <LibraryPicker
+            libraryType="THONG_TIN_NHA_THAU"
+            onSelect={handleSelectLibraryValue}
+            onSaveToLibrary={handleSaveToLibrarySuccess}
+          />
+          <button
+            onClick={() => setShowSaveToLibraryModal(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-50 text-green-700 rounded-lg hover:bg-green-100 transition-colors text-sm font-medium border border-green-200"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+              <path d="M8 12a.5.5 0 0 0 .5-.5V5.707l2.146 2.147a.5.5 0 0 0 .708-.708l-3-3a.5.5 0 0 0-.708 0l-3 3a.5.5 0 1 0 .708.708L7.5 5.707V11.5a.5.5 0 0 0 .5.5Z" />
+            </svg>
+            Lưu vào thư viện
+          </button>
         </div>
       )}
 
@@ -619,6 +663,16 @@ export default function LCNTStepDetailPage() {
           </div>
         </div>
       )}
+
+      {/* Save to Library Modal */}
+      <SaveToLibraryModal
+        isOpen={showSaveToLibraryModal}
+        onClose={() => setShowSaveToLibraryModal(false)}
+        libraryType="THONG_TIN_TO_CHUC"
+        formData={formData}
+        formFieldKeys={fields.map(f => f.key)}
+        onSave={handleSaveToLibrarySuccess}
+      />
     </div>
   );
 }

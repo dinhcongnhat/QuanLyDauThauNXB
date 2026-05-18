@@ -100,7 +100,7 @@ export default function DatSachListPage() {
                     </span>
                     <span className="text-xs text-gray-400 ml-2">{doc.data?.soQuyetDinh}</span>
                     <h3 className="text-lg font-semibold text-gray-900 mt-2">
-                      {doc.data?.tenChuDauTu || doc.data?.tenDuAn || doc.id.slice(0, 8)}
+                      {doc.data?.tenChuDauTu || doc.data?.tenDuAn || 'Tài liệu đặt sách'}
                     </h3>
                     <p className="text-sm text-gray-500 mt-1">
                       Giá trị: {doc.data?.giaTriDuToanDuyet?.toLocaleString('vi-VN')} đồng

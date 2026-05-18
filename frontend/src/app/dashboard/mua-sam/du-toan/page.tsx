@@ -442,7 +442,7 @@ export default function DuToanPage() {
                 <option value="">-- Chọn Tờ trình đã duyệt --</option>
                 {approvedTTs.map(tt => (
                   <option key={tt.id} value={tt.id}>
-                    {tt.data?.SoToTrinh ? `${tt.data.SoToTrinh} - ` : ''}{tt.data?.TenGoiThau || tt.id.slice(0, 8)} ({tt.data?.DuToanBangSo || ''})
+                    {tt.data?.SoToTrinh ? `${tt.data.SoToTrinh} - ` : ''}{tt.data?.TenGoiThau || 'Tờ trình dự toán'} ({tt.data?.DuToanBangSo || ''})
                   </option>
                 ))}
               </select>

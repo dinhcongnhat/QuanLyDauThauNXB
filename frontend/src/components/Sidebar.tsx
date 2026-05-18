@@ -9,6 +9,7 @@ import { api } from '@/lib/api';
 import { Role } from '@/lib/types';
 import toast from 'react-hot-toast';
 import { AnimatePresence, motion } from 'framer-motion';
+import NotificationBell from './NotificationBell';
 
 const roleLabels: Record<Role, string> = {
   ADMIN: 'Quản trị viên',
@@ -17,17 +18,32 @@ const roleLabels: Record<Role, string> = {
   DIRECTOR: 'Giám đốc',
 };
 
-/* ── SVG Icons (formal, government-style) ── */
+/* ── SVG Icons ── */
 const Icon = {
   dashboard: (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
-      <path d="M10.707 2.293a1 1 0 0 0-1.414 0l-7 7a1 1 0 0 0 1.414 1.414L4 10.414V17a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1v-2a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v2a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1v-6.586l.293.293a1 1 0 0 0 1.414-1.414l-7-7Z" />
+      <path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7Z" />
+    </svg>
+  ),
+  project: (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+      <path fillRule="evenodd" d="M3 6a2 2 0 012-2H6a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V6zm10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clipRule="evenodd" />
+    </svg>
+  ),
+  device: (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+      <path fillRule="evenodd" d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z" clipRule="evenodd" />
+    </svg>
+  ),
+  book: (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+      <path d="M10.394 2.08a1 1 0 00-.788 0l-7 3a1 1 0 000 1.84L5.25 8.051a.999.999 0 01.356-.257l4-1.714a1 1 0 11.788 1.838L7.667 9.088l1.94.831a1 1 0 00.787 0l7-3a1 1 0 000-1.838l-7-3zM3.31 9.397L5 10.12v4.102a8.969 8.969 0 00-1.05-.174 1 1 0 01-.89-.89 11.115 11.115 0 01.25-3.762zM9.3 16.573A9.026 9.026 0 007 14.935v-3.957l1.818.78a3 3 0 002.364 0l5.508-2.361a11.026 11.026 0 01.25 3.762 1 1 0 01-.89.89 8.968 8.968 0 00-5.35 2.524 1 1 0 01-1.4 0z" />
     </svg>
   ),
   clipboard: (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
-      <path fillRule="evenodd" d="M15.988 3.012A2.25 2.25 0 0 1 18 5.25v6.5A2.25 2.25 0 0 1 15.75 14H13.5V7A2.5 2.5 0 0 0 11 4.5H8.128a2.252 2.252 0 0 1 1.884-1.488A2.25 2.25 0 0 1 12.25 1h1.5a2.25 2.25 0 0 1 2.238 2.012ZM11.5 3.25a.75.75 0 0 1 .75-.75h1.5a.75.75 0 0 1 .75.75v.25h-3v-.25Z" clipRule="evenodd" />
-      <path fillRule="evenodd" d="M2 7a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V7Zm2 3.25a.75.75 0 0 1 .75-.75h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1-.75-.75Zm0 3.5a.75.75 0 0 1 .75-.75h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1-.75-.75Z" clipRule="evenodd" />
+      <path fillRule="evenodd" d="M15.988 3.012A2.25 2.25 0 0118 5.25v6.5A2.25 2.25 0 0115.75 14H13.5V7A2.5 2.5 0 0011 4.5H8.128a2.252 2.252 0 011.884-1.488A2.25 2.25 0 0112.25 1h1.5a2.25 2.25 0 012.238 2.012ZM11.5 3.25a.75.75 0 01.75-.75h1.5a.75.75 0 01.75.75v.25h-3v-.25Z" clipRule="evenodd" />
+      <path fillRule="evenodd" d="M2 7a1 1 0 011-1h8a1 1 0 011 1v10a1 1 0 01-1 1H3a1 1 0 01-1-1V7Zm2 3.25a.75.75 0 01.75-.75h4.5a.75.75 0 010 1.5h-4.5a.75.75 0 01-.75-.75Zm0 3.5a.75.75 0 01.75-.75h4.5a.75.75 0 010 1.5h-4.5a.75.75 0 01-.75-.75Z" clipRule="evenodd" />
     </svg>
   ),
   users: (
@@ -38,11 +54,6 @@ const Icon = {
   shield: (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
       <path fillRule="evenodd" d="M9.661 2.237a.531.531 0 0 1 .678 0 11.947 11.947 0 0 0 7.078 2.749.5.5 0 0 1 .479.425c.069.52.104 1.05.104 1.59 0 5.162-3.26 9.563-7.834 11.256a.48.48 0 0 1-.332 0C5.26 16.564 2 12.163 2 7c0-.538.035-1.069.104-1.589a.5.5 0 0 1 .48-.425 11.947 11.947 0 0 0 7.077-2.75Zm4.196 5.954a.75.75 0 0 0-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 1 0-1.06 1.061l2.5 2.5a.75.75 0 0 0 1.137-.089l4-5.5Z" clipRule="evenodd" />
-    </svg>
-  ),
-  plan: (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
-      <path fillRule="evenodd" d="M3.5 2A1.5 1.5 0 0 0 2 3.5V15a3 3 0 1 0 6 0V3.5A1.5 1.5 0 0 0 6.5 2h-3Zm11.76 6.923-.662 3.883a1.5 1.5 0 0 1-1.06 1.178l-3.768 1.074a3 3 0 0 1-1.262.1l-.136-.024 5.614-1.602a.75.75 0 0 0-.414-1.443l-7.146 2.041A3.003 3.003 0 0 1 5 12.021V3.5A3.5 3.5 0 0 1 6.5 0h3A1.5 1.5 0 0 1 11 1.5V6h2.728a1.5 1.5 0 0 1 1.478 1.243l.054.32Z" clipRule="evenodd" />
     </svg>
   ),
   docApproval: (
@@ -58,11 +69,6 @@ const Icon = {
   building: (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
       <path fillRule="evenodd" d="M4 16.5v-13h-.25a.75.75 0 0 1 0-1.5h12.5a.75.75 0 0 1 0 1.5H16v13h.25a.75.75 0 0 1 0 1.5H3.75a.75.75 0 0 1 0-1.5H4Zm3-11a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1Zm.5 3.5a.5.5 0 0 0-.5.5v1a.5.5 0 0 0 .5.5h1a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 0-.5-.5h-1Zm-.5 4.5a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1Zm4.5-8.5a.5.5 0 0 0-.5.5v1a.5.5 0 0 0 .5.5h1a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 0-.5-.5h-1ZM11 9.5a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1Zm.5 3.5a.5.5 0 0 0-.5.5v1a.5.5 0 0 0 .5.5h1a.5.5 0 0 0 .5-.5v-1a.5.5 0 0 0-.5-.5h-1Z" clipRule="evenodd" />
-    </svg>
-  ),
-  handshake: (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
-      <path fillRule="evenodd" d="M13.2 2.24a.75.75 0 0 0-.04 1.06l2.1 2.1H11.5a3.75 3.75 0 0 0-3.75 3.75v1.1a.75.75 0 0 0 1.5 0v-1.1a2.25 2.25 0 0 1 2.25-2.25h3.76l-2.1 2.1a.75.75 0 1 0 1.06 1.06l3.5-3.5a.75.75 0 0 0 0-1.06l-3.5-3.5a.75.75 0 0 0-1.06.04ZM6.8 17.76a.75.75 0 0 0 .04-1.06l-2.1-2.1H8.5a3.75 3.75 0 0 0 3.75-3.75v-1.1a.75.75 0 0 0-1.5 0v1.1a2.25 2.25 0 0 1-2.25 2.25H4.74l2.1-2.1a.75.75 0 1 0-1.06-1.06l-3.5 3.5a.75.75 0 0 0 0 1.06l3.5 3.5a.75.75 0 0 0 1.06-.04Z" clipRule="evenodd" />
     </svg>
   ),
   wallet: (
@@ -82,7 +88,7 @@ const Icon = {
   ),
   bidding: (
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
-      <path d="M10 9.25a.75.75 0 0 0-.75.75v.01c0 .414.336.75.75.75h.01a.75.75 0 0 0 .75-.75V10a.75.75 0 0 0-.75-.75H10ZM6 13.25a.75.75 0 0 0-.75.75v.01c0 .414.336.75.75.75h.01a.75.75 0 0 0 .75-.75V14a.75.75 0 0 0-.75-.75H6ZM8 13.25a.75.75 0 0 0-.75.75v.01c0 .414.336.75.75.75h.01a.75.75 0 0 0 .75-.75V14a.75.75 0 0 0-.75-.75H8ZM9.25 14a.75.75 0 0 1 .75-.75h.01a.75.75 0 0 1 .75.75v.01a.75.75 0 0 1-.75.75H10a.75.75 0 0 1-.75-.75V14ZM12 11.25a.75.75 0 0 0-.75.75v.01c0 .414.336.75.75.75h.01a.75.75 0 0 0 .75-.75V12a.75.75 0 0 0-.75-.75H12ZM12 13.25a.75.75 0 0 0-.75.75v.01c0 .414.336.75.75.75h.01a.75.75 0 0 0 .75-.75V14a.75.75 0 0 0-.75-.75H12ZM13.25 12a.75.75 0 0 1 .75-.75h.01a.75.75 0 0 1 .75.75v.01a.75.75 0 0 1-.75.75H14a.75.75 0 0 1-.75-.75V12ZM14 13.25a.75.75 0 0 0-.75.75v.01c0 .414.336.75.75.75h.01a.75.75 0 0 0 .75-.75V14a.75.75 0 0 0-.75-.75H14Z" />
+      <path d="M10 9.25a.75.75 0 0 0-.75.75v.01c0 .414.336.75.75.75h.01a.75.75 0 0 0 .75-.75V10a.75.75 0 0 0-.75-.75H10ZM6 13.25a.75.75 0 0 0-.75.75v.01c0 .414.336.75.75.75h.01a.75.75 0 0 0 .75-.75V14a.75.75 0 0 0-.75-.75H6ZM8 13.25a.75.75 0 0 0-.75.75v.01c0 .414.336.75.75.75h.01a.75.75 0 0 0 .75-.75V14a.75.75 0 0 0-.75-.75H8ZM9.25 14a.75.75 0 0 1 .75-.75h.01a.75.75 0 0 1 .75.75v.01a.75.75 0 0 1-.75.75H10a.75.75 0 0 1-.75-.75V14ZM12 11.25a.75.75 0 0 0-.75.75v.01c0 .414.336.75.75.75h.01a.75.75 0 0 0 .75-.75V12a.75.75 0 0 0-.75-.75H12ZM12 13.25a.75.75 0 0 0-.75.75v.01c0 .414.336.75.75.75h.01a.75.75 0 0 0 .75-.75V14a.75.75 0 0 0-.75-.75H12Z" />
       <path fillRule="evenodd" d="M5.75 2a.75.75 0 0 1 .75.75V4h7V2.75a.75.75 0 0 1 1.5 0V4h.25A2.75 2.75 0 0 1 18 6.75v8.5A2.75 2.75 0 0 1 15.25 18H4.75A2.75 2.75 0 0 1 2 15.25v-8.5A2.75 2.75 0 0 1 4.75 4H5V2.75A.75.75 0 0 1 5.75 2Zm-1 5.5c-.69 0-1.25.56-1.25 1.25v6.5c0 .69.56 1.25 1.25 1.25h10.5c.69 0 1.25-.56 1.25-1.25v-6.5c0-.69-.56-1.25-1.25-1.25H4.75Z" clipRule="evenodd" />
     </svg>
   ),
@@ -96,24 +102,35 @@ const Icon = {
       <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h2.433a.75.75 0 0 0 0-1.5H4.397a.75.75 0 0 0-.75.75v3.834a.75.75 0 0 0 1.5 0v-2.02l.31.312a7 7 0 0 0 11.712-3.138.75.75 0 0 0-1.449-.39Zm-10.624-2.85a5.5 5.5 0 0 1 9.201-2.465l.312.31H11.77a.75.75 0 0 0 0 1.5h3.835a.75.75 0 0 0 .75-.75V3.335a.75.75 0 0 0-1.5 0v2.02l-.31-.311A7 7 0 0 0 2.83 8.182a.75.75 0 0 0 1.449.39l.408.002Z" clipRule="evenodd" />
     </svg>
   ),
+  cart: (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+      <path d="M1 2.25A.75.75 0 0 1 1.75 1.5h2.494l.93 3.745-1.014 1.377a.75.75 0 0 1-1.33-.5l-1.876-5.372A.75.75 0 0 1 1 2.25zM4 5.25A.75.75 0 0 1 4.75 4.5h10.5a.75.75 0 0 1 0 1.5H4.75A.75.75 0 0 1 4 5.25zm0 3A.75.75 0 0 1 4.75 7.5h10.5a.75.75 0 0 1 0 1.5H4.75A.75.75 0 0 1 4 8.25zm0 3A.75.75 0 0 1 4.75 11h10.5a.75.75 0 0 1 0 1.5H4.75A.75.75 0 0 1 4 11.25z" />
+    </svg>
+  ),
 };
 
-export function Sidebar() {
+interface SidebarProps {
+  onOpenNotifications: () => void;
+}
+
+export function Sidebar({ onOpenNotifications }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout, activeView, setActiveView } = useAuthStore();
-  const [muaSamOpen, setMuaSamOpen] = useState(
-    pathname.startsWith('/dashboard/mua-sam'),
-  );
   const [quanLyOpen, setQuanLyOpen] = useState(
-    pathname.startsWith('/dashboard/quan-ly'),
+    pathname.startsWith('/dashboard/quan-ly') || pathname.startsWith('/dashboard/admin'),
+  );
+  const [muaSamOpen, setMuaSamOpen] = useState(
+    pathname.startsWith('/dashboard/mua-sam/sach'),
+  );
+  const [thietBiOpen, setThietBiOpen] = useState(
+    pathname.startsWith('/dashboard/mua-sam/thiet-bi'),
   );
   const [showSettings, setShowSettings] = useState(false);
   const [showChangePw, setShowChangePw] = useState(false);
   const [pwForm, setPwForm] = useState({ old: '', new: '', confirm: '' });
   const [pwLoading, setPwLoading] = useState(false);
 
-  // Auto-correct activeView based on business roles
   useEffect(() => {
     if (!user || user.role === 'ADMIN') return;
     const canCDT = !!user.isInvestor;
@@ -170,6 +187,20 @@ export function Sidebar() {
 
   const roleDisplay = activeView === 'chu-dau-tu' ? 'Chủ đầu tư' : 'Nhà thầu';
 
+  const dropdownCls = (isOpen: boolean) =>
+    `w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm transition-colors ${
+      isOpen
+        ? 'bg-red-50 text-red-800 font-semibold'
+        : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+    }`;
+
+  const subLinkCls = (href: string) =>
+    `flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-all duration-150 ${
+      isActive(href)
+        ? 'bg-red-50 text-red-800 font-semibold border-l-[3px] border-red-700 -ml-[3px]'
+        : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
+    }`;
+
   return (
     <aside className="w-64 bg-white border-r border-gray-200 h-screen sticky top-0 flex flex-col shrink-0">
       {/* ── Header / Logo ── */}
@@ -183,7 +214,7 @@ export function Sidebar() {
         </div>
       </div>
 
-      {/* ── Role indicator for non-admin ── */}
+      {/* ── Role indicator ── */}
       {!isAdmin && (isCDT || isNT) && (
         <div className="mx-3 mt-3 mb-1 px-3 py-2 rounded-lg bg-gradient-to-r from-red-50 to-orange-50 border border-red-100">
           <p className="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Vai trò hiện tại</p>
@@ -200,85 +231,111 @@ export function Sidebar() {
 
         {/* ===== ADMIN NAV ===== */}
         {isAdmin && (
-          <div>
-            <button
-              onClick={() => setQuanLyOpen(!quanLyOpen)}
-              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm transition-colors ${
-                pathname.startsWith('/dashboard/quan-ly')
-                  ? 'bg-red-50 text-red-800 font-semibold'
-                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-              }`}
-            >
-              <span className="flex items-center gap-3">
-                {Icon.gear}<span>Quản lý hệ thống</span>
-              </span>
-              <span className={`text-[10px] transition-transform ${quanLyOpen ? 'rotate-90' : ''}`}>▶</span>
-            </button>
-            {quanLyOpen && (
-              <div className="ml-6 mt-1 space-y-1 border-l-2 border-gray-100 pl-3">
-                <Link href="/dashboard/quan-ly/nguoi-dung" className={linkCls('/dashboard/quan-ly/nguoi-dung')}>
-                  {Icon.users}<span>Quản lý người dùng</span>
-                </Link>
-                <Link href="/dashboard/quan-ly/phan-quyen" className={linkCls('/dashboard/quan-ly/phan-quyen')}>
-                  {Icon.shield}<span>Quản lý phân quyền</span>
-                </Link>
-              </div>
-            )}
-          </div>
+          <>
+            {/* Quản lý hệ thống */}
+            <div>
+              <button
+                onClick={() => setQuanLyOpen(!quanLyOpen)}
+                className={dropdownCls(quanLyOpen)}
+              >
+                <span className="flex items-center gap-3">
+                  {Icon.gear}<span>Quản lý hệ thống</span>
+                </span>
+                <span className={`text-[10px] transition-transform ${quanLyOpen ? 'rotate-90' : ''}`}>▶</span>
+              </button>
+              {quanLyOpen && (
+                <div className="ml-6 mt-1 space-y-1 border-l-2 border-gray-100 pl-3">
+                  <Link href="/dashboard/admin/thu-vien-van-ban" className={linkCls('/dashboard/admin/thu-vien-van-ban')}>
+                    {Icon.gear}<span>Thư viện Văn Bản</span>
+                  </Link>
+                  <Link href="/dashboard/quan-ly/nguoi-dung" className={linkCls('/dashboard/quan-ly/nguoi-dung')}>
+                    {Icon.users}<span>Quản lý người dùng</span>
+                  </Link>
+                  <Link href="/dashboard/quan-ly/phan-quyen" className={linkCls('/dashboard/quan-ly/phan-quyen')}>
+                    {Icon.shield}<span>Quản lý phân quyền</span>
+                  </Link>
+                </div>
+              )}
+            </div>
+          </>
         )}
 
         {/* ===== CHỦ ĐẦU TƯ NAV ===== */}
         {isCDT && (
           <>
-            {/* Kế hoạch LCNT */}
+            {/* Quản lý Dự án */}
+            <Link href="/dashboard/du-an" className={linkCls('/dashboard/du-an')}>
+              {Icon.project}<span>Quản lý Dự án</span>
+            </Link>
+
+            {/* Thầu Sách - expandable */}
             <div>
               <button
-                onClick={() => setMuaSamOpen(!muaSamOpen)}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm transition-colors ${
-                  pathname.startsWith('/dashboard/mua-sam')
-                    ? 'bg-red-50 text-red-800 font-semibold'
-                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                }`}
+                onClick={() => setQuanLyOpen(prev => {
+                  const next = !prev;
+                  if (next) { setMuaSamOpen(false); setThietBiOpen(false); }
+                  return next;
+                })}
+                className={dropdownCls(quanLyOpen)}
               >
                 <span className="flex items-center gap-3">
-                  {Icon.clipboard}<span>Kế hoạch LCNT</span>
+                  {Icon.book}<span>Thầu Sách</span>
                 </span>
-                <span className={`text-[10px] transition-transform ${muaSamOpen ? 'rotate-90' : ''}`}>▶</span>
+                <span className={`text-[10px] transition-transform ${quanLyOpen ? 'rotate-90' : ''}`}>▶</span>
               </button>
-              {muaSamOpen && (
-                <div className="ml-6 mt-1 space-y-1 border-l-2 border-gray-100 pl-3">
-                  <Link href="/dashboard/mua-sam/du-toan" className={linkCls('/dashboard/mua-sam/du-toan')}>
-                    {Icon.docApproval}<span>Phê duyệt dự toán</span>
+              {quanLyOpen && (
+                <div className="ml-6 mt-1 space-y-1 border-l-2 border-green-100 pl-3">
+                  <Link href="/dashboard/mua-sam/sach/dat-sach" className={subLinkCls('/dashboard/mua-sam/sach/dat-sach')}>
+                    {Icon.book}<span>Đặt sách</span>
                   </Link>
-                  <Link href="/dashboard/mua-sam/khlcnt" className={linkCls('/dashboard/mua-sam/khlcnt')}>
-                    {Icon.docText}<span>Phê duyệt KH LCNT</span>
+                  <Link href="/dashboard/mua-sam/sach/du-toan" className={subLinkCls('/dashboard/mua-sam/sach/du-toan')}>
+                    {Icon.docText}<span>Phê duyệt Dự toán</span>
                   </Link>
-                  <Link href="/dashboard/mua-sam/dat-sach" className={linkCls('/dashboard/mua-sam/dat-sach')}>
-                    {Icon.docText}<span>Thầu Sách</span>
+                  <Link href="/dashboard/mua-sam/sach/khlcnt" className={subLinkCls('/dashboard/mua-sam/sach/khlcnt')}>
+                    {Icon.clipboard}<span>Kế hoạch LCNT</span>
+                  </Link>
+                  <Link href="/dashboard/lua-chon-nha-thau" className={subLinkCls('/dashboard/lua-chon-nha-thau')}>
+                    {Icon.building}<span>Lựa chọn Nhà thầu</span>
+                  </Link>
+                  <Link href="/dashboard/thanh-toan" className={subLinkCls('/dashboard/thanh-toan')}>
+                    {Icon.wallet}<span>Thanh toán</span>
                   </Link>
                 </div>
               )}
             </div>
 
-            {/* Lựa chọn nhà thầu */}
-            <Link href="/dashboard/lua-chon-nha-thau" className={linkCls('/dashboard/lua-chon-nha-thau')}>
-              {Icon.building}<span>Lựa chọn nhà thầu</span>
-            </Link>
-
-            {/* Thanh toán */}
-            <Link href="/dashboard/thanh-toan" className={linkCls('/dashboard/thanh-toan')}>
-              {Icon.wallet}<span>Thanh toán</span>
-            </Link>
-
-            {/* Quản lý QĐ Phê Duyệt */}
-            <Link href="/dashboard/quyet-dinh-phe-duyet" className={linkCls('/dashboard/quyet-dinh-phe-duyet')}>
-              {Icon.stamp}<span>Quản lý QĐ Phê Duyệt</span>
-            </Link>
-
-            {/* Quản lý Hợp đồng */}
-            <Link href="/dashboard/hop-dong" className={linkCls('/dashboard/hop-dong')}>
-              {Icon.contract}<span>Quản lý Hợp đồng</span>
-            </Link>
+            {/* Thầu Thiết Bị - expandable */}
+            <div>
+              <button
+                onClick={() => setThietBiOpen(prev => {
+                  const next = !prev;
+                  if (next) { setQuanLyOpen(false); setMuaSamOpen(false); }
+                  return next;
+                })}
+                className={dropdownCls(thietBiOpen)}
+              >
+                <span className="flex items-center gap-3">
+                  {Icon.device}<span>Thầu Thiết Bị</span>
+                </span>
+                <span className={`text-[10px] transition-transform ${thietBiOpen ? 'rotate-90' : ''}`}>▶</span>
+              </button>
+              {thietBiOpen && (
+                <div className="ml-6 mt-1 space-y-1 border-l-2 border-blue-100 pl-3">
+                  <Link href="/dashboard/mua-sam/thiet-bi/du-toan" className={subLinkCls('/dashboard/mua-sam/thiet-bi/du-toan')}>
+                    {Icon.docText}<span>Phê duyệt Dự toán</span>
+                  </Link>
+                  <Link href="/dashboard/mua-sam/thiet-bi/khlcnt" className={subLinkCls('/dashboard/mua-sam/thiet-bi/khlcnt')}>
+                    {Icon.clipboard}<span>Kế hoạch LCNT</span>
+                  </Link>
+                  <Link href="/dashboard/lua-chon-nha-thau" className={subLinkCls('/dashboard/lua-chon-nha-thau')}>
+                    {Icon.building}<span>Lựa chọn Nhà thầu</span>
+                  </Link>
+                  <Link href="/dashboard/thanh-toan" className={subLinkCls('/dashboard/thanh-toan')}>
+                    {Icon.wallet}<span>Thanh toán</span>
+                  </Link>
+                </div>
+              )}
+            </div>
           </>
         )}
 
@@ -297,7 +354,6 @@ export function Sidebar() {
 
       {/* ── Bottom: User + Role Switch + Settings ── */}
       <div className="border-t border-gray-200">
-        {/* Role switch button (only if user has both business roles) */}
         {canSwitch && (
           <button
             onClick={handleSwitchRole}
@@ -308,7 +364,6 @@ export function Sidebar() {
           </button>
         )}
 
-        {/* User info */}
         <div className="flex items-center gap-3 px-4 py-3">
           <div className="w-9 h-9 rounded-full bg-red-100 flex items-center justify-center text-red-700 font-bold text-sm shrink-0">
             {user.name.charAt(0)}
@@ -317,6 +372,7 @@ export function Sidebar() {
             <p className="text-sm font-medium text-gray-900 truncate">{user.name}</p>
             <p className="text-xs text-gray-500">{roleLabels[user.role]}</p>
           </div>
+          <NotificationBell onOpenNotifications={onOpenNotifications} />
           <button
             onClick={() => setShowSettings(!showSettings)}
             className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
@@ -326,11 +382,12 @@ export function Sidebar() {
           </button>
         </div>
 
-        {/* Settings dropdown */}
         <AnimatePresence>
           {showSettings && (
             <motion.div
-              initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
               className="overflow-hidden border-t border-gray-100"
             >
               <div className="px-4 py-2 space-y-1">

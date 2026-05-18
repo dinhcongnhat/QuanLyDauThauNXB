@@ -14,6 +14,7 @@ import * as JSZip from 'jszip';
 class CreateSelectionDto {
   @IsString() qdKhlcntId: string;
   @IsNumber() goiThauIndex: number;
+  @IsOptional() @IsString() projectId?: string;
 }
 
 class UpdateStepDto {
@@ -37,18 +38,18 @@ export class ContractorSelectionController {
 
   /** List all LCNT processes */
   @Get()
-  async getAllSelections() {
-    return this.svc.getAllSelections();
+  async getAllSelections(@Query('projectId') projectId?: string) {
+    return this.svc.getAllSelections(projectId);
   }
 
   @Get('approved-qd')
-  async getApprovedQD() {
-    return this.svc.getApprovedQDKHLCNT();
+  async getApprovedQD(@Query('projectId') projectId?: string) {
+    return this.svc.getApprovedQDKHLCNT(projectId);
   }
 
   @Get('contracts')
-  async getCompletedContracts() {
-    return this.svc.getCompletedContracts();
+  async getCompletedContracts(@Query('projectId') projectId?: string) {
+    return this.svc.getCompletedContracts(projectId);
   }
 
   /** Steps pending approval (for director/head dashboard) */
@@ -61,7 +62,7 @@ export class ContractorSelectionController {
 
   @Post()
   async create(@Body() dto: CreateSelectionDto, @Request() req: any) {
-    return this.svc.createSelection(req.user.sub, dto.qdKhlcntId, dto.goiThauIndex);
+    return this.svc.createSelection(req.user.sub, dto.qdKhlcntId, dto.goiThauIndex, dto.projectId);
   }
 
   @Get(':id')
@@ -75,8 +76,8 @@ export class ContractorSelectionController {
   }
 
   @Get('by-qd/:qdKhlcntId')
-  async getByQD(@Param('qdKhlcntId') qdKhlcntId: string) {
-    return this.svc.getSelectionsByQD(qdKhlcntId);
+  async getByQD(@Param('qdKhlcntId') qdKhlcntId: string, @Query('projectId') projectId?: string) {
+    return this.svc.getSelectionsByQD(qdKhlcntId, projectId);
   }
 
   // ====================== STEP DATA ======================

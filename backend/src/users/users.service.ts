@@ -75,6 +75,7 @@ export class UsersService {
     await this.prisma.review.deleteMany({ where: { userId: id } });
     await this.prisma.document.updateMany({ where: { delegatedTo: id }, data: { delegatedTo: null } });
     await this.prisma.document.deleteMany({ where: { createdBy: id } });
+    await this.prisma.gDNAssignment.deleteMany({ where: { userId: id } });
     await this.prisma.user.delete({ where: { id } });
     return { message: 'User deleted' };
   }

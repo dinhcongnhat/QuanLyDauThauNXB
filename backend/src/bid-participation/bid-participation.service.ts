@@ -1,6 +1,8 @@
 import { Injectable, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
+import { NotificationType } from '@prisma/client';
+import { NotificationService } from '../notifications/notification.service';
 import { generateBidDocx } from './bid-docx-generator';
 
 const BID_STEPS = [
@@ -18,6 +20,7 @@ export class BidParticipationService {
   constructor(
     private prisma: PrismaService,
     private minio: MinioService,
+    private notificationService: NotificationService,
   ) {}
 
   async create(userId: string, data: { maThongBaoMoiThau: string; tenChuDauTu: string; tenGoiThau?: string }) {
@@ -115,13 +118,28 @@ export class BidParticipationService {
       // For HOP_DONG step, only advance if result is WON
       if (nextStep.stepKey === 'HOP_DONG_THUC_HIEN') {
         const bid = step.bidParticipation;
-        if (bid.result !== 'WON') return { message: 'Completed' };
+        if (bid.result !== 'WON') {
+          await this.notificationService.create(step.bidParticipation.createdBy, {
+            type: NotificationType.STEP_COMPLETED,
+            title: 'Bước đấu thầu đã hoàn thành',
+            message: `Bước "${step.title}" của hồ sơ "${step.bidParticipation.tenGoiThau || step.bidParticipation.tenChuDauTu}" đã hoàn thành.`,
+            link: '/dashboard/nha-thau/tham-du-dau-thau',
+          });
+          return { message: 'Completed' };
+        }
       }
       await this.prisma.bidStep.update({
         where: { id: nextStep.id },
         data: { status: 'IN_PROGRESS' },
       });
     }
+
+    await this.notificationService.create(step.bidParticipation.createdBy, {
+      type: NotificationType.STEP_COMPLETED,
+      title: 'Bước đấu thầu đã hoàn thành',
+      message: `Bước "${step.title}" của hồ sơ "${step.bidParticipation.tenGoiThau || step.bidParticipation.tenChuDauTu}" đã hoàn thành.`,
+      link: '/dashboard/nha-thau/tham-du-dau-thau',
+    });
 
     return { message: 'Completed' };
   }
@@ -169,6 +187,17 @@ export class BidParticipationService {
         });
       }
     }
+
+    const resultMessage = result === 'WON'
+      ? `Hồ sơ "${bid.tenGoiThau || bid.tenChuDauTu}" đã trúng thầu. Chúc mừng bạn!`
+      : `Hồ sơ "${bid.tenGoiThau || bid.tenChuDauTu}" không trúng thầu. Đừng nản chí, hãy tiếp tục cố gắng!`;
+
+    await this.notificationService.create(bid.createdBy, {
+      type: NotificationType.BID_RESULT,
+      title: result === 'WON' ? 'Chúc mừng bạn đã trúng thầu!' : 'Kết quả đấu thầu',
+      message: resultMessage,
+      link: '/dashboard/nha-thau/tham-du-dau-thau',
+    });
 
     return { result };
   }

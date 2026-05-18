@@ -9,6 +9,8 @@ import { vi } from 'date-fns/locale';
 import { AnimatePresence, motion } from 'framer-motion';
 import { SmartFormField, FieldDef } from '@/components/SmartFormField';
 import { ZipDownloadModal } from '@/components/ZipDownloadModal';
+import { LibraryPicker } from '@/components/LibraryPicker';
+import { SavedValue, LibraryType } from '@/lib/document-library-types';
 
 const STEP_LABELS: Record<string, string> = {
   THONG_TIN_GOI_THAU: 'Thông tin gói thầu dự kiến tham dự',
@@ -266,6 +268,19 @@ export default function ThamDuDauThauPage() {
       if (updated) setSelectedStep(updated);
     } catch (err: any) { toast.error(err.message); }
     finally { setSubmitting(false); }
+  };
+
+  const getLibraryTypeForStep = (): LibraryType => {
+    switch (selectedStep?.stepKey) {
+      case 'TO_TRINH_XIN_Y_KIEN': return 'THONG_TIN_TO_CHUC';
+      case 'QD_PHE_DUYET_HSDT': return 'THONG_TIN_TO_CHUC';
+      case 'HOP_DONG_THUC_HIEN': return 'THONG_TIN_NHA_THAU';
+      default: return 'THONG_TIN_TO_CHUC';
+    }
+  };
+
+  const handleLibrarySelect = (val: SavedValue) => {
+    setStepFormData(prev => ({ ...prev, ...val.duLieu }));
   };
 
   const handleCompleteStep = async (stepId: string) => {
@@ -541,10 +556,15 @@ export default function ThamDuDauThauPage() {
                   </div>
 
                   {currentStep.status !== 'COMPLETED' && (
-                    <div className="flex gap-2 pt-4 border-t">
+                    <div className="flex gap-2 pt-4 border-t flex-wrap">
+                      <LibraryPicker
+                        libraryType={getLibraryTypeForStep()}
+                        onSelect={handleLibrarySelect}
+                        onSaveToLibrary={() => {}}
+                      />
                       <button onClick={handleSaveStepData} disabled={submitting}
                         className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm disabled:opacity-50">
-                        {submitting ? 'Đang lưu...' : '💾 Lưu thông tin'}
+                        💾 Lưu thông tin
                       </button>
                       <button onClick={handleGenerateDocx} disabled={submitting}
                         className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm disabled:opacity-50">

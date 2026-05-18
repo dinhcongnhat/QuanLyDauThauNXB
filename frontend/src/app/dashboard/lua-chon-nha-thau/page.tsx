@@ -10,6 +10,7 @@ import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useSearchParams } from 'next/navigation';
 
 const METHOD_LABELS: Record<string, string> = {
   CHI_DINH_THAU: 'Chỉ định thầu',
@@ -474,6 +475,9 @@ function displayFilename(path: string): string {
 export default function LuaChonNhaThauPage() {
   const { user } = useAuthStore();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const [projects, setProjects] = useState<any[]>([]);
+  const [selectedProject, setSelectedProject] = useState<string>(searchParams.get('project') || '');
   const [qdList, setQdList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedQD, setSelectedQD] = useState<any>(null);
@@ -490,22 +494,26 @@ export default function LuaChonNhaThauPage() {
   const [uploadStepId, setUploadStepId] = useState<string | null>(null);
   const [expandedStepId, setExpandedStepId] = useState<string | null>(null);
 
-  useEffect(() => { loadData(); }, []);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
-      const data = await api.getApprovedQDForLCNT();
-      setQdList(data);
+      const [qdData, projectList] = await Promise.all([
+        api.getApprovedQDForLCNT(selectedProject || undefined),
+        api.getProjects(),
+      ]);
+      setQdList(qdData);
+      setProjects(projectList);
     } catch (err: any) { toast.error(err.message); }
     finally { setLoading(false); }
-  };
+  }, [selectedProject]);
+
+  useEffect(() => { loadData(); }, [loadData]);
 
   const handleSelectQD = async (qd: any) => {
     setSelectedQD(qd);
     setActiveSelection(null);
     setEditingStepId(null);
     try {
-      const sels = await api.getContractorSelectionsByQD(qd.id);
+      const sels = await api.getContractorSelectionsByQD(qd.id, selectedProject || undefined);
       setSelections(sels);
     } catch (err: any) { toast.error(err.message); }
   };
@@ -513,7 +521,7 @@ export default function LuaChonNhaThauPage() {
   const handleCreateSelection = async (goiThauIndex: number) => {
     if (!selectedQD) return;
     try {
-      const sel = await api.createContractorSelection(selectedQD.id, goiThauIndex);
+      const sel = await api.createContractorSelection(selectedQD.id, goiThauIndex, selectedProject || undefined);
       toast.success('Đã tạo quy trình lựa chọn nhà thầu');
       setSelections(prev => [...prev, sel]);
       setActiveSelection(sel);
@@ -706,6 +714,23 @@ export default function LuaChonNhaThauPage() {
           </button>
         )}
       </div>
+
+      {/* ===================== Project Selector ===================== */}
+      {!editingStep && (
+        <div className="bg-indigo-50 rounded-xl p-4 border border-indigo-100">
+          <label className="block text-sm font-medium text-indigo-900 mb-2">Chọn dự án</label>
+          <select
+            className="w-full max-w-xs bg-white border border-indigo-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-400 outline-none"
+            value={selectedProject}
+            onChange={e => setSelectedProject(e.target.value)}
+          >
+            <option value="">— Tất cả dự án —</option>
+            {projects.map((p: any) => (
+              <option key={p.id} value={p.id}>{p.tenDuAn}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* ===================== STEP EDIT FORM (Full-page inline) ===================== */}
       {editingStep && activeSelection && (

@@ -2,7 +2,8 @@ import { Injectable, BadRequestException, NotFoundException, ForbiddenException 
 import { PrismaService } from '../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
 import { JwtService } from '@nestjs/jwt';
-import { ProcurementMethod } from '@prisma/client';
+import { ProcurementMethod, NotificationType } from '@prisma/client';
+import { NotificationService } from '../notifications/notification.service';
 import { generateContractorSelectionDocx, isAttachmentOnlyStep } from './lcnt-docx-generator';
 
 // Steps requiring approval (they have DOCX templates)
@@ -326,6 +327,7 @@ export class ContractorSelectionService {
     private prisma: PrismaService,
     private minio: MinioService,
     private jwtService: JwtService,
+    private notificationService: NotificationService,
   ) {}
 
   // ====================== AUTO FILL LOGIC ======================
@@ -409,11 +411,16 @@ export class ContractorSelectionService {
 
   // ====================== LIST / GET ======================
 
-  async getApprovedQDKHLCNT() {
+  async getApprovedQDKHLCNT(projectId?: string) {
+    const where: any = { type: 'QD_KHLCNT', status: 'APPROVED' };
+    if (projectId) {
+      where.projectId = projectId;
+    }
     return this.prisma.document.findMany({
-      where: { type: 'QD_KHLCNT', status: 'APPROVED' },
+      where,
       include: {
         creator: { select: { id: true, name: true, email: true, role: true } },
+        project: { select: { id: true, tenDuAn: true, procurementType: true } },
         contractorSelections: {
           include: { steps: { orderBy: { stepOrder: 'asc' } } },
         },
@@ -422,9 +429,15 @@ export class ContractorSelectionService {
     });
   }
 
-  async getAllSelections() {
+  async getAllSelections(projectId?: string) {
+    const where: any = {};
+    if (projectId) {
+      where.projectId = projectId;
+    }
     return this.prisma.contractorSelection.findMany({
+      where,
       include: {
+        project: { select: { id: true, tenDuAn: true, procurementType: true } },
         qdKhlcnt: { select: { id: true, data: true, status: true } },
         steps: { orderBy: { stepOrder: 'asc' } },
         creator: { select: { id: true, name: true, role: true } },
@@ -433,10 +446,15 @@ export class ContractorSelectionService {
     });
   }
 
-  async getSelectionsByQD(qdKhlcntId: string) {
+  async getSelectionsByQD(qdKhlcntId: string, projectId?: string) {
+    const where: any = { qdKhlcntId };
+    if (projectId) {
+      where.projectId = projectId;
+    }
     return this.prisma.contractorSelection.findMany({
-      where: { qdKhlcntId },
+      where,
       include: {
+        project: { select: { id: true, tenDuAn: true, procurementType: true } },
         steps: { orderBy: { stepOrder: 'asc' } },
         creator: { select: { id: true, name: true, role: true } },
       },
@@ -448,6 +466,7 @@ export class ContractorSelectionService {
     const selection = await this.prisma.contractorSelection.findUnique({
       where: { id },
       include: {
+        project: { select: { id: true, tenDuAn: true, procurementType: true, status: true } },
         steps: {
           orderBy: { stepOrder: 'asc' },
           include: { approvalRequests: { include: { user: { select: { id: true, name: true, role: true } } }, orderBy: { createdAt: 'asc' } } },
@@ -479,7 +498,7 @@ export class ContractorSelectionService {
 
   // ====================== CREATE ======================
 
-  async createSelection(userId: string, qdKhlcntId: string, goiThauIndex: number) {
+  async createSelection(userId: string, qdKhlcntId: string, goiThauIndex: number, projectId?: string) {
     const doc = await this.prisma.document.findUnique({ where: { id: qdKhlcntId } });
     if (!doc || doc.type !== 'QD_KHLCNT' || doc.status !== 'APPROVED') {
       throw new BadRequestException('QĐ KHLCNT không hợp lệ hoặc chưa được phê duyệt');
@@ -491,13 +510,13 @@ export class ContractorSelectionService {
       throw new BadRequestException('Gói thầu không tồn tại');
     }
 
-    const htlc = (goiThau.hinhThucLuaChon || '').toLowerCase();
+    const htlc = (goiThau.hinhThucLuaChon || '').toLowerCase().replace(/_/g, ' ');
     let method: ProcurementMethod;
-    if (htlc.includes('chỉ định') || htlc.includes('chi dinh')) {
+    if (htlc.includes('chi dinh') || htlc.includes('chỉ định')) {
       method = ProcurementMethod.CHI_DINH_THAU;
-    } else if (htlc.includes('chào hàng') || htlc.includes('chao hang')) {
+    } else if (htlc.includes('chào hàng') || htlc.includes('chao hang') || htlc.includes('chao hang canh tranh')) {
       method = ProcurementMethod.CHAO_HANG_CANH_TRANH;
-    } else if (htlc.includes('đấu thầu rộng') || htlc.includes('dau thau rong')) {
+    } else if (htlc.includes('đấu thầu rộng') || htlc.includes('dau thau rong') || htlc.includes('dau thau')) {
       method = ProcurementMethod.DAU_THAU_RONG_RAI;
     } else {
       throw new BadRequestException(`Không xác định được hình thức LCNT: "${goiThau.hinhThucLuaChon}". Vui lòng kiểm tra lại.`);
@@ -520,6 +539,7 @@ export class ContractorSelectionService {
         procurementMethod: method,
         data: goiThau,
         createdBy: userId,
+        projectId,
         steps: {
           create: steps.map(s => ({
             stepKey: s.stepKey,
@@ -599,7 +619,24 @@ export class ContractorSelectionService {
       },
     });
 
-    return this.getStep(stepId);
+    // Notify directors about the pending approval
+    const directors = await this.prisma.user.findMany({ where: { role: 'DIRECTOR' } });
+    const stepData = await this.getStep(stepId);
+    const selectionData = stepData.contractorSelection;
+    const projectName = (selectionData.data as any)?.tenGoiThau || (selectionData.data as any)?.tenDuAn || '';
+
+    await Promise.all(
+      directors.map((u) =>
+        this.notificationService.create(u.id, {
+          type: NotificationType.STEP_PENDING_APPROVAL,
+          title: 'Có bước LCNT chờ duyệt',
+          message: `Bước "${stepData.title}" của "${projectName}" cần được phê duyệt.`,
+          link: '/dashboard/mua-sam/lua-chon-nha-thau',
+        }),
+      ),
+    );
+
+    return stepData;
   }
 
   /** Approve a step */
@@ -644,7 +681,25 @@ export class ContractorSelectionService {
       });
     });
 
-    return this.getStep(stepId);
+    const stepData = await this.getStep(stepId);
+    const selectionData = stepData.contractorSelection;
+    const projectName = (selectionData.data as any)?.tenGoiThau || (selectionData.data as any)?.tenDuAn || '';
+
+    // Notify the requester about approval
+    const requester = await this.prisma.stepApprovalRequest.findFirst({
+      where: { stepId, action: 'PENDING_APPROVAL' },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (requester) {
+      await this.notificationService.create(requester.userId, {
+        type: NotificationType.STEP_APPROVED,
+        title: 'Bước LCNT đã được phê duyệt',
+        message: `Bước "${stepData.title}" của "${projectName}" đã được phê duyệt.`,
+        link: '/dashboard/mua-sam/lua-chon-nha-thau',
+      });
+    }
+
+    return stepData;
   }
 
   /** Reject a step */
@@ -681,19 +736,41 @@ export class ContractorSelectionService {
       });
     });
 
-    return this.getStep(stepId);
+    const stepData = await this.getStep(stepId);
+    const selectionData = stepData.contractorSelection;
+    const projectName = (selectionData.data as any)?.tenGoiThau || (selectionData.data as any)?.tenDuAn || '';
+
+    const requester = await this.prisma.stepApprovalRequest.findFirst({
+      where: { stepId, action: 'PENDING_APPROVAL' },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (requester) {
+      await this.notificationService.create(requester.userId, {
+        type: NotificationType.STEP_REJECTED,
+        title: 'Bước LCNT bị từ chối',
+        message: `Bước "${stepData.title}" của "${projectName}" đã bị từ chối. Lý do: ${comment || 'Không có'}`.slice(0, 500),
+        link: '/dashboard/mua-sam/lua-chon-nha-thau',
+      });
+    }
+
+    return stepData;
   }
 
   /** Get steps pending approval (for approval dashboard) */
-  async getPendingApprovals() {
+  async getPendingApprovals(projectId?: string) {
+    const where: any = {
+      approvalStatus: 'PENDING_APPROVAL',
+      requiresApproval: true,
+    };
+    if (projectId) {
+      where.contractorSelection = { projectId };
+    }
     const steps = await this.prisma.procurementStep.findMany({
-      where: {
-        approvalStatus: 'PENDING_APPROVAL',
-        requiresApproval: true,
-      },
+      where,
       include: {
         contractorSelection: {
           include: {
+            project: { select: { id: true, tenDuAn: true, procurementType: true } },
             qdKhlcnt: { select: { id: true, data: true } },
             creator: { select: { id: true, name: true, role: true } },
           },
@@ -753,10 +830,24 @@ export class ContractorSelectionService {
       throw new BadRequestException('Bước đang bị từ chối. Vui lòng chỉnh sửa và trình lại.');
     }
 
-    return this.prisma.procurementStep.update({
+    const updated = await this.prisma.procurementStep.update({
       where: { id: stepId },
       data: { status: 'COMPLETED', completedAt: new Date() },
     });
+
+    const stepData = await this.getStep(stepId);
+    const selectionData = stepData.contractorSelection;
+    const projectName = (selectionData.data as any)?.tenGoiThau || (selectionData.data as any)?.tenDuAn || '';
+
+    // Notify the creator of the contractor selection
+    await this.notificationService.create(selectionData.createdBy, {
+      type: NotificationType.STEP_COMPLETED,
+      title: 'Bước LCNT đã hoàn thành',
+      message: `Bước "${stepData.title}" của "${projectName}" đã hoàn thành.`,
+      link: '/dashboard/mua-sam/lua-chon-nha-thau',
+    });
+
+    return updated;
   }
 
   async reopenStep(stepId: string) {
@@ -926,13 +1017,18 @@ export class ContractorSelectionService {
 
   // ====================== COMPLETED CONTRACTS ======================
 
-  async getCompletedContracts() {
+  async getCompletedContracts(projectId?: string) {
+    const where: any = { stepKey: 'hop_dong', status: 'COMPLETED' };
+    if (projectId) {
+      where.contractorSelection = { projectId };
+    }
     const steps = await this.prisma.procurementStep.findMany({
-      where: { stepKey: 'hop_dong', status: 'COMPLETED' },
+      where,
       include: {
         contractorSelection: {
           include: {
             qdKhlcnt: { select: { id: true, data: true } },
+            project: { select: { id: true, tenDuAn: true, procurementType: true } },
             creator: { select: { id: true, name: true, role: true } },
           },
         },

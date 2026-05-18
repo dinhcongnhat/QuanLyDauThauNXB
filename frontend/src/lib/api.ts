@@ -23,6 +23,24 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
 }
 
 export const api = {
+  // ── Project ────────────────────────────────────────────────
+  getProjects: () => request<any[]>('/projects'),
+  getProject: (id: string) => request<any>(`/projects/${encodeURIComponent(id)}`),
+  getProjectSummary: (id: string) => request<any>(`/projects/${encodeURIComponent(id)}/summary`),
+  createProject: (tenDuAn: string, procurementType: string) =>
+    request<any>('/projects', {
+      method: 'POST',
+      body: JSON.stringify({ tenDuAn, procurementType }),
+    }),
+  updateProject: (id: string, data: { status?: string; tenDuAn?: string }) =>
+    request<any>(`/projects/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  deleteProject: (id: string) =>
+    request<any>(`/projects/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  getProjectStats: () => request<any>('/projects/stats'),
+
   // Auth
   login: (email: string, password: string) =>
     request<{ access_token: string; user: any }>('/auth/login', {
@@ -50,28 +68,31 @@ export const api = {
     request<any>('/users/permissions', { method: 'POST', body: JSON.stringify({ role, permissionKeys }) }),
 
   // Documents
-  createDocument: (type: string, data: any, parentId?: string, assignedTo?: string) =>
+  createDocument: (type: string, data: any, parentId?: string, assignedTo?: string, projectId?: string) =>
     request<any>('/documents', {
       method: 'POST',
-      body: JSON.stringify({ type, data, parentId, assignedTo }),
+      body: JSON.stringify({ type, data, parentId, assignedTo, projectId }),
     }),
 
-  createDuToanBatch: (ttData: any, qdData: any, assignedTo: string) =>
+  createDuToanBatch: (ttData: any, qdData: any, assignedTo: string, projectId?: string) =>
     request<any>('/documents/create-du-toan-batch', {
       method: 'POST',
-      body: JSON.stringify({ ttData, qdData, assignedTo }),
+      body: JSON.stringify({ ttData, qdData, assignedTo, projectId }),
     }),
 
   getUsersByRole: (role: string) =>
     request<any[]>(`/users/by-role/${encodeURIComponent(role)}`),
 
-  getDocumentsByType: (types: string[]) =>
-    request<any[]>(`/documents/by-type?types=${encodeURIComponent(types.join(','))}`),
+  getDocumentsByType: (types: string[], projectId?: string) =>
+    request<any[]>(`/documents/by-type?types=${encodeURIComponent(types.join(','))}${projectId ? `&projectId=${encodeURIComponent(projectId)}` : ''}`),
 
   getDocumentsByParent: (parentId: string) =>
     request<any[]>(`/documents/by-parent/${encodeURIComponent(parentId)}`),
 
   getDocument: (id: string) => request<any>(`/documents/${encodeURIComponent(id)}`),
+
+  getApprovedDecisions: (projectId?: string) =>
+    request<any[]>(`/documents/approved${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''}`),
 
   approveDocument: (id: string, comment?: string) =>
     request<any>(`/documents/${encodeURIComponent(id)}/approve`, {
@@ -97,8 +118,6 @@ export const api = {
       body: JSON.stringify({ employeeId }),
     }),
 
-  getApprovedDecisions: () => request<any[]>('/documents/approved'),
-
   getStats: () => request<any>('/documents/stats'),
 
   downloadDocument: (id: string) => {
@@ -119,14 +138,16 @@ export const api = {
     request<any>(`/documents/${encodeURIComponent(id)}/onlyoffice-config`),
 
   // Contractor Selection (LCNT)
-  getAllLCNTSelections: () => request<any[]>('/contractor-selection'),
-  getApprovedQDForLCNT: () => request<any[]>('/contractor-selection/approved-qd'),
+  getAllLCNTSelections: (projectId?: string) =>
+    request<any[]>(`/contractor-selection${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''}`),
+  getApprovedQDForLCNT: (projectId?: string) =>
+    request<any[]>(`/contractor-selection/approved-qd${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''}`),
   getPendingApprovals: () => request<any[]>('/contractor-selection/pending-approvals'),
 
-  createContractorSelection: (qdKhlcntId: string, goiThauIndex: number) =>
+  createContractorSelection: (qdKhlcntId: string, goiThauIndex: number, projectId?: string) =>
     request<any>('/contractor-selection', {
       method: 'POST',
-      body: JSON.stringify({ qdKhlcntId, goiThauIndex }),
+      body: JSON.stringify({ qdKhlcntId, goiThauIndex, projectId }),
     }),
 
   getContractorSelection: (id: string) =>
@@ -135,8 +156,8 @@ export const api = {
   getLCNTStep: (stepId: string) =>
     request<any>(`/contractor-selection/step/${encodeURIComponent(stepId)}`),
 
-  getContractorSelectionsByQD: (qdKhlcntId: string) =>
-    request<any[]>(`/contractor-selection/by-qd/${encodeURIComponent(qdKhlcntId)}`),
+  getContractorSelectionsByQD: (qdKhlcntId: string, projectId?: string) =>
+    request<any[]>(`/contractor-selection/by-qd/${encodeURIComponent(qdKhlcntId)}${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''}`),
 
   getLCNTAutoFill: (stepId: string) =>
     request<any>(`/contractor-selection/step/${encodeURIComponent(stepId)}/auto-fill`),
@@ -175,8 +196,8 @@ export const api = {
       method: 'POST',
     }),
 
-  getCompletedContracts: () =>
-    request<any[]>('/contractor-selection/contracts'),
+  getCompletedContracts: (projectId?: string) =>
+    request<any[]>(`/contractor-selection/contracts${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''}`),
 
   downloadLCNTStepPdf: (stepId: string) => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
@@ -237,16 +258,19 @@ export const api = {
   },
 
   // ====================== Payment (Thanh toán) ======================
-  getAllPayments: () => request<any[]>('/payment'),
-  searchPayments: (q: string) => request<any[]>(`/payment/search?q=${encodeURIComponent(q)}`),
-  getPaymentContracts: () => request<any[]>('/payment/contracts'),
+  getAllPayments: (projectId?: string) =>
+    request<any[]>(`/payment${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''}`),
+  searchPayments: (q: string, projectId?: string) =>
+    request<any[]>(`/payment/search?q=${encodeURIComponent(q)}${projectId ? `&projectId=${encodeURIComponent(projectId)}` : ''}`),
+  getPaymentContracts: (projectId?: string) =>
+    request<any[]>(`/payment/contracts${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''}`),
   getPayment: (id: string) => request<any>(`/payment/${encodeURIComponent(id)}`),
   getPaymentStep: (stepId: string) => request<any>(`/payment/step/${encodeURIComponent(stepId)}`),
 
-  createPayment: (contractorSelectionId: string) =>
+  createPayment: (contractorSelectionId: string, projectId?: string) =>
     request<any>('/payment', {
       method: 'POST',
-      body: JSON.stringify({ contractorSelectionId }),
+      body: JSON.stringify({ contractorSelectionId, projectId }),
     }),
 
   getPaymentAutoFill: (stepId: string) =>
@@ -394,6 +418,13 @@ export const api = {
   getDatSachProject: (id: string) =>
     request<any>(`/dat-sach/projects/${encodeURIComponent(id)}`),
 
+  // Create a DatSachProject from a Project entity (auto-links projectId)
+  createDatSachProjectFromProject: (projectId: string, tenDuAn: string) =>
+    request<any>('/dat-sach/projects', {
+      method: 'POST',
+      body: JSON.stringify({ projectId, tenDuAn, procurementType: 'THAU_SACH', parentId: projectId }),
+    }),
+
   createGDNInSach: (projectId: string, data: any) =>
     request<any>('/dat-sach/gdn', {
       method: 'POST',
@@ -420,6 +451,16 @@ export const api = {
 
   getMyAssignments: () =>
     request<any[]>('/dat-sach/my-assignments'),
+
+  // Auto-fill endpoints
+  getAutoFillForPCDI: (projectId: string) =>
+    request<any>(`/dat-sach/project/${encodeURIComponent(projectId)}/auto-fill/pcdi`),
+
+  getAutoFillForDutoan: (projectId: string) =>
+    request<any>(`/dat-sach/project/${encodeURIComponent(projectId)}/auto-fill/dutoan`),
+
+  getAutoFillForKHLcnt: (projectId: string) =>
+    request<any>(`/dat-sach/project/${encodeURIComponent(projectId)}/auto-fill/khlcnt`),
 
   approveGDN: (gdnId: string) =>
     request<any>(`/dat-sach/gdn/${encodeURIComponent(gdnId)}/approve`, {
@@ -468,4 +509,64 @@ export const api = {
     request<any>(`/dat-sach/projects/${encodeURIComponent(projectId)}/complete`, {
       method: 'PATCH',
     }),
+
+  updateQDQuyetDinhDatSach: (projectId: string, qdData: any) =>
+    request<any>(`/dat-sach/project/${encodeURIComponent(projectId)}/qd`, {
+      method: 'PATCH',
+      body: JSON.stringify({ qdData }),
+    }),
+
+  approveQDQuyetDinhDatSach: (projectId: string) =>
+    request<any>(`/dat-sach/project/${encodeURIComponent(projectId)}/approve-qd`, {
+      method: 'POST',
+    }),
+
+  downloadQDQuyetDinhDatSach: (projectId: string) => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    return fetch(`/api/dat-sach/project/${encodeURIComponent(projectId)}/download-qd`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+  },
+
+  // OnlyOffice preview
+  getOnlyofficeConfigForGdn: (gdnId: string) =>
+    request<{ onlyofficeUrl: string; editorConfig: any }>(
+      `/dat-sach/gdn/${encodeURIComponent(gdnId)}/onlyoffice-config`
+    ),
+  getOnlyofficeConfigForPcdi: (pcdiId: string) =>
+    request<{ onlyofficeUrl: string; editorConfig: any }>(
+      `/dat-sach/pcdi/${encodeURIComponent(pcdiId)}/onlyoffice-config`
+    ),
+  getOnlyofficeConfigForQD: (projectId: string) =>
+    request<{ onlyofficeUrl: string; editorConfig: any }>(
+      `/dat-sach/project/${encodeURIComponent(projectId)}/onlyoffice-config`
+    ),
+
+  // ====================== Notifications ======================
+  getNotifications: (page: number = 1) =>
+    request<{ notifications: any[]; total: number; page: number; totalPages: number }>(`/notifications?page=${page}`),
+
+  getUnreadCount: () =>
+    request<{ count: number }>('/notifications/unread-count'),
+
+  markNotificationRead: (id: string) =>
+    request<any>(`/notifications/${encodeURIComponent(id)}/read`, { method: 'PUT' }),
+
+  markAllNotificationsRead: () =>
+    request<any>('/notifications/read-all', { method: 'PUT' }),
+
+  subscribePush: (subscription: { endpoint: string; p256dh: string; auth: string }) =>
+    request<any>('/notifications/subscribe', {
+      method: 'POST',
+      body: JSON.stringify(subscription),
+    }),
+
+  unsubscribePush: (endpoint: string) =>
+    request<any>('/notifications/unsubscribe', {
+      method: 'POST',
+      body: JSON.stringify({ endpoint }),
+    }),
+
+  getVapidPublicKey: () =>
+    request<{ publicKey: string }>('/notifications/vapid-public-key'),
 };

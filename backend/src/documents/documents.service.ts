@@ -1,8 +1,10 @@
 import { Injectable, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
-import { DocType, DocStatus, Role } from '@prisma/client';
+import { DocType, DocStatus, Role, ProcurementType } from '@prisma/client';
 import { NotificationsGateway } from '../notifications/notifications.gateway';
+import { NotificationService } from '../notifications/notification.service';
+import { NotificationType } from '@prisma/client';
 import { generateToTrinhKHLCNT, generateBaoCaoKHLCNT, generateQuyetDinhKHLCNT } from './docx-generator';
 import { generateDuToanDocx } from './dutoan-docx-generator';
 
@@ -11,6 +13,7 @@ export class DocumentsService {
   constructor(
     private prisma: PrismaService,
     private notifications: NotificationsGateway,
+    private notificationService: NotificationService,
     private jwtService: JwtService,
   ) {}
 
@@ -27,7 +30,47 @@ export class DocumentsService {
     return DocStatus.DRAFT;
   }
 
-  async create(userId: string, userRole: Role, type: DocType, data: any, parentId?: string, assignedTo?: string) {
+  /**
+   * Validate sequential workflow for Thầu Sách (THAU_SACH):
+   * Step 1: Đặt sách (DatSachProject with status=COMPLETED)
+   * Step 2: Phê duyệt dự toán
+   * Step 3: Phê duyệt KHLCNT
+   *
+   * For Thầu Thiết Bị (THAU_THIET_BI):
+   * Step 1: Phê duyệt dự toán (no restriction)
+   * Step 2: Phê duyệt KHLCNT
+   */
+  private async validateWorkflowForDuToan(projectId: string, procurementType: ProcurementType) {
+    if (procurementType === ProcurementType.THAU_SACH) {
+      const datSachCompleted = await this.prisma.datSachProject.findFirst({
+        where: { projectId, status: 'COMPLETED' },
+      });
+      if (!datSachCompleted) {
+        throw new BadRequestException(
+          'Phải hoàn thành bước Đặt sách trước khi tạo Phê duyệt Dự toán (Thầu Sách).',
+        );
+      }
+    }
+    // THAU_THIET_BI: no restriction, can create directly
+  }
+
+  async create(
+    userId: string,
+    userRole: Role,
+    type: DocType,
+    data: any,
+    parentId?: string,
+    assignedTo?: string,
+    projectId?: string,
+  ) {
+    // Validate project exists if provided
+    let projectType: ProcurementType | null = null;
+    if (projectId) {
+      const project = await this.prisma.project.findUnique({ where: { id: projectId } });
+      if (!project) throw new NotFoundException('Không tìm thấy dự án');
+      projectType = project.procurementType;
+    }
+
     // KHLCNT docs need an approved QD_DUTOAN parent
     if (([DocType.TT_KHLCNT, DocType.BC_KHLCNT, DocType.QD_KHLCNT] as DocType[]).includes(type)) {
       if (!parentId) throw new BadRequestException('Phải chọn quyết định dự toán đã duyệt');
@@ -45,7 +88,6 @@ export class DocumentsService {
       if (approved.length === 0) {
         throw new BadRequestException('Tờ trình KHLCNT phải được duyệt trước');
       }
-      // If INVESTOR creates, must be delegated
       if (userRole === Role.INVESTOR) {
         const delegation = await this.prisma.review.findFirst({
           where: { document: { parentId, type: DocType.TT_KHLCNT }, action: 'DELEGATE' },
@@ -60,7 +102,13 @@ export class DocumentsService {
     const status = this.getInitialStatus(type, userRole);
     const doc = await this.prisma.document.create({
       data: {
-        type, status, data, parentId, createdBy: userId,
+        type,
+        status,
+        data,
+        parentId,
+        createdBy: userId,
+        projectId,
+        procurementType: projectType,
         ...(assignedTo ? { assignedTo } : {}),
         ...(type === DocType.QD_KHLCNT && userRole === Role.INVESTOR ? { delegatedTo: userId } : {}),
       },
@@ -74,22 +122,80 @@ export class DocumentsService {
       data: { documentId: doc.id, userId, action: 'SUBMIT' },
     });
 
+    // Notify approver if document needs approval
+    if (status !== DocStatus.DRAFT) {
+      const docTypeLabels: Record<string, string> = {
+        [DocType.TT_DUTOAN]: 'Tờ trình dự toán',
+        [DocType.QD_DUTOAN]: 'Quyết định dự toán',
+        [DocType.TT_KHLCNT]: 'Tờ trình KHLCNT',
+        [DocType.BC_KHLCNT]: 'Báo cáo KHLCNT',
+        [DocType.QD_KHLCNT]: 'Quyết định KHLCNT',
+      };
+      const approverRole = status === DocStatus.PENDING_DIRECTOR ? Role.DIRECTOR : Role.HEAD_OF_DEPARTMENT;
+      const approvers = await this.prisma.user.findMany({ where: { role: approverRole } });
+      if (approvers.length > 0) {
+        await Promise.all(
+          approvers.map((u) =>
+            this.notificationService.create(u.id, {
+              type: NotificationType.DOC_SUBMITTED,
+              title: 'Có tài liệu mới cần duyệt',
+              message: `${doc.creator.name} đã gửi ${docTypeLabels[type] || 'tài liệu'} "${(doc.data as any)?.TenDuAn || (doc.data as any)?.tenDuAn || ''}" chờ bạn phê duyệt.`,
+              link: '/dashboard',
+            }),
+          ),
+        );
+      }
+    }
+
     this.notifications.notifyDocumentUpdate(doc);
     return doc;
   }
 
-  async createDuToanBatch(userId: string, userRole: Role, ttData: any, qdData: any, assignedTo: string) {
+  async createDuToanBatch(
+    userId: string,
+    userRole: Role,
+    ttData: any,
+    qdData: any,
+    assignedTo: string,
+    projectId?: string,
+  ) {
+    let projectType: ProcurementType | null = null;
+    if (projectId) {
+      const project = await this.prisma.project.findUnique({ where: { id: projectId } });
+      if (!project) throw new NotFoundException('Không tìm thấy dự án');
+      projectType = project.procurementType;
+    }
+
+    // Workflow validation: Thầu Sách must complete Đặt sách first
+    await this.validateWorkflowForDuToan(projectId!, projectType!);
+
     const status = DocStatus.PENDING_DIRECTOR;
 
     const [ttDoc, qdDoc] = await this.prisma.$transaction(async (tx) => {
       const tt = await tx.document.create({
-        data: { type: DocType.TT_DUTOAN, status, data: ttData, createdBy: userId, assignedTo },
+        data: {
+          type: DocType.TT_DUTOAN,
+          status,
+          data: ttData,
+          createdBy: userId,
+          assignedTo,
+          projectId,
+          procurementType: projectType,
+        },
         include: { creator: { select: { id: true, name: true, email: true, role: true } } },
       });
       await tx.review.create({ data: { documentId: tt.id, userId, action: 'SUBMIT' } });
 
       const qd = await tx.document.create({
-        data: { type: DocType.QD_DUTOAN, status, data: qdData, createdBy: userId, assignedTo },
+        data: {
+          type: DocType.QD_DUTOAN,
+          status,
+          data: qdData,
+          createdBy: userId,
+          assignedTo,
+          projectId,
+          procurementType: projectType,
+        },
         include: { creator: { select: { id: true, name: true, email: true, role: true } } },
       });
       await tx.review.create({ data: { documentId: qd.id, userId, action: 'SUBMIT' } });
@@ -102,8 +208,19 @@ export class DocumentsService {
     return { ttDoc, qdDoc };
   }
 
-  async findByType(types: DocType[], userId?: string, role?: Role) {
+  async findByType(
+    types: DocType[],
+    userId?: string,
+    role?: Role,
+    projectId?: string,
+  ) {
     const where: any = { type: { in: types } };
+
+    // Filter by project
+    if (projectId) {
+      where.projectId = projectId;
+    }
+
     if (role === Role.INVESTOR) {
       where.createdBy = userId;
     } else if (role === Role.DIRECTOR) {
@@ -127,6 +244,24 @@ export class DocumentsService {
         creator: { select: { id: true, name: true, email: true, role: true } },
         assignee: { select: { id: true, name: true, role: true } },
         parent: { select: { id: true, type: true, data: true, status: true } },
+        project: { select: { id: true, tenDuAn: true, procurementType: true } },
+        reviews: {
+          include: { user: { select: { id: true, name: true, role: true } } },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async findByProject(projectId: string) {
+    return this.prisma.document.findMany({
+      where: { projectId },
+      include: {
+        creator: { select: { id: true, name: true, email: true, role: true } },
+        assignee: { select: { id: true, name: true, role: true } },
+        parent: { select: { id: true, type: true, data: true, status: true } },
         reviews: {
           include: { user: { select: { id: true, name: true, role: true } } },
           orderBy: { createdAt: 'desc' },
@@ -143,6 +278,7 @@ export class DocumentsService {
       include: {
         creator: { select: { id: true, name: true, email: true, role: true } },
         parent: { select: { id: true, type: true, data: true, status: true } },
+        project: { select: { id: true, tenDuAn: true, procurementType: true, status: true } },
         children: {
           include: {
             creator: { select: { id: true, name: true, role: true } },
@@ -190,7 +326,6 @@ export class DocumentsService {
       if (role !== Role.HEAD_OF_DEPARTMENT && role !== Role.ADMIN) {
         throw new ForbiddenException('Chỉ Trưởng phòng mới có thể phê duyệt');
       }
-      // QD_KHLCNT from employee: head approves → moves to director
       if (doc.type === DocType.QD_KHLCNT) {
         const updated = await this.prisma.document.update({
           where: { id },
@@ -200,6 +335,18 @@ export class DocumentsService {
         await this.prisma.review.create({
           data: { documentId: id, userId, action: 'APPROVE_HEAD', comment },
         });
+        // Notify director that QD_KHLCNT is waiting for director approval
+        const directors = await this.prisma.user.findMany({ where: { role: Role.DIRECTOR } });
+        await Promise.all(
+          directors.map((u) =>
+            this.notificationService.create(u.id, {
+              type: NotificationType.DOC_SUBMITTED,
+              title: 'Có Quyết định KHLCNT chờ duyệt',
+              message: `${updated.creator.name} đã gửi QĐ KHLCNT "${(updated.data as any)?.TenDuAn || (updated.data as any)?.tenDuAn || ''}" chờ bạn phê duyệt.`,
+              link: '/dashboard',
+            }),
+          ),
+        );
         this.notifications.notifyDocumentUpdate(updated);
         return updated;
       }
@@ -215,6 +362,15 @@ export class DocumentsService {
     await this.prisma.review.create({
       data: { documentId: id, userId, action: 'APPROVE', comment },
     });
+
+    // Notify document creator that their document was approved
+    await this.notificationService.create(doc.createdBy, {
+      type: NotificationType.DOC_APPROVED,
+      title: 'Tài liệu đã được phê duyệt',
+      message: `Tài liệu "${(updated.data as any)?.TenDuAn || (updated.data as any)?.tenDuAn || ''}" của bạn đã được phê duyệt.`,
+      link: '/dashboard',
+    });
+
     this.notifications.notifyDocumentUpdate(updated);
     return updated;
   }
@@ -241,6 +397,14 @@ export class DocumentsService {
     await this.prisma.review.create({
       data: { documentId: id, userId, action: 'REJECT', comment },
     });
+
+    await this.notificationService.create(doc.createdBy, {
+      type: NotificationType.DOC_REJECTED,
+      title: 'Tài liệu bị từ chối',
+      message: `Tài liệu "${(updated.data as any)?.TenDuAn || (updated.data as any)?.tenDuAn || ''}" của bạn đã bị từ chối. Lý do: ${comment || 'Không có'}`.slice(0, 500),
+      link: '/dashboard',
+    });
+
     this.notifications.notifyDocumentUpdate(updated);
     return updated;
   }
@@ -260,6 +424,23 @@ export class DocumentsService {
     await this.prisma.review.create({
       data: { documentId: id, userId, action: 'RESUBMIT' },
     });
+
+    // Notify approvers about resubmission
+    const approverRole = newStatus === DocStatus.PENDING_DIRECTOR ? Role.DIRECTOR : Role.HEAD_OF_DEPARTMENT;
+    const approvers = await this.prisma.user.findMany({ where: { role: approverRole } });
+    if (approvers.length > 0) {
+      await Promise.all(
+        approvers.map((u) =>
+          this.notificationService.create(u.id, {
+            type: NotificationType.DOC_SUBMITTED,
+            title: 'Có tài liệu gửi lại duyệt',
+            message: `${updated.creator.name} đã gửi lại tài liệu "${(updated.data as any)?.TenDuAn || (updated.data as any)?.tenDuAn || ''}" cần bạn duyệt.`,
+            link: '/dashboard',
+          }),
+        ),
+      );
+    }
+
     this.notifications.notifyDocumentUpdate(updated);
     return updated;
   }
@@ -274,7 +455,6 @@ export class DocumentsService {
     if (approved.length === 0) {
       throw new BadRequestException('Tờ trình KHLCNT phải được duyệt trước khi ủy quyền');
     }
-    // Verify employee exists
     const employee = await this.prisma.user.findUnique({ where: { id: employeeId } });
     if (!employee) throw new NotFoundException('Không tìm thấy nhân viên');
 
@@ -284,15 +464,20 @@ export class DocumentsService {
     return { delegated: true, employeeId, employeeName: employee.name };
   }
 
-  async getApprovedDecisions() {
+  async getApprovedDecisions(projectId?: string) {
+    const where: any = {
+      type: { in: [DocType.QD_DUTOAN, DocType.QD_KHLCNT] },
+      status: DocStatus.APPROVED,
+    };
+    if (projectId) {
+      where.projectId = projectId;
+    }
     return this.prisma.document.findMany({
-      where: {
-        type: { in: [DocType.QD_DUTOAN, DocType.QD_KHLCNT] },
-        status: DocStatus.APPROVED,
-      },
+      where,
       include: {
         creator: { select: { id: true, name: true, email: true, role: true } },
         parent: { select: { id: true, type: true, data: true } },
+        project: { select: { id: true, tenDuAn: true, procurementType: true } },
         reviews: {
           where: { action: { in: ['APPROVE', 'APPROVE_HEAD'] } },
           include: { user: { select: { id: true, name: true, role: true } } },

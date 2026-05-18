@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/lib/store';
 import { Document as Doc, DocStatus, User } from '@/lib/types';
@@ -9,6 +9,8 @@ import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import { OnlyOfficePreview } from '@/components/OnlyOfficePreview';
+import { LibraryPicker } from '@/components/LibraryPicker';
+import { SavedValue } from '@/lib/document-library-types';
 
 const statusLabels: Record<DocStatus, string> = {
   DRAFT: 'Bản nháp', PENDING_HEAD: 'Chờ Trưởng phòng', PENDING_DIRECTOR: 'Chờ Giám đốc',
@@ -28,6 +30,8 @@ type FormType = 'TT_KHLCNT' | 'QD_KHLCNT';
 export default function KHLCNTDetailPage() {
   const params = useParams();
   const parentId = params.parentId as string;
+  const searchParams = useSearchParams();
+  const projectId = searchParams.get('project') || undefined;
   const { user } = useAuthStore();
   const [parent, setParent] = useState<Doc | null>(null);
   const [children, setChildren] = useState<Doc[]>([]);
@@ -134,6 +138,14 @@ export default function KHLCNTDetailPage() {
   // Approved children for linking
   const approvedTTs = children.filter(d => d.type === 'TT_KHLCNT' && d.status === 'APPROVED');
 
+  const handleLibraryTT = (val: SavedValue) => {
+    setTtData(prev => ({ ...prev, ...val.duLieu }));
+  };
+
+  const handleLibraryQD = (val: SavedValue) => {
+    setQdData(prev => ({ ...prev, ...val.duLieu }));
+  };
+
   // When user selects approved TT to link into QD form
   const handleSelectTTForQD = (ttId: string) => {
     setSelectedTTRef(ttId);
@@ -162,7 +174,7 @@ export default function KHLCNTDetailPage() {
     if (!selectedApprover) { toast.error('Vui lòng chọn người duyệt'); return; }
     const dataMap = { TT_KHLCNT: ttData, QD_KHLCNT: qdData };
     try {
-      await api.createDocument(type, dataMap[type], parentId, selectedApprover);
+      await api.createDocument(type, dataMap[type], parentId, selectedApprover, projectId);
       toast.success(`Tạo ${typeLabels[type]} thành công`);
       setShowForm(null);
       setSelectedApprover('');
@@ -292,7 +304,12 @@ export default function KHLCNTDetailPage() {
       {/* Create forms */}
       {showForm === 'TT_KHLCNT' && (
         <div className="bg-white rounded-xl p-6 shadow-sm border">
-          <h3 className="text-lg font-semibold mb-4">Tạo Tờ trình phê duyệt KHLCNT (Mẫu 02A)</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold">Tạo Tờ trình phê duyệt KHLCNT (Mẫu 02A)</h3>
+            <LibraryPicker
+              libraryType="THONG_TIN_TO_CHUC" onSelect={handleLibraryTT} onSaveToLibrary={() => {}}
+            />
+          </div>
           <h4 className="text-sm font-medium text-gray-600 mb-2">Thông tin chung</h4>
           <div className="grid grid-cols-2 gap-4">
             <input className="inp" placeholder="Đơn vị trình" value={ttData.donViTrinh} onChange={e => setTtData({...ttData, donViTrinh: e.target.value})} />
@@ -366,7 +383,12 @@ export default function KHLCNTDetailPage() {
 
       {showForm === 'QD_KHLCNT' && (
         <div className="bg-white rounded-xl p-6 shadow-sm border">
-          <h3 className="text-lg font-semibold mb-4">Tạo Quyết định phê duyệt KHLCNT (Mẫu 02C)</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold">Tạo Quyết định phê duyệt KHLCNT (Mẫu 02C)</h3>
+            <LibraryPicker
+              libraryType="THONG_TIN_TO_CHUC" onSelect={handleLibraryQD} onSaveToLibrary={() => {}}
+            />
+          </div>
 
           {/* Link from approved TT */}
           <div className="mb-6">
@@ -377,7 +399,7 @@ export default function KHLCNTDetailPage() {
                   <option value="">-- Chọn Tờ trình đã duyệt --</option>
                   {approvedTTs.map(tt => (
                     <option key={tt.id} value={tt.id}>
-                      {tt.data?.soToTrinh ? `${tt.data.soToTrinh} - ` : ''}{tt.data?.tenDuAn || tt.id.slice(0, 8)}
+                      {tt.data?.soToTrinh ? `${tt.data.soToTrinh} - ` : ''}{tt.data?.tenDuAn || 'Tờ trình KHLCNT'}
                     </option>
                   ))}
                 </select>

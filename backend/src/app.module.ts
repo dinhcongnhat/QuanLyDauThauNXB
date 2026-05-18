@@ -9,6 +9,8 @@ import { MinioModule } from './minio/minio.module';
 import { PaymentModule } from './payment/payment.module';
 import { BidParticipationModule } from './bid-participation/bid-participation.module';
 import { DatSachModule } from './dat-sach/dat-sach.module';
+import { ProjectModule } from './project/project.module';
+import { DocumentLibraryModule } from './document-library/document-library.module';
 
 @Module({
   imports: [
@@ -22,6 +24,8 @@ import { DatSachModule } from './dat-sach/dat-sach.module';
     PaymentModule,
     BidParticipationModule,
     DatSachModule,
+    ProjectModule,
+    DocumentLibraryModule,
   ],
 })
 export class AppModule {}

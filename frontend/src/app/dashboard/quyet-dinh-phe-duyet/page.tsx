@@ -134,7 +134,7 @@ export default function QuyetDinhPheDuyetPage() {
                   </div>
 
                   <h3 className="text-lg font-semibold text-gray-900">
-                    {doc.data?.soQuyetDinh || doc.id.slice(0, 8)}
+                    {doc.data?.soQuyetDinh || 'Quyết định dự toán'}
                   </h3>
 
                   <div className="mt-2 space-y-1 text-sm text-gray-600">

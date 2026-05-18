@@ -21,7 +21,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     environment:
-      DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/qlda_nxb"
+      DATABASE_URL: "postgresql://postgres:jtsc12345@192.168.1.90:5432/qlda_nxb"
       JWT_SECRET: "10122002"
       PORT: "4000"
       APP_URL: "http://demo.jtsc.vn"
@@ -34,6 +34,9 @@ services:
       MINIO_ACCESS_KEY: "jtsc"
       MINIO_SECRET_KEY: "jtsc12345"
       MINIO_BUCKET: "qldanxb"
+      VAPID_PUBLIC_KEY: "BPDOLMagUKFkwswo8nhtujQc0myqpZHX44KhZrj4ByllXDy3s5-5B5GpuX5cntgpeAGAJw9X5KFGx5XxJDnNPBA"
+      VAPID_PRIVATE_KEY: "S-J3GvryOB0CSAe70w55SHdlmwphtoYhUU2IZPgk7hw"
+      VAPID_SUBJECT: "mailto:admin@qlda.vn"
     volumes:
       - ./FileMau:/app/FileMau:ro
     expose:
@@ -48,7 +51,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     environment:
-      NEXT_PUBLIC_API_URL: "http://backend:4000"
+      NEXT_PUBLIC_API_URL: "/api"
     expose:
       - "3000"
     depends_on:

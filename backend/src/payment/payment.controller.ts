@@ -11,6 +11,7 @@ import * as JSZip from 'jszip';
 
 class CreatePaymentDto {
   @IsString() contractorSelectionId: string;
+  @IsOptional() @IsString() projectId?: string;
 }
 
 class UpdateStepDto {
@@ -25,18 +26,18 @@ export class PaymentController {
   // ====================== LIST ======================
 
   @Get()
-  async getAll() {
-    return this.svc.getAllPayments();
+  async getAll(@Query('projectId') projectId?: string) {
+    return this.svc.getAllPayments(projectId);
   }
 
   @Get('search')
-  async search(@Query('q') query: string) {
-    return this.svc.searchByContractNumber(query || '');
+  async search(@Query('q') query: string, @Query('projectId') projectId?: string) {
+    return this.svc.searchByContractNumber(query || '', projectId);
   }
 
   @Get('contracts')
-  async getContracts() {
-    return this.svc.getCompletedContractsForPayment();
+  async getContracts(@Query('projectId') projectId?: string) {
+    return this.svc.getCompletedContractsForPayment(projectId);
   }
 
   @Get('step/:stepId')
@@ -53,7 +54,7 @@ export class PaymentController {
 
   @Post()
   async create(@Body() dto: CreatePaymentDto, @Request() req: any) {
-    return this.svc.createPayment(req.user.sub, dto.contractorSelectionId);
+    return this.svc.createPayment(req.user.sub, dto.contractorSelectionId, dto.projectId);
   }
 
   // ====================== STEP DATA ======================

@@ -1,7 +1,8 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
-import { ContractPackageType } from '@prisma/client';
+import { ContractPackageType, NotificationType } from '@prisma/client';
+import { NotificationService } from '../notifications/notification.service';
 import { generatePaymentDocx, getPaymentSteps } from './payment-docx-generator';
 
 @Injectable()
@@ -9,14 +10,18 @@ export class PaymentService {
   constructor(
     private prisma: PrismaService,
     private minio: MinioService,
+    private notificationService: NotificationService,
   ) {}
 
   // ====================== LIST / GET ======================
 
   /** Get all payments with steps */
-  async getAllPayments() {
+  async getAllPayments(projectId?: string) {
+    const where: any = projectId ? { projectId } : {};
     return this.prisma.payment.findMany({
+      where,
       include: {
+        project: { select: { id: true, tenDuAn: true, procurementType: true } },
         steps: { orderBy: { stepOrder: 'asc' } },
         contractorSelection: {
           select: {
@@ -31,10 +36,15 @@ export class PaymentService {
   }
 
   /** Search payments by contract number (maSoHD) */
-  async searchByContractNumber(query: string) {
+  async searchByContractNumber(query: string, projectId?: string) {
+    const where: any = { maSoHD: { contains: query, mode: 'insensitive' } };
+    if (projectId) {
+      where.projectId = projectId;
+    }
     return this.prisma.payment.findMany({
-      where: { maSoHD: { contains: query, mode: 'insensitive' } },
+      where,
       include: {
+        project: { select: { id: true, tenDuAn: true, procurementType: true } },
         steps: { orderBy: { stepOrder: 'asc' } },
         contractorSelection: {
           select: { id: true, tenGoiThau: true, procurementMethod: true },
@@ -50,6 +60,7 @@ export class PaymentService {
     const payment = await this.prisma.payment.findUnique({
       where: { id },
       include: {
+        project: { select: { id: true, tenDuAn: true, procurementType: true, status: true } },
         steps: { orderBy: { stepOrder: 'asc' } },
         contractorSelection: {
           select: {
@@ -72,6 +83,7 @@ export class PaymentService {
       include: {
         payment: {
           include: {
+            project: { select: { id: true, tenDuAn: true, procurementType: true, status: true } },
             contractorSelection: {
               select: {
                 id: true, tenGoiThau: true, procurementMethod: true, data: true,
@@ -88,13 +100,18 @@ export class PaymentService {
   }
 
   /** Get contracts that have been completed (hop_dong step COMPLETED with contractPackageType set) */
-  async getCompletedContractsForPayment() {
+  async getCompletedContractsForPayment(projectId?: string) {
+    const where: any = {
+      contractPackageType: { not: null },
+      steps: { some: { stepKey: 'hop_dong', status: 'COMPLETED' } },
+    };
+    if (projectId) {
+      where.projectId = projectId;
+    }
     const selections = await this.prisma.contractorSelection.findMany({
-      where: {
-        contractPackageType: { not: null },
-        steps: { some: { stepKey: 'hop_dong', status: 'COMPLETED' } },
-      },
+      where,
       include: {
+        project: { select: { id: true, tenDuAn: true, procurementType: true } },
         qdKhlcnt: { select: { id: true, data: true } },
         steps: { where: { stepKey: 'hop_dong' }, select: { data: true, completedAt: true } },
         payments: { select: { id: true } },
@@ -108,7 +125,7 @@ export class PaymentService {
   // ====================== CREATE ======================
 
   /** Create a payment process from a completed contract */
-  async createPayment(userId: string, contractorSelectionId: string) {
+  async createPayment(userId: string, contractorSelectionId: string, projectId?: string) {
     const selection = await this.prisma.contractorSelection.findUnique({
       where: { id: contractorSelectionId },
       include: { steps: { where: { stepKey: 'hop_dong' } } },
@@ -132,6 +149,7 @@ export class PaymentService {
     const payment = await this.prisma.payment.create({
       data: {
         contractorSelectionId,
+        projectId,
         contractPackageType: packageType,
         maSoHD,
         createdBy: userId,
@@ -176,7 +194,7 @@ export class PaymentService {
   async completeStep(stepId: string) {
     const step = await this.prisma.paymentStep.findUnique({
       where: { id: stepId },
-      include: { payment: true },
+      include: { payment: { include: { contractorSelection: true } } },
     });
     if (!step) throw new NotFoundException('Không tìm thấy bước');
 
@@ -191,10 +209,19 @@ export class PaymentService {
       }
     }
 
-    return this.prisma.paymentStep.update({
+    const updated = await this.prisma.paymentStep.update({
       where: { id: stepId },
       data: { status: 'COMPLETED', completedAt: new Date() },
     });
+
+    await this.notificationService.create(step.payment.createdBy, {
+      type: NotificationType.PAYMENT_COMPLETED,
+      title: 'Bước thanh toán đã hoàn thành',
+      message: `Bước "${step.title}" của quy trình thanh toán "${step.payment.contractorSelection.tenGoiThau}" đã hoàn thành.`,
+      link: '/dashboard/mua-sam/hop-dong',
+    });
+
+    return updated;
   }
 
   async reopenStep(stepId: string) {
@@ -378,6 +405,7 @@ export class PaymentService {
     const payment = await this.prisma.payment.findUnique({
       where: { id: paymentId },
       include: {
+        project: { select: { id: true, tenDuAn: true, procurementType: true } },
         steps: { orderBy: { stepOrder: 'asc' } },
         contractorSelection: { select: { tenGoiThau: true } },
       },

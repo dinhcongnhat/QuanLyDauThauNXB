@@ -14,12 +14,14 @@ class CreateDocumentDto {
   @IsObject() data: any;
   @IsOptional() @IsString() parentId?: string;
   @IsOptional() @IsString() assignedTo?: string;
+  @IsOptional() @IsString() projectId?: string;
 }
 
 class CreateDuToanBatchDto {
   @IsObject() ttData: any;
   @IsObject() qdData: any;
   @IsString() assignedTo: string;
+  @IsOptional() @IsString() projectId?: string;
 }
 
 class RejectDto {
@@ -45,12 +47,27 @@ export class DocumentsController {
 
   @Post()
   async create(@Body() dto: CreateDocumentDto, @Request() req: any) {
-    return this.svc.create(req.user.sub, req.user.role, dto.type, dto.data, dto.parentId, dto.assignedTo);
+    return this.svc.create(
+      req.user.sub,
+      req.user.role,
+      dto.type,
+      dto.data,
+      dto.parentId,
+      dto.assignedTo,
+      dto.projectId,
+    );
   }
 
   @Post('create-du-toan-batch')
   async createDuToanBatch(@Body() dto: CreateDuToanBatchDto, @Request() req: any) {
-    return this.svc.createDuToanBatch(req.user.sub, req.user.role, dto.ttData, dto.qdData, dto.assignedTo);
+    return this.svc.createDuToanBatch(
+      req.user.sub,
+      req.user.role,
+      dto.ttData,
+      dto.qdData,
+      dto.assignedTo,
+      dto.projectId,
+    );
   }
 
   @Get('stats')
@@ -59,14 +76,23 @@ export class DocumentsController {
   }
 
   @Get('approved')
-  async getApproved() {
-    return this.svc.getApprovedDecisions();
+  async getApproved(@Query('projectId') projectId?: string) {
+    return this.svc.getApprovedDecisions(projectId);
   }
 
   @Get('by-type')
-  async findByType(@Query('types') types: string, @Request() req: any) {
+  async findByType(
+    @Query('types') types: string,
+    @Query('projectId') projectId: string,
+    @Request() req: any,
+  ) {
     const typeList = types.split(',') as DocType[];
-    return this.svc.findByType(typeList, req.user.sub, req.user.role);
+    return this.svc.findByType(typeList, req.user.sub, req.user.role, projectId);
+  }
+
+  @Get('by-project/:projectId')
+  async findByProject(@Param('projectId') projectId: string) {
+    return this.svc.findByProject(projectId);
   }
 
   @Get('by-parent/:parentId')
