@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, Suspense } from 'react';
 import { api } from '@/lib/api';
 import { Document as Doc } from '@/lib/types';
 import Link from 'next/link';
@@ -11,7 +11,7 @@ import { useSearchParams } from 'next/navigation';
 
 const PROJ_TYPE = 'THAU_THIET_BI';
 
-export default function ThietBiKHLcntPage() {
+function ThietBiKHLcntPageInner() {
   const searchParams = useSearchParams();
   const [approvedDuToan, setApprovedDuToan] = useState<Doc[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
@@ -112,5 +112,13 @@ export default function ThietBiKHLcntPage() {
         </>
       )}
     </div>
+  );
+}
+
+export default function ThietBiKHLcntPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="animate-spin h-8 w-8 border-4 border-green-500 border-t-transparent rounded-full" /></div>}>
+      <ThietBiKHLcntPageInner />
+    </Suspense>
   );
 }

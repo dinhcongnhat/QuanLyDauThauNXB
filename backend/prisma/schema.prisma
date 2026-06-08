@@ -88,7 +88,7 @@ model DatSachProject {
   parentId        String          @map("parent_id")
   procurementType ProcurementType @default(THAU_SACH) @map("procurement_type")
   tenDuAn         String          @map("ten_du_an")
-  status          String          @default("DRAFT")
+  status          ProjectStatus   @default(IN_PROGRESS) @map("status")
   qdData          Json            @default("{}") @map("qd_data")
   createdBy       String          @map("created_by")
   createdAt       DateTime        @default(now()) @map("created_at")
@@ -216,6 +216,66 @@ model PushSubscription {
   @@map("push_subscriptions")
 }
 
+// ====================== Dynamic RBAC ======================
+
+model DynamicRole {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  displayName String   @map("display_name")
+  description String?
+  priority    Int      @default(0)
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  permissions DynamicRolePermission[]
+  userRoles   UserDynamicRole[]
+
+  @@map("dynamic_roles")
+}
+
+model Permission {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  displayName String   @map("display_name")
+  description String?
+  category    String
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  rolePermissions DynamicRolePermission[]
+
+  @@map("permissions")
+}
+
+model DynamicRolePermission {
+  id        String   @id @default(uuid())
+  roleId    String   @map("role_id")
+  permId    String   @map("permission_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  role       DynamicRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission  @relation(fields: [permId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permId])
+  @@map("dynamic_role_permissions")
+}
+
+model UserDynamicRole {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  roleId    String   @map("role_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User        @relation("UserDynamicRoles", fields: [userId], references: [id], onDelete: Cascade)
+  role DynamicRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+  @@map("user_dynamic_roles")
+}
+
+// ====================== User ======================
+
 model User {
   id              String   @id @default(uuid())
   name            String
@@ -244,6 +304,7 @@ model User {
   createdProjects      Project[]              @relation("ProjectCreator")
   notifications        Notification[]
   pushSubscriptions    PushSubscription[]
+  dynamicRoles         UserDynamicRole[]    @relation("UserDynamicRoles")
 
   @@map("users")
 }
@@ -404,6 +465,14 @@ enum LibraryType {
   DIA_CHI
   KY_TUONG
   CUSTOM
+  // Module-based libraries
+  DAT_SACH_GDN      // GDN: tenSach, tacGia, bbt, namXB, soTrang, khoSach, giaBia, soLuongTon, thoiGianCanSach, deNghiNoiIn
+  DAT_SACH_PCDI     // PCDI: bbt, phuongThuc, tenSach, tacGia, soTrang, khoSach, soLuongIn, giaTriHopDong, coSoIn, thongSoKyThuat
+  DAT_SACH_QD       // QĐ: tacGia, ngonNgu, khuonKho, soTrangCuaXuatBanPhamIn, soLuongIn, doiTacLienKetXuatBan, tenBienTapVien, coSoIn, isbn
+  DUTOAN_TT         // ToTrinh DuToan: tenDuAn, chuDauTu, diaDanh, donViTrinh, nguonVon, diaDiemThucHien, thoiGianThucHien, tongMucDauTu
+  DUTOAN_QD         // Quyet dinh DuToan: tenDuAn, soQuyetDinh, chuDauTu, nguonVon, diaDiemThucHien, tongMucDauTu
+  KHLCNT            // KHLCNT: tenDuAn, chuDauTu, nguonVon, diaDiemThucHien, giaTriHopDong, hinhThucLuaChon
+  LCNT_STEP        // LCNT step: dynamic, maps to contractor info
 }
 
 enum FieldType {
@@ -446,7 +515,7 @@ model LibraryField {
   libraryId     String     @map("library_id")
   library       Library    @relation(fields: [libraryId], references: [id], onDelete: Cascade)
   tenTruong     String     @map("ten_truong")
-  khoa          String     @unique @default(cuid())
+  khoa          String     @map("khoa")
   kieuDuLieu    FieldType  @map("kieu_du_lieu")
   giaTriMacDinh String?    @map("gia_tri_mac_dinh")
   batBuoc       Boolean    @default(false) @map("bat_buoc")
@@ -455,6 +524,7 @@ model LibraryField {
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 
+  @@unique([libraryId, khoa])
   @@map("library_fields")
 }
 

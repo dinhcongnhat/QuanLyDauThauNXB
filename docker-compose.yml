@@ -22,7 +22,7 @@ services:
       dockerfile: Dockerfile
     environment:
       DATABASE_URL: "postgresql://postgres:jtsc12345@192.168.1.90:5432/qlda_nxb"
-      JWT_SECRET: "10122002"
+      JWT_SECRET: "Q9qHU+5khmVqKmLNQl8ppQKqT8Gae46Jl3NKrK5FVE0="
       PORT: "4000"
       APP_URL: "http://demo.jtsc.vn"
       ONLYOFFICE_URL: "https://jtsconlyoffice.duckdns.org"

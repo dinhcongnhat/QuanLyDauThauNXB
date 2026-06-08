@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { docLibraryApi } from '@/lib/document-library-api';
-import { Library, SavedValue, LibraryType, LIBRARY_TYPE_LABELS } from '@/lib/document-library-types';
+import { Library, SavedValue, LibraryType, LIBRARY_TYPE_LABELS, MODULE_LIBRARY_LABELS, ModuleLibraryType } from '@/lib/document-library-types';
 import toast from 'react-hot-toast';
 
 interface LibraryPickerProps {
@@ -10,9 +10,10 @@ interface LibraryPickerProps {
   onSelect: (savedValue: SavedValue) => void;
   onSaveToLibrary: (savedValue: SavedValue) => void;
   trigger?: React.ReactNode;
+  module?: ModuleLibraryType;
 }
 
-export function LibraryPicker({ libraryType, onSelect, onSaveToLibrary, trigger }: LibraryPickerProps) {
+export function LibraryPicker({ libraryType, onSelect, onSaveToLibrary, trigger, module }: LibraryPickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [libraries, setLibraries] = useState<Library[]>([]);
   const [selectedLib, setSelectedLib] = useState<Library | null>(null);
@@ -34,8 +35,13 @@ export function LibraryPicker({ libraryType, onSelect, onSaveToLibrary, trigger 
     setIsOpen(true);
     setLoading(true);
     try {
-      const libs: any[] = await docLibraryApi.getLibraries();
-      const filtered = libs.filter((l: any) => l.loai === libraryType);
+      let filtered: any[];
+      if (module) {
+        filtered = await docLibraryApi.getLibrariesByTypes([module]);
+      } else {
+        const libs: any[] = await docLibraryApi.getLibraries();
+        filtered = libs.filter((l: any) => l.loai === libraryType);
+      }
       setLibraries(filtered);
       if (filtered.length === 1) {
         setSelectedLib(filtered[0]);
@@ -123,6 +129,9 @@ export function LibraryPicker({ libraryType, onSelect, onSaveToLibrary, trigger 
                     <p className="text-xs text-gray-500 px-2 mb-1">
                       {values.length > 0 ? 'Chọn giá trị:' : 'Chưa có giá trị nào.'}
                     </p>
+                    {values.length === 0 && selectedLib._count?.savedValues === 0 && (
+                      <p className="text-xs text-center text-gray-400 py-2">Không có giá trị nào được lưu.</p>
+                    )}
                     {values.map(val => (
                       <button key={val.id} onClick={() => handleSelect(val)}
                         className="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-blue-50 hover:text-blue-800 transition-colors group">

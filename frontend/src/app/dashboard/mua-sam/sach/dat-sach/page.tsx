@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, Suspense } from 'react';
 import { api } from '@/lib/api';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
@@ -18,6 +18,14 @@ function formatMoney(value: string | number): string {
 }
 
 export default function SachDatSachPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="animate-spin h-8 w-8 border-4 border-green-500 border-t-transparent rounded-full" /></div>}>
+      <SachDatSachPageInner />
+    </Suspense>
+  );
+}
+
+function SachDatSachPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [projects, setProjects] = useState<any[]>([]);

@@ -69,6 +69,18 @@ export class DocumentLibraryService {
     });
   }
 
+  async findLibrariesByTypes(types: LibraryType[]) {
+    return this.prisma.library.findMany({
+      where: { loai: { in: types } },
+      include: {
+        organization: { select: { id: true, ten: true } },
+        fields: { orderBy: { thuTu: 'asc' } },
+        _count: { select: { fields: true, savedValues: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
   async findLibrary(id: string) {
     const lib = await this.prisma.library.findUnique({
       where: { id },
@@ -124,8 +136,8 @@ export class DocumentLibraryService {
     const lib = await this.prisma.library.findUnique({ where: { id: libraryId } });
     if (!lib) throw new NotFoundException('Library not found');
 
-    const exists = await this.prisma.libraryField.findUnique({ where: { khoa: data.khoa } });
-    if (exists) throw new BadRequestException(`Field with key "${data.khoa}" already exists`);
+    const exists = await this.prisma.libraryField.findUnique({ where: { libraryId_khoa: { libraryId, khoa: data.khoa } } });
+    if (exists) throw new BadRequestException(`Field with key "${data.khoa}" already exists in this library`);
 
     return this.prisma.libraryField.create({
       data: {
@@ -156,8 +168,8 @@ export class DocumentLibraryService {
     if (!field) throw new NotFoundException('Field not found');
 
     if (data.khoa && data.khoa !== field.khoa) {
-      const exists = await this.prisma.libraryField.findUnique({ where: { khoa: data.khoa } });
-      if (exists) throw new BadRequestException(`Field with key "${data.khoa}" already exists`);
+      const exists = await this.prisma.libraryField.findUnique({ where: { libraryId_khoa: { libraryId, khoa: data.khoa } } });
+      if (exists) throw new BadRequestException(`Field with key "${data.khoa}" already exists in this library`);
     }
 
     return this.prisma.libraryField.update({

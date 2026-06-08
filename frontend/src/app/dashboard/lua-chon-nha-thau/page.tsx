@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { api } from '@/lib/api';
@@ -472,7 +472,7 @@ function displayFilename(path: string): string {
 }
 
 /* ======================== Main Page ======================== */
-export default function LuaChonNhaThauPage() {
+function LuaChonNhaThauPageInner() {
   const { user } = useAuthStore();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -1116,6 +1116,14 @@ export default function LuaChonNhaThauPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function LuaChonNhaThauPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="animate-spin h-8 w-8 border-4 border-green-500 border-t-transparent rounded-full" /></div>}>
+      <LuaChonNhaThauPageInner />
+    </Suspense>
   );
 }
 

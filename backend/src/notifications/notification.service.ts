@@ -146,22 +146,26 @@ export class NotificationService {
     });
   }
 
-  private async sendPush(
+  private   async sendPush(
     userId: string,
     payload: { title: string; body: string; url: string },
   ) {
     const vapidPublicKey = process.env.VAPID_PUBLIC_KEY;
     const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
 
-    if (!vapidPublicKey || !vapidPrivateKey) {
+    if (!vapidPublicKey || !vapidPrivateKey || !webpush) {
       return;
     }
 
-    webpush.setVapidDetails(
-      process.env.VAPID_SUBJECT || 'mailto:admin@qlda.vn',
-      vapidPublicKey,
-      vapidPrivateKey,
-    );
+    try {
+      webpush.setVapidDetails(
+        process.env.VAPID_SUBJECT || 'mailto:admin@qlda.vn',
+        vapidPublicKey,
+        vapidPrivateKey,
+      );
+    } catch (e) {
+      return;
+    }
 
     const subscriptions = await this.prisma.pushSubscription.findMany({
       where: { userId },

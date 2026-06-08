@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/lib/store';
@@ -27,7 +27,7 @@ const typeLabels: Record<string, string> = {
 
 type FormType = 'TT_KHLCNT' | 'QD_KHLCNT';
 
-export default function KHLCNTDetailPage() {
+function KHLCNTDetailPageInner() {
   const params = useParams();
   const parentId = params.parentId as string;
   const searchParams = useSearchParams();
@@ -643,5 +643,13 @@ export default function KHLCNTDetailPage() {
         <OnlyOfficePreview documentId={previewDocId} onClose={() => setPreviewDocId(null)} />
       )}
     </div>
+  );
+}
+
+export default function KHLCNTDetailPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="animate-spin h-8 w-8 border-4 border-green-500 border-t-transparent rounded-full" /></div>}>
+      <KHLCNTDetailPageInner />
+    </Suspense>
   );
 }

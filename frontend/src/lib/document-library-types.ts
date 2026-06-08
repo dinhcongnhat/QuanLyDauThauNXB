@@ -1,7 +1,34 @@
 import { create } from 'zustand';
 
-export type LibraryType = 'THONG_TIN_TO_CHUC' | 'THONG_TIN_NHA_THAU' | 'DIA_CHI' | 'KY_TUONG' | 'CUSTOM';
+export type LibraryType = 'THONG_TIN_TO_CHUC' | 'THONG_TIN_NHA_THAU' | 'DIA_CHI' | 'KY_TUONG' | 'CUSTOM'
+  | 'DAT_SACH_GDN' | 'DAT_SACH_PCDI' | 'DAT_SACH_QD'
+  | 'DUTOAN_TT' | 'DUTOAN_QD'
+  | 'KHLCNT'
+  | 'LCNT_STEP';
 export type FieldType = 'TEXT' | 'TEXTAREA' | 'DATE' | 'MONEY' | 'NUMBER' | 'EMAIL' | 'PHONE';
+
+export type ModuleLibraryType =
+  | 'DAT_SACH_GDN' | 'DAT_SACH_PCDI' | 'DAT_SACH_QD'
+  | 'DUTOAN_TT' | 'DUTOAN_QD'
+  | 'KHLCNT'
+  | 'LCNT_STEP';
+
+export const MODULE_LIBRARY_LABELS: Record<ModuleLibraryType, string> = {
+  DAT_SACH_GDN: 'Mẫu GDN Đặt sách',
+  DAT_SACH_PCDI: 'Mẫu PCDI Đặt sách',
+  DAT_SACH_QD: 'Mẫu QĐ Đặt sách',
+  DUTOAN_TT: 'Mẫu Tờ trình Dự toán',
+  DUTOAN_QD: 'Mẫu QĐ Dự toán',
+  KHLCNT: 'Mẫu KHLCNT',
+  LCNT_STEP: 'Mẫu LCNT',
+};
+
+export const MODULE_LABELS: Record<string, string> = {
+  DAT_SACH: 'Đặt sách',
+  DUTOAN: 'Dự toán',
+  KHLCNT: 'Kế hoạch LCNT',
+  LCNT: 'Lựa chọn nhà thầu',
+};
 
 export interface LibraryField {
   id: string;
@@ -54,6 +81,13 @@ export const LIBRARY_TYPE_LABELS: Record<LibraryType, string> = {
   DIA_CHI: 'Địa chỉ',
   KY_TUONG: 'Ký tượng',
   CUSTOM: 'Tuỳ chỉnh',
+  DAT_SACH_GDN: 'Mẫu GDN Đặt sách',
+  DAT_SACH_PCDI: 'Mẫu PCDI Đặt sách',
+  DAT_SACH_QD: 'Mẫu QĐ Đặt sách',
+  DUTOAN_TT: 'Mẫu Tờ trình Dự toán',
+  DUTOAN_QD: 'Mẫu QĐ Dự toán',
+  KHLCNT: 'Mẫu KHLCNT',
+  LCNT_STEP: 'Mẫu LCNT',
 };
 
 export const FIELD_TYPE_LABELS: Record<FieldType, string> = {

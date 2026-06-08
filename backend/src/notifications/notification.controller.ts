@@ -33,24 +33,29 @@ export class NotificationController {
 
   @Post('subscribe')
   async subscribe(@Request() req: any, @Body() body: { endpoint: string; p256dh: string; auth: string }) {
-    return this.prisma.pushSubscription.upsert({
-      where: {
-        userId_endpoint: {
+    try {
+      return await this.prisma.pushSubscription.upsert({
+        where: {
+          userId_endpoint: {
+            userId: req.user.userId,
+            endpoint: body.endpoint,
+          },
+        },
+        update: {
+          p256dh: body.p256dh,
+          auth: body.auth,
+        },
+        create: {
           userId: req.user.userId,
           endpoint: body.endpoint,
+          p256dh: body.p256dh,
+          auth: body.auth,
         },
-      },
-      update: {
-        p256dh: body.p256dh,
-        auth: body.auth,
-      },
-      create: {
-        userId: req.user.userId,
-        endpoint: body.endpoint,
-        p256dh: body.p256dh,
-        auth: body.auth,
-      },
-    });
+      });
+    } catch (e: any) {
+      if (e.code === 'P2003') return { message: 'Subscription skipped (user not found)' };
+      throw e;
+    }
   }
 
   @Post('unsubscribe')

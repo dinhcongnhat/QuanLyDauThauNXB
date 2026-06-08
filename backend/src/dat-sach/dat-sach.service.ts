@@ -144,10 +144,18 @@ export class DatSachService {
   }
 
   async fillSL(gdnId: string, userId: string, soLuong: number) {
+    // Validate user is assigned to this GDN
     const assignment = await this.prisma.gDNAssignment.findUnique({
       where: { gdnInSachId_userId: { gdnInSachId: gdnId, userId } },
     });
-    if (!assignment) throw new NotFoundException('Không tìm thấy assignment');
+    if (!assignment) throw new ForbiddenException('Bạn không được giao nhiệm vụ nhập số lượng cho GDN này');
+
+    // Validate GDN is not yet approved
+    const gdn = await this.prisma.gDNInSach.findUnique({ where: { id: gdnId } });
+    if (gdn?.status === 'APPROVED') {
+      throw new BadRequestException('GDN đã được phê duyệt, không thể thay đổi số lượng');
+    }
+
     return this.prisma.gDNAssignment.update({
       where: { gdnInSachId_userId: { gdnInSachId: gdnId, userId } },
       data: {
@@ -318,6 +326,15 @@ export class DatSachService {
       include: { assignments: true },
     });
     if (!gdn) return null;
+
+    // Check that all assignments have been filled
+    const unfilledAssignments = gdn.assignments.filter(a => !a.soLuong || a.soLuong <= 0);
+    if (unfilledAssignments.length > 0) {
+      throw new BadRequestException(
+        `Còn ${unfilledAssignments.length} user(s) chưa nhập số lượng. Cần hoàn thành tất cả assignment trước khi auto-fill PCDI.`,
+      );
+    }
+
     const d: any = gdn.data as object;
     const totalSL = (gdn.assignments || []).reduce((sum: number, a: any) => sum + (a.soLuong || 0), 0);
     return {

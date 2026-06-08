@@ -80,10 +80,32 @@ const PLACEHOLDER_ALIASES: Record<string, string> = {
   // Renamed template fields → existing data keys (backward compat)
   'TomTatNoiDungHSMT': 'TomTatNoiDungHSMT',
   'TenNhaThauDuocDoiChieu': 'NhaThauDuocDoiChieu',
-  'ThoiDiemDongThau': 'ThoiDiemDongThau',
 
   // Lowercase variant
   'donViMoi': 'DonViMoi',
+
+  // Fixed broken braces (missing opening {{)
+  'LoaiHopDong': 'LoaiHopDong',
+  'NoiDungBaoHiem': 'NoiDungBaoHiem',
+  'MaSoHĐ': 'MaSoHD',
+  'ThoiDiemDongThau': 'ThoiDiemDongThau',
+  'ThoiGianDoiChieuTaiLieu': 'ThoiGianDoiChieuTaiLieu',
+
+  // Lowercase first letter
+  'tendonvicuatochuyengia': 'Tendonvicuatochuyengia',
+
+  // Space inside braces (remove all spaces)
+  'C oSoIn': 'CoSoIn',
+  'NgonNgu': 'NgonNgu',
+  'khuonKho': 'khuonKho',
+  'S oLuongIn': 'SoLuongIn',
+  'T acGia': 'TacGia',
+  'DoiTacLienKetXuatBan': 'DoiTacLienKetXuatBan',
+  'T enBienTapVien': 'TenBienTapVien',
+  'MaSoCachTieuChuanQuocTeISBN': 'MaSoCachTieuChuanQuocTe',
+
+  // Expert committee
+  'Tendonvicuatochuyengia': 'Tendonvicuatochuyengia',
 };
 
 /**
@@ -273,9 +295,10 @@ function replaceDatePatterns(xml: string, day: string, month: string, year: stri
 function replacePlaceholders(xml: string, data: Record<string, any>): string {
   return xml.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_match, inner) => {
     const trimmed = (inner as string).trim();
-    const dataKey = PLACEHOLDER_ALIASES[trimmed] ?? trimmed;
-    // Try aliased key first, then original key (handles cases where data was saved with the original placeholder name)
-    const value = data?.[dataKey] ?? data?.[trimmed];
+    const noSpaces = trimmed.replace(/\s/g, ''); // strip all spaces from placeholder inner text
+    // Try: alias of no-spaces version → alias of original → no-spaces version → original
+    const dataKey = PLACEHOLDER_ALIASES[noSpaces] ?? PLACEHOLDER_ALIASES[trimmed] ?? noSpaces;
+    const value = data?.[dataKey] ?? data?.[trimmed] ?? data?.[noSpaces];
     if (value !== undefined && value !== null) {
       return escapeXmlText(String(value));
     }

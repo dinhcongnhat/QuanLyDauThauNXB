@@ -587,7 +587,10 @@ export class ContractorSelectionService {
   // ====================== APPROVAL WORKFLOW ======================
 
   /** Request approval for a step (trình lên giám đốc/trưởng phòng) */
-  async requestApproval(stepId: string, userId: string, comment?: string) {
+  async requestApproval(stepId: string, userId: string, userRole: string, comment?: string) {
+    if (!canApprove(userRole)) {
+      throw new ForbiddenException('Bạn không có quyền yêu cầu phê duyệt bước này');
+    }
     const step = await this.prisma.procurementStep.findUnique({ where: { id: stepId } });
     if (!step) throw new NotFoundException('Không tìm thấy bước');
 
@@ -619,14 +622,22 @@ export class ContractorSelectionService {
       },
     });
 
-    // Notify directors about the pending approval
+    // Notify directors about the pending approval (skip those who already approved)
+    const existingApprovers = await this.prisma.stepApprovalRequest.findMany({
+      where: { stepId, action: 'APPROVED' },
+      select: { userId: true },
+    });
+    const existingApproverIds = new Set(existingApprovers.map(a => a.userId));
+
     const directors = await this.prisma.user.findMany({ where: { role: 'DIRECTOR' } });
+    const newDirectors = directors.filter(d => !existingApproverIds.has(d.id));
+
     const stepData = await this.getStep(stepId);
     const selectionData = stepData.contractorSelection;
     const projectName = (selectionData.data as any)?.tenGoiThau || (selectionData.data as any)?.tenDuAn || '';
 
     await Promise.all(
-      directors.map((u) =>
+      newDirectors.map((u) =>
         this.notificationService.create(u.id, {
           type: NotificationType.STEP_PENDING_APPROVAL,
           title: 'Có bước LCNT chờ duyệt',
@@ -839,13 +850,23 @@ export class ContractorSelectionService {
     const selectionData = stepData.contractorSelection;
     const projectName = (selectionData.data as any)?.tenGoiThau || (selectionData.data as any)?.tenDuAn || '';
 
-    // Notify the creator of the contractor selection
-    await this.notificationService.create(selectionData.createdBy, {
-      type: NotificationType.STEP_COMPLETED,
-      title: 'Bước LCNT đã hoàn thành',
-      message: `Bước "${stepData.title}" của "${projectName}" đã hoàn thành.`,
-      link: '/dashboard/mua-sam/lua-chon-nha-thau',
+    // Notify the creator and the user who submitted the step for approval
+    const notificationTargets = new Set<string>([selectionData.createdBy]);
+    const approvalRequester = await this.prisma.stepApprovalRequest.findFirst({
+      where: { stepId, action: 'PENDING_APPROVAL' },
+      orderBy: { createdAt: 'asc' },
     });
+    if (approvalRequester) {
+      notificationTargets.add(approvalRequester.userId);
+    }
+    for (const userId of notificationTargets) {
+      await this.notificationService.create(userId, {
+        type: NotificationType.STEP_COMPLETED,
+        title: 'Bước LCNT đã hoàn thành',
+        message: `Bước "${stepData.title}" của "${projectName}" đã hoàn thành.`,
+        link: '/dashboard/mua-sam/lua-chon-nha-thau',
+      });
+    }
 
     return updated;
   }
@@ -859,7 +880,15 @@ export class ContractorSelectionService {
 
     return this.prisma.procurementStep.update({
       where: { id: stepId },
-      data: { status: 'IN_PROGRESS', completedAt: null },
+      data: {
+        status: 'IN_PROGRESS',
+        completedAt: null,
+        approvalStatus: 'NO_APPROVAL_REQUIRED',
+        approvedBy: null,
+        approvedAt: null,
+        approverRole: null,
+        approvalComment: null,
+      },
     });
   }
 
@@ -912,6 +941,31 @@ export class ContractorSelectionService {
   // ====================== FILE UPLOAD ======================
 
   async uploadAttachment(stepId: string, file: { buffer: Buffer; originalname: string; mimetype: string; ghiChu?: string }): Promise<string> {
+    // File type validation - whitelist only safe document types
+    const ALLOWED_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'jpg', 'jpeg', 'png']);
+    const ALLOWED_MIME_TYPES = new Set([
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'image/jpeg',
+      'image/png',
+    ]);
+
+    const ext = file.originalname.split('.').pop()?.toLowerCase() || '';
+    if (!ALLOWED_EXTENSIONS.has(ext)) {
+      throw new BadRequestException(`Loại file không được phép upload: .${ext}. Chỉ chấp nhận: pdf, doc, docx, xls, xlsx, jpg, png`);
+    }
+
+    if (!ALLOWED_MIME_TYPES.has(file.mimetype)) {
+      throw new BadRequestException(`Định dạng file không hợp lệ: ${file.mimetype}`);
+    }
+
+    if (file.originalname.includes('/') || file.originalname.includes('\\') || file.originalname.includes('..')) {
+      throw new BadRequestException('Tên file không hợp lệ');
+    }
+
     const step = await this.prisma.procurementStep.findUnique({
       where: { id: stepId },
       include: { contractorSelection: true },
@@ -1008,11 +1062,16 @@ export class ContractorSelectionService {
   }
 
   verifyFileDownloadToken(token: string): string {
-    const payload = this.jwtService.verify(token);
-    if (payload.purpose !== 'lcnt-download' || !payload.path) {
-      throw new BadRequestException('Token không hợp lệ');
+    try {
+      const payload = this.jwtService.verify(token);
+      if (payload.purpose !== 'lcnt-download' || !payload.path) {
+        throw new BadRequestException('Token không hợp lệ');
+      }
+      return payload.path;
+    } catch (e) {
+      if (e instanceof BadRequestException) throw e;
+      throw new BadRequestException('Token không hợp lệ hoặc đã hết hạn');
     }
-    return payload.path;
   }
 
   // ====================== COMPLETED CONTRACTS ======================

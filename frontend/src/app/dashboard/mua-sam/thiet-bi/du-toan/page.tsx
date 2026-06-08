@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, Suspense } from 'react';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/lib/store';
 import { Document as Doc, DocType, DocStatus, User } from '@/lib/types';
@@ -37,7 +37,7 @@ const PROJ_TYPE = 'THAU_THIET_BI';
 
 type FormType = 'TT_DUTOAN' | 'QD_DUTOAN';
 
-export default function ThietBiDuToanPage() {
+function ThietBiDuToanPageInner() {
   const { user } = useAuthStore();
   const searchParams = useSearchParams();
   const [docs, setDocs] = useState<Doc[]>([]);
@@ -470,5 +470,13 @@ export default function ThietBiDuToanPage() {
         .inp:focus { border-color: #6366f1; box-shadow: 0 0 0 2px rgba(99,102,241,0.1); }
       `}</style>
     </div>
+  );
+}
+
+export default function ThietBiDuToanPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="animate-spin h-8 w-8 border-4 border-green-500 border-t-transparent rounded-full" /></div>}>
+      <ThietBiDuToanPageInner />
+    </Suspense>
   );
 }

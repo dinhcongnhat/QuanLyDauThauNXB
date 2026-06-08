@@ -350,6 +350,31 @@ export class PaymentService {
   // ====================== FILE UPLOAD ======================
 
   async uploadAttachment(stepId: string, file: { buffer: Buffer; originalname: string; mimetype: string }) {
+    // File type validation - whitelist only safe document types
+    const ALLOWED_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'jpg', 'jpeg', 'png']);
+    const ALLOWED_MIME_TYPES = new Set([
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'image/jpeg',
+      'image/png',
+    ]);
+
+    const ext = file.originalname.split('.').pop()?.toLowerCase() || '';
+    if (!ALLOWED_EXTENSIONS.has(ext)) {
+      throw new BadRequestException(`Loại file không được phép upload: .${ext}. Chỉ chấp nhận: pdf, doc, docx, xls, xlsx, jpg, png`);
+    }
+
+    if (!ALLOWED_MIME_TYPES.has(file.mimetype)) {
+      throw new BadRequestException(`Định dạng file không hợp lệ: ${file.mimetype}`);
+    }
+
+    if (file.originalname.includes('/') || file.originalname.includes('\\') || file.originalname.includes('..')) {
+      throw new BadRequestException('Tên file không hợp lệ');
+    }
+
     const step = await this.prisma.paymentStep.findUnique({
       where: { id: stepId },
       include: { payment: true },

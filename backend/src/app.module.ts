@@ -11,6 +11,7 @@ import { BidParticipationModule } from './bid-participation/bid-participation.mo
 import { DatSachModule } from './dat-sach/dat-sach.module';
 import { ProjectModule } from './project/project.module';
 import { DocumentLibraryModule } from './document-library/document-library.module';
+import { RbacModule } from './rbac/rbac.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { DocumentLibraryModule } from './document-library/document-library.modul
     DatSachModule,
     ProjectModule,
     DocumentLibraryModule,
+    RbacModule,
   ],
 })
 export class AppModule {}

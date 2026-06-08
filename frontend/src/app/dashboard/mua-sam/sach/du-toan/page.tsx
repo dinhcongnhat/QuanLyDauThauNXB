@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, Suspense } from 'react';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/lib/store';
 import { Document as Doc, DocStatus, User } from '@/lib/types';
@@ -8,7 +8,7 @@ import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import { useSearchParams } from 'next/navigation';
-import { LibraryPicker } from '@/components/LibraryPicker';
+import { LibraryPicker, SaveToLibraryModal } from '@/components/LibraryPicker';
 import { SavedValue } from '@/lib/document-library-types';
 
 const PROJ_TYPE = 'THAU_SACH';
@@ -29,7 +29,7 @@ const statusColors: Record<DocStatus, string> = {
   REJECTED: 'bg-red-100 text-red-700',
 };
 
-export default function SachDuToanPage() {
+function SachDuToanPageInner() {
   const { user } = useAuthStore();
   const searchParams = useSearchParams();
   const [docs, setDocs] = useState<Doc[]>([]);
@@ -47,6 +47,8 @@ export default function SachDuToanPage() {
   const [autoFilling, setAutoFilling] = useState(false);
   const [autoFillInfo, setAutoFillInfo] = useState<any>(null);
   const [datSachCompleted, setDatSachCompleted] = useState(false);
+  const [saveTTOpen, setSaveTTOpen] = useState(false);
+  const [saveQDOpen, setSaveQDOpen] = useState(false);
 
   const checkDatSachStatus = useCallback(async (projId: string) => {
     if (!projId) { setDatSachCompleted(false); return; }
@@ -130,7 +132,35 @@ export default function SachDuToanPage() {
   };
 
   const handleLibraryTT = (val: SavedValue) => {
-    setTtData(prev => ({ ...prev, ...val.duLieu }));
+    const d = val.duLieu || {};
+    setTtData(prev => ({
+      ...prev,
+      // Library keys -> form keys
+      SoToTrinh: d.soToTrinh || d.SoToTrinh || prev.SoToTrinh,
+      DiaDanh: d.diaDanh || d.DiaDanh || prev.DiaDanh,
+      ChuDauTu: d.chuDauTu || d.ChuDauTu || prev.ChuDauTu,
+      TenDuAn: d.tenDuAn || d.TenDuAn || prev.TenDuAn,
+      DonViTrinh: d.donViTrinh || d.DonViTrinh || prev.DonViTrinh,
+      NguonVon: d.nguonVon || d.NguonVon || prev.NguonVon,
+      DiaDiemThucHien: d.diaDiemThucHien || d.DiaDiemThucHien || prev.DiaDiemThucHien,
+      ThoiGianThucHien: d.thoiGianThucHien || d.ThoiGianThucHien || prev.ThoiGianThucHien,
+      DuToanBangSo: d.tongMucDauTu || d.tongMucDauTu || prev.DuToanBangSo,
+      DuToanBangChu: d.duToanBangChu || d.DuToanBangChu || prev.DuToanBangChu,
+    }));
+  };
+
+  const handleLibraryQD = (val: SavedValue) => {
+    const d = val.duLieu || {};
+    setQdData(prev => ({
+      ...prev,
+      SoQuyetDinh: d.soQuyetDinh || d.SoQuyetDinh || prev.SoQuyetDinh,
+      DiaDanh: d.diaDanh || d.DiaDanh || prev.DiaDanh,
+      ChuDauTu: d.chuDauTu || d.ChuDauTu || prev.ChuDauTu,
+      NguonVon: d.nguonVon || d.NguonVon || prev.NguonVon,
+      DiaDiemThucHien: d.diaDiemThucHien || d.DiaDiemThucHien || prev.DiaDiemThucHien,
+      DuToanBangSo: d.tongMucDauTu || prev.DuToanBangSo,
+      DuToanBangChu: d.duToanBangChu || prev.DuToanBangChu,
+    }));
   };
 
   const approvedTTs = docs.filter(d => d.type === 'TT_DUTOAN' && d.status === 'APPROVED');
@@ -265,7 +295,10 @@ export default function SachDuToanPage() {
             <h3 className="text-lg font-semibold text-green-900">Tạo Dự toán</h3>
             <div className="flex gap-2 items-center">
               <LibraryPicker
-                libraryType="THONG_TIN_TO_CHUC" onSelect={handleLibraryTT} onSaveToLibrary={() => {}}
+                libraryType="THONG_TIN_TO_CHUC"
+                module="DUTOAN_TT"
+                onSelect={handleLibraryTT}
+                onSaveToLibrary={() => setSaveTTOpen(true)}
               />
               {selectedProject && (
                 <button
@@ -302,6 +335,10 @@ export default function SachDuToanPage() {
             </div>
             <div className="flex gap-2 justify-end">
               <button onClick={() => setShowForm(false)} className="px-4 py-2 bg-gray-200 rounded-lg text-sm">Hủy</button>
+              <button onClick={() => setSaveTTOpen(true)}
+                className="px-4 py-2 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-100 text-sm">
+                Lưu vào thư viện
+              </button>
               <button onClick={handleCreateTT} disabled={submitting}
                 className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm font-medium">
                 {submitting ? '...' : 'Tạo & Gửi duyệt'}
@@ -389,6 +426,32 @@ export default function SachDuToanPage() {
         }
         .inp:focus { border-color: #6366f1; box-shadow: 0 0 0 2px rgba(99,102,241,0.1); }
       `}</style>
+
+      <SaveToLibraryModal
+        isOpen={saveTTOpen}
+        onClose={() => setSaveTTOpen(false)}
+        libraryType="DUTOAN_TT"
+        formData={ttData}
+        formFieldKeys={['SoToTrinh', 'DiaDanh', 'ChuDauTu', 'TenDuAn', 'TenGoiThau', 'DonViTrinh', 'DonViMuaSam', 'PhongBanThuocDonViTrinh', 'NguonVon', 'DiaDiemThucHien', 'ThoiGianThucHien', 'DuToanBangSo', 'DuToanBangChu']}
+        onSave={() => setSaveTTOpen(false)}
+      />
+
+      <SaveToLibraryModal
+        isOpen={saveQDOpen}
+        onClose={() => setSaveQDOpen(false)}
+        libraryType="DUTOAN_QD"
+        formData={qdData}
+        formFieldKeys={['SoQuyetDinh', 'DiaDanh', 'ChuDauTu', 'TenGoiThau', 'DonViMuaSam', 'PhongBanThuocDonViTrinh', 'NguonVon', 'DiaDiemThucHien', 'ThoiGianThucHien', 'DuToanBangSo', 'DuToanBangChu']}
+        onSave={() => setSaveQDOpen(false)}
+      />
     </div>
+  );
+}
+
+export default function SachDuToanPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="animate-spin h-8 w-8 border-4 border-green-500 border-t-transparent rounded-full" /></div>}>
+      <SachDuToanPageInner />
+    </Suspense>
   );
 }

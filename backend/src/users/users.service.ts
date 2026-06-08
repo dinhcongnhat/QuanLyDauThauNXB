@@ -35,7 +35,7 @@ export class UsersService {
     const exists = await this.prisma.user.findUnique({ where: { email: data.email } });
     if (exists) throw new BadRequestException('Email already exists');
 
-    const hash = await bcrypt.hash(data.password, 10);
+    const hash = await bcrypt.hash(data.password, 12);
     const user = await this.prisma.user.create({
       data: { ...data, password: hash },
       select: { id: true, name: true, email: true, role: true, isInvestor: true, isContractor: true, department: true, createdAt: true },
@@ -85,7 +85,7 @@ export class UsersService {
     if (!user) throw new NotFoundException('User not found');
     const valid = await bcrypt.compare(oldPassword, user.password);
     if (!valid) throw new BadRequestException('Mật khẩu cũ không đúng');
-    const hash = await bcrypt.hash(newPassword, 10);
+    const hash = await bcrypt.hash(newPassword, 12);
     await this.prisma.user.update({ where: { id: userId }, data: { password: hash } });
     return { message: 'Password changed' };
   }
@@ -93,7 +93,7 @@ export class UsersService {
   async adminResetPassword(userId: string, newPassword: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
-    const hash = await bcrypt.hash(newPassword, 10);
+    const hash = await bcrypt.hash(newPassword, 12);
     await this.prisma.user.update({ where: { id: userId }, data: { password: hash } });
     return { message: 'Password reset' };
   }

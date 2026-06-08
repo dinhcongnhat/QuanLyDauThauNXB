@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { api } from '@/lib/api';
@@ -28,7 +28,7 @@ const STEP_STATUS_COLORS: Record<string, string> = {
   COMPLETED: 'bg-green-100 text-green-700',
 };
 
-export default function ThanhToanPage() {
+function ThanhToanPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [projects, setProjects] = useState<any[]>([]);
@@ -268,5 +268,13 @@ export default function ThanhToanPage() {
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+export default function ThanhToanPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="animate-spin h-8 w-8 border-4 border-green-500 border-t-transparent rounded-full" /></div>}>
+      <ThanhToanPageInner />
+    </Suspense>
   );
 }

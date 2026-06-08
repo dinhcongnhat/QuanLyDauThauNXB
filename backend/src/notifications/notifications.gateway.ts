@@ -6,7 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from './notification.service';
 
 @WebSocketGateway({
-  cors: { origin: '*' },
+  cors: { origin: ['http://localhost:3000', 'http://demo.jtsc.vn'] },
   namespace: '/notifications',
 })
 @Injectable()

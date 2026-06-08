@@ -415,7 +415,9 @@ export class DocumentsService {
     if (doc.status !== DocStatus.REJECTED) throw new BadRequestException('Chỉ tài liệu bị từ chối mới được gửi lại');
     if (doc.createdBy !== userId) throw new ForbiddenException('Chỉ người tạo mới được gửi lại');
 
-    const newStatus = this.getInitialStatus(doc.type, role);
+    // Get original creator's role for correct routing
+    const originalCreator = await this.prisma.user.findUnique({ where: { id: doc.createdBy } });
+    const newStatus = this.getInitialStatus(doc.type, originalCreator?.role || role);
     const updated = await this.prisma.document.update({
       where: { id },
       data: { status: newStatus, ...(data ? { data } : {}) },

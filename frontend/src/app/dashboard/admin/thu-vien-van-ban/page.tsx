@@ -12,7 +12,13 @@ import {
 import { LibrarySidebar } from '@/components/admin/LibrarySidebar';
 import { FieldTypeIcon } from '@/components/admin/FieldTypeIcon';
 
-const LOAI_OPTIONS: LibraryType[] = ['THONG_TIN_TO_CHUC', 'THONG_TIN_NHA_THAU', 'DIA_CHI', 'KY_TUONG', 'CUSTOM'];
+const LOAI_OPTIONS: LibraryType[] = [
+  'THONG_TIN_TO_CHUC', 'THONG_TIN_NHA_THAU', 'DIA_CHI', 'KY_TUONG', 'CUSTOM',
+  'DAT_SACH_GDN', 'DAT_SACH_PCDI', 'DAT_SACH_QD',
+  'DUTOAN_TT', 'DUTOAN_QD',
+  'KHLCNT',
+  'LCNT_STEP',
+];
 const FIELD_TYPE_OPTIONS: FieldType[] = ['TEXT', 'TEXTAREA', 'DATE', 'MONEY', 'NUMBER', 'EMAIL', 'PHONE'];
 
 type Tab = 'organizations' | 'library-detail' | 'saved-values';
@@ -250,6 +256,13 @@ export default function ThuVienVanBanPage() {
       DIA_CHI: 'bg-green-100 text-green-700',
       KY_TUONG: 'bg-purple-100 text-purple-700',
       CUSTOM: 'bg-gray-100 text-gray-700',
+      DAT_SACH_GDN: 'bg-indigo-100 text-indigo-700',
+      DAT_SACH_PCDI: 'bg-indigo-100 text-indigo-700',
+      DAT_SACH_QD: 'bg-indigo-100 text-indigo-700',
+      DUTOAN_TT: 'bg-teal-100 text-teal-700',
+      DUTOAN_QD: 'bg-teal-100 text-teal-700',
+      KHLCNT: 'bg-orange-100 text-orange-700',
+      LCNT_STEP: 'bg-pink-100 text-pink-700',
     };
     return colors[loai] || 'bg-gray-100 text-gray-700';
   };

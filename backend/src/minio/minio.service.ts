@@ -18,17 +18,27 @@ export class MinioService implements OnModuleInit {
   }
 
   async onModuleInit() {
-    const exists = await this.client.bucketExists(this.bucket);
-    if (!exists) {
-      await this.client.makeBucket(this.bucket);
+    try {
+      const exists = await this.client.bucketExists(this.bucket);
+      if (!exists) {
+        await this.client.makeBucket(this.bucket);
+      }
+      console.log('[MinioService] Bucket ready:', this.bucket);
+    } catch (err: any) {
+      console.warn('[MinioService] MinIO unavailable at startup, will retry on first use:', err.message);
     }
   }
 
   async upload(objectName: string, buffer: Buffer, contentType: string): Promise<string> {
-    await this.client.putObject(this.bucket, objectName, buffer, buffer.length, {
-      'Content-Type': contentType,
-    });
-    return objectName;
+    try {
+      await this.client.putObject(this.bucket, objectName, buffer, buffer.length, {
+        'Content-Type': contentType,
+      });
+      return objectName;
+    } catch (err: any) {
+      console.error('[MinioService] Upload failed:', err.message);
+      throw new Error('File storage unavailable: ' + err.message);
+    }
   }
 
   async download(objectName: string): Promise<Buffer> {

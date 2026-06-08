@@ -1,3 +1,5 @@
+import { DynamicRole, Permission, RoleWithPermissions } from './types';
+
 const API_BASE = '/api';
 
 async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
@@ -569,4 +571,55 @@ export const api = {
 
   getVapidPublicKey: () =>
     request<{ publicKey: string }>('/notifications/vapid-public-key'),
+
+  // ========== Dynamic RBAC ==========
+
+  // Roles
+  getRoles: () => request<DynamicRole[]>('/rbac/roles'),
+  getRole: (id: string) => request<RoleWithPermissions>(`/rbac/roles/${id}`),
+  createRole: (data: { name: string; displayName: string; description?: string; priority?: number }) =>
+    request<DynamicRole>('/rbac/roles', { method: 'POST', body: JSON.stringify(data) }),
+  updateRole: (id: string, data: { displayName?: string; description?: string; priority?: number; isActive?: boolean }) =>
+    request<DynamicRole>(`/rbac/roles/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteRole: (id: string) => request<any>(`/rbac/roles/${id}`, { method: 'DELETE' }),
+  getRoleUsers: (roleId: string) => request<any[]>(`/rbac/roles/${roleId}/users`),
+
+  // Permissions
+  getAllPermissions: () => request<Permission[]>('/rbac/permissions'),
+  getPermissionsByCategory: () => request<Record<string, Permission[]>>('/rbac/permissions/categories'),
+  createPermission: (data: { key: string; displayName: string; description?: string; category: string }) =>
+    request<Permission>('/rbac/permissions', { method: 'POST', body: JSON.stringify(data) }),
+  updatePermission: (id: string, data: { displayName?: string; description?: string; isActive?: boolean }) =>
+    request<Permission>(`/rbac/permissions/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deletePermission: (id: string) => request<any>(`/rbac/permissions/${id}`, { method: 'DELETE' }),
+
+  // Role-Permission mapping
+  getRolePermissions: (roleId: string) => request<Permission[]>(`/rbac/roles/${roleId}/permissions`),
+  setRolePermissions: (roleId: string, permissionIds: string[]) =>
+    request<any>(`/rbac/roles/${roleId}/permissions`, { method: 'PUT', body: JSON.stringify({ permissionIds }) }),
+
+  // User-Role mapping
+  getUserRoles: (userId: string) => request<DynamicRole[]>(`/rbac/users/${userId}/roles`),
+  setUserRoles: (userId: string, roleIds: string[]) =>
+    request<any>(`/rbac/users/${userId}/roles`, { method: 'PUT', body: JSON.stringify({ roleIds }) }),
+  addUserRole: (userId: string, roleId: string) =>
+    request<any>(`/rbac/users/${userId}/roles`, { method: 'POST', body: JSON.stringify({ roleId }) }),
+  // ====================== Document Library ======================
+  getLibraries: (organizationId?: string) =>
+    request<any[]>(`/document-library/library${organizationId ? `?organizationId=${encodeURIComponent(organizationId)}` : ''}`),
+  getLibraryByType: (types: string[]) =>
+    request<any[]>('/document-library/libraries/by-types', {
+      method: 'POST',
+      body: JSON.stringify({ types }),
+    }),
+  getSavedValues: (libraryId: string) =>
+    request<any[]>(`/document-library/library/${encodeURIComponent(libraryId)}/value`),
+  createSavedValue: (libraryId: string, data: { tenGiaTri: string; duLieu: Record<string, any> }) =>
+    request<any>(`/document-library/library/${encodeURIComponent(libraryId)}/value`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  removeUserRole: (userId: string, roleId: string) =>
+    request<any>(`/rbac/users/${userId}/roles/${roleId}`, { method: 'DELETE' }),
 };

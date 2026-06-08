@@ -6,6 +6,9 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { IsString, IsObject, IsOptional } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
+import { Role } from '@prisma/client';
 import { PaymentService } from './payment.service';
 import * as JSZip from 'jszip';
 
@@ -19,7 +22,7 @@ class UpdateStepDto {
 }
 
 @Controller('payment')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class PaymentController {
   constructor(private readonly svc: PaymentService) {}
 
@@ -53,6 +56,7 @@ export class PaymentController {
   // ====================== CREATE ======================
 
   @Post()
+  @Roles(Role.ADMIN)
   async create(@Body() dto: CreatePaymentDto, @Request() req: any) {
     return this.svc.createPayment(req.user.sub, dto.contractorSelectionId, dto.projectId);
   }
@@ -65,6 +69,7 @@ export class PaymentController {
   }
 
   @Post('step/:stepId/update')
+  @Roles(Role.ADMIN, Role.HEAD_OF_DEPARTMENT, Role.DIRECTOR)
   async updateStep(@Param('stepId') stepId: string, @Body() dto: UpdateStepDto) {
     return this.svc.updateStepData(stepId, dto.data);
   }
@@ -72,11 +77,13 @@ export class PaymentController {
   // ====================== STEP COMPLETION ======================
 
   @Post('step/:stepId/complete')
+  @Roles(Role.ADMIN, Role.HEAD_OF_DEPARTMENT, Role.DIRECTOR)
   async completeStep(@Param('stepId') stepId: string) {
     return this.svc.completeStep(stepId);
   }
 
   @Post('step/:stepId/reopen')
+  @Roles(Role.ADMIN, Role.HEAD_OF_DEPARTMENT, Role.DIRECTOR)
   async reopenStep(@Param('stepId') stepId: string) {
     return this.svc.reopenStep(stepId);
   }
@@ -141,6 +148,7 @@ export class PaymentController {
 
   @Post('step/:stepId/upload')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 50 * 1024 * 1024 } }))
+  @Roles(Role.ADMIN)
   async uploadAttachment(
     @Param('stepId') stepId: string,
     @UploadedFile() file: Express.Multer.File,
@@ -156,6 +164,7 @@ export class PaymentController {
   }
 
   @Post('step/:stepId/delete-attachment')
+  @Roles(Role.ADMIN)
   async deleteAttachment(
     @Param('stepId') stepId: string,
     @Body() body: { path: string },

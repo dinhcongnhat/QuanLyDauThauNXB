@@ -21,15 +21,48 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    const permissions = await this.prisma.rolePermission.findMany({
+    // Get legacy permissions
+    const legacyPerms = await this.prisma.rolePermission.findMany({
       where: { role: user.role },
     });
+
+    // Get dynamic permissions from user's dynamic roles
+    const userDynamicRoles = await this.prisma.userDynamicRole.findMany({
+      where: { userId: user.id },
+      include: {
+        role: {
+          include: {
+            permissions: {
+              include: { permission: true },
+            },
+          },
+        },
+      },
+    });
+
+    const dynamicPermSet = new Set<string>();
+    const dynamicRoleNames: string[] = [];
+    for (const ur of userDynamicRoles) {
+      dynamicRoleNames.push(ur.role.name);
+      for (const rp of ur.role.permissions) {
+        dynamicPermSet.add(rp.permission.key);
+      }
+    }
+
+    // Union of legacy + dynamic permissions
+    const effectivePermissions = [
+      ...new Set([
+        ...legacyPerms.map((p) => p.permissionKey),
+        ...Array.from(dynamicPermSet),
+      ]),
+    ];
 
     const payload = {
       sub: user.id,
       email: user.email,
       role: user.role,
-      permissions: permissions.map((p) => p.permissionKey),
+      permissions: effectivePermissions,
+      dynamicRoles: dynamicRoleNames,
     };
 
     return {
@@ -42,6 +75,8 @@ export class AuthService {
         department: user.department,
         isInvestor: user.isInvestor,
         isContractor: user.isContractor,
+        dynamicRoles: dynamicRoleNames,
+        permissions: effectivePermissions,
       },
     };
   }
@@ -50,9 +85,41 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new UnauthorizedException();
 
-    const permissions = await this.prisma.rolePermission.findMany({
+    // Get legacy permissions
+    const legacyPerms = await this.prisma.rolePermission.findMany({
       where: { role: user.role },
     });
+
+    // Get dynamic permissions from user's dynamic roles
+    const userDynamicRoles = await this.prisma.userDynamicRole.findMany({
+      where: { userId: user.id },
+      include: {
+        role: {
+          include: {
+            permissions: {
+              include: { permission: true },
+            },
+          },
+        },
+      },
+    });
+
+    const dynamicPermSet = new Set<string>();
+    const dynamicRoleNames: string[] = [];
+    for (const ur of userDynamicRoles) {
+      dynamicRoleNames.push(ur.role.name);
+      for (const rp of ur.role.permissions) {
+        dynamicPermSet.add(rp.permission.key);
+      }
+    }
+
+    // Union of legacy + dynamic permissions
+    const effectivePermissions = [
+      ...new Set([
+        ...legacyPerms.map((p) => p.permissionKey),
+        ...Array.from(dynamicPermSet),
+      ]),
+    ];
 
     return {
       id: user.id,
@@ -62,7 +129,8 @@ export class AuthService {
       department: user.department,
       isInvestor: user.isInvestor,
       isContractor: user.isContractor,
-      permissions: permissions.map((p) => p.permissionKey),
+      dynamicRoles: dynamicRoleNames,
+      permissions: effectivePermissions,
     };
   }
 }

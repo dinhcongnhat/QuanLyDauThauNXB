@@ -36,6 +36,8 @@ export const docLibraryApi = {
   // Library
   getLibraries: (organizationId?: string) =>
     request<any[]>(`/document-library/library${organizationId ? `?organizationId=${encodeURIComponent(organizationId)}` : ''}`),
+  getLibrariesByTypes: (types: string[]) =>
+    request<any[]>('/document-library/libraries/by-types', { method: 'POST', body: JSON.stringify({ types }) }),
   getLibrary: (id: string) =>
     request<any>(`/document-library/library/${encodeURIComponent(id)}`),
   createLibrary: (data: { ten: string; loai: string; organizationId: string }) =>

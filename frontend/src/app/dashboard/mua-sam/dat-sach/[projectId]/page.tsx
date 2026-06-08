@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, Suspense } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/lib/store';
@@ -32,6 +32,7 @@ interface QDData {
   soQuyetDinh: string; diaDanh: string; ngayBanHanh: string; thangBanHanh: string; namBanHanh: string;
   coQuanPheDuyet: string; nguoiPheDuyet: string; tenDuAn: string;
   nguonVon: string; diaDiem: string;
+  tacGia: string;
   ngonNgu: string; khuonKho: string; soTrangCuaXuatBanPhamIn: string;
   doiTacLienKet: string; tenBienTapVien: string; maSoISBN: string;
   ghiChu: string;
@@ -65,13 +66,14 @@ function MoneyInput({ label, value, onChange, placeholder }: {
   );
 }
 
-export default function DatSachDetailPage() {
+function DatSachDetailPageInner() {
   const params = useParams();
   const projectId = params.projectId as string;
   const { user } = useAuthStore();
 
   const [project, setProject] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingUsers, setLoadingUsers] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('gdni');
   const [users, setUsers] = useState<User[]>([]);
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
@@ -88,6 +90,7 @@ export default function DatSachDetailPage() {
     soQuyetDinh: '', diaDanh: '', ngayBanHanh: '', thangBanHanh: '', namBanHanh: '',
     coQuanPheDuyet: '', nguoiPheDuyet: '', tenDuAn: '',
     nguonVon: '', diaDiem: '',
+    tacGia: '',
     ngonNgu: '', khuonKho: '', soTrangCuaXuatBanPhamIn: '',
     doiTacLienKet: '', tenBienTapVien: '', maSoISBN: '',
     ghiChu: '',
@@ -171,6 +174,7 @@ export default function DatSachDetailPage() {
         tenDuAn: qdd.tenDuAn || prev.tenDuAn,
         nguonVon: qdd.nguonVon || prev.nguonVon,
         diaDiem: qdd.diaDiem || prev.diaDiem,
+        tacGia: qdd.tacGia || prev.tacGia,
         ngonNgu: qdd.ngonNgu || prev.ngonNgu,
         khuonKho: qdd.khuonKho || prev.khuonKho,
         soTrangCuaXuatBanPhamIn: qdd.soTrangCuaXuatBanPhamIn || prev.soTrangCuaXuatBanPhamIn,
@@ -187,7 +191,13 @@ export default function DatSachDetailPage() {
 
   useEffect(() => {
     fetchProject();
-    api.getUsers().then(setUsers).catch(() => {});
+    setLoadingUsers(true);
+    api.getUsers()
+      .then(setUsers)
+      .catch((err) => {
+        toast.error('Không thể tải danh sách người dùng: ' + (err?.message || 'Lỗi không xác định'));
+      })
+      .finally(() => setLoadingUsers(false));
   }, [fetchProject]);
 
   // ─── Library ───────────────────────────────────────────────────────
@@ -216,14 +226,21 @@ export default function DatSachDetailPage() {
     if (!val.duLieu) return;
     setPcdiData(prev => ({
       ...prev,
-      coSoIn: val.duLieu.coSoIn || val.duLieu.CoSoIn || val.duLieu.tenCoSo || val.duLieu.diaChi || prev.coSoIn,
+      bbt: val.duLieu.bbt || val.duLieu.BBT || prev.bbt,
+      phuongThuc: val.duLieu.phuongThucIn || val.duLieu.phuongThuc || prev.phuongThuc,
       tenSach: val.duLieu.tenSach || val.duLieu.TenSach || prev.tenSach,
       tacGia: val.duLieu.tacGia || val.duLieu.TacGia || prev.tacGia,
-      bbt: val.duLieu.bbt || val.duLieu.BBT || prev.bbt,
+      soTrang: val.duLieu.soTrang || val.duLieu.SoTrang || prev.soTrang,
+      khoSach: val.duLieu.khoSach || val.duLieu.KhoSach || prev.khoSach,
+      soLuongIn: val.duLieu.soLuongIn || val.duLieu.SoLuongIn || prev.soLuongIn,
+      giaTriHopDong: val.duLieu.giaTriHD || val.duLieu.giaTriHopDong || prev.giaTriHopDong,
+      coSoIn: val.duLieu.coSoIn || val.duLieu.CoSoIn || prev.coSoIn,
+      thongSoKyThuat: val.duLieu.thongSoKyThuat || val.duLieu.ThongSoKyThuat || prev.thongSoKyThuat,
       isbn: val.duLieu.isbn || val.duLieu.ISBN || prev.isbn,
       ngonNgu: val.duLieu.ngonNgu || val.duLieu.NgonNgu || prev.ngonNgu,
-      doiTacLienKet: val.duLieu.doiTacLienKet || val.duLieu.doiTacLienKetXuatBan || prev.doiTacLienKet,
-      tenBienTapVien: val.duLieu.tenBienTapVien || val.duLieu.TenBienTapVien || prev.tenBienTapVien,
+      doiTacLienKet: val.duLieu.doiTac || val.duLieu.doiTacLienKet || prev.doiTacLienKet,
+      tenBienTapVien: val.duLieu.bienTapVien || val.duLieu.tenBienTapVien || prev.tenBienTapVien,
+      ghiChu: val.duLieu.ghiChu || prev.ghiChu,
     }));
     toast.success('Đã điền từ thư viện văn bản');
   };
@@ -232,11 +249,17 @@ export default function DatSachDetailPage() {
     if (!val.duLieu) return;
     setQdData(prev => ({
       ...prev,
-      coQuanPheDuyet: val.duLieu.coQuanPheDuyet || val.duLieu.CoQuanPheDuyet || val.duLieu.tenCoQuan || prev.coQuanPheDuyet,
-      nguoiPheDuyet: val.duLieu.nguoiPheDuyet || val.duLieu.NguoiPheDuyet || val.duLieu.tenNguoi || prev.nguoiPheDuyet,
+      tacGia: val.duLieu.tacGia || val.duLieu.TacGia || prev.tacGia,
+      ngonNgu: val.duLieu.ngonNgu || val.duLieu.NgonNgu || prev.ngonNgu,
+      khuonKho: val.duLieu.khuonKho || val.duLieu.KhuonKho || prev.khuonKho,
+      soTrangCuaXuatBanPhamIn: val.duLieu.soTrang || val.duLieu.SoTrang || prev.soTrangCuaXuatBanPhamIn,
+      doiTacLienKet: val.duLieu.doiTac || val.duLieu.doiTacLienKet || prev.doiTacLienKet,
+      tenBienTapVien: val.duLieu.bienTapVien || val.duLieu.TenBienTapVien || prev.tenBienTapVien,
+      maSoISBN: val.duLieu.isbn || val.duLieu.ISBN || prev.maSoISBN,
+      coQuanPheDuyet: val.duLieu.coQuanPheDuyet || val.duLieu.CoQuanPheDuyet || prev.coQuanPheDuyet,
       nguonVon: val.duLieu.nguonVon || val.duLieu.NguonVon || prev.nguonVon,
       diaDiem: val.duLieu.diaDiem || val.duLieu.DiaDiem || val.duLieu.diaChi || prev.diaDiem,
-      diaDanh: val.duLieu.diaDanh || val.duLieu.DiaDanh || prev.diaDanh,
+      ghiChu: val.duLieu.ghiChu || prev.ghiChu,
     }));
     toast.success('Đã điền từ thư viện văn bản');
   };
@@ -351,8 +374,13 @@ export default function DatSachDetailPage() {
       await api.approveGDN(gdn.id);
       toast.success('Đã duyệt GDN! Bây giờ có thể auto-fill PCDI.');
       fetchProject();
-    } catch (err: any) { toast.error(err.message); }
-    finally { setSaving(false); }
+    } catch (err: any) {
+      if (err?.message?.includes('403')) {
+        toast.error('Bạn không có quyền duyệt GDN. Chỉ Trưởng phòng hoặc Giám đốc mới được duyệt.');
+      } else {
+        toast.error(err?.message || 'Lỗi khi duyệt GDN');
+      }
+    } finally { setSaving(false); }
   };
 
   const handleDownloadGDN = async () => {
@@ -420,8 +448,13 @@ export default function DatSachDetailPage() {
       await api.approvePCDI(pcdi.id);
       toast.success('Đã duyệt Phiếu chỉ định! Đủ điều kiện tạo Quyết định.');
       fetchProject();
-    } catch (err: any) { toast.error(err.message); }
-    finally { setSaving(false); }
+    } catch (err: any) {
+      if (err?.message?.includes('403')) {
+        toast.error('Bạn không có quyền duyệt PCDI. Chỉ Trưởng phòng hoặc Giám đốc mới được duyệt.');
+      } else {
+        toast.error(err?.message || 'Lỗi khi duyệt PCDI');
+      }
+    } finally { setSaving(false); }
   };
 
   const handleDownloadPCDI = async () => {
@@ -471,8 +504,13 @@ export default function DatSachDetailPage() {
       await api.markDatSachCompleted(projectId);
       toast.success('Đã duyệt Quyết định! Hoàn thành luồng Đặt sách.');
       fetchProject();
-    } catch (err: any) { toast.error(err.message); }
-    finally { setSaving(false); }
+    } catch (err: any) {
+      if (err?.message?.includes('403')) {
+        toast.error('Bạn không có quyền duyệt QĐ. Chỉ Trưởng phòng hoặc Giám đốc mới được duyệt.');
+      } else {
+        toast.error(err?.message || 'Lỗi khi duyệt QĐ');
+      }
+    } finally { setSaving(false); }
   };
 
   const handleDownloadQD = async () => {
@@ -575,8 +613,8 @@ export default function DatSachDetailPage() {
                 </span>
                 {gdn && <button onClick={handleDownloadGDN} className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">📥 DOCX</button>}
                 {gdn && <button onClick={handlePreviewGDN} className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100">👁 Xem trước</button>}
-                <button onClick={() => { setSaveLibType('THONG_TIN_TO_CHUC'); setShowSaveToLibrary(true); }} className="text-xs px-2 py-1 bg-green-50 text-green-700 rounded hover:bg-green-100">💾 Lưu vào thư viện</button>
-                <LibraryPicker libraryType="THONG_TIN_TO_CHUC" onSelect={handleLibraryGDN} onSaveToLibrary={() => {}} />
+                <button onClick={() => { setSaveLibType('DAT_SACH_GDN'); setShowSaveToLibrary(true); }} className="text-xs px-2 py-1 bg-green-50 text-green-700 rounded hover:bg-green-100">💾 Lưu vào thư viện</button>
+                <LibraryPicker libraryType="THONG_TIN_TO_CHUC" module="DAT_SACH_GDN" onSelect={handleLibraryGDN} onSaveToLibrary={() => setSaveLibType('DAT_SACH_GDN')} />
               </div>
             </div>
 
@@ -639,18 +677,28 @@ export default function DatSachDetailPage() {
               <button onClick={handleCreateOrUpdateGDN} disabled={saving || !gdnData.tenSach.trim()} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm disabled:opacity-50">
                 {saving ? '...' : gdn ? 'Cập nhật' : 'Tạo GDN'}
               </button>
-              {!gdnApproved && gdn && (
-                <>
-                  <button onClick={() => { setSelectedUsers((gdn.assignments || []).map((a: any) => a.userId)); setShowAssignModal(true); }}
-                    className="px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 text-sm">
-                    👥 Phân công điền SL
-                  </button>
-                  <button onClick={handleApproveGDN} disabled={totalSL === 0} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                    title={totalSL === 0 ? 'Cần user điền SL trước' : 'Duyệt GDN'}>
-                    ✅ Duyệt GDN
-                  </button>
-                </>
-              )}
+                  {(() => {
+                    const canApprove = user && ['ADMIN', 'HEAD_OF_DEPARTMENT', 'DIRECTOR'].includes(user.role);
+                    return !gdnApproved && gdn ? (
+                      <>
+                        <button onClick={() => { setSelectedUsers((gdn.assignments || []).map((a: any) => a.userId)); setShowAssignModal(true); }}
+                          className="px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 text-sm">
+                          👥 Phân công điền SL
+                        </button>
+                        {canApprove ? (
+                          <button onClick={handleApproveGDN} disabled={totalSL === 0} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                            title={totalSL === 0 ? 'Cần user điền SL trước' : 'Duyệt GDN'}>
+                            ✅ Duyệt GDN
+                          </button>
+                        ) : (
+                          <button disabled className="px-4 py-2 bg-green-200 text-green-500 rounded-lg text-sm cursor-not-allowed"
+                            title="Chỉ Trưởng phòng hoặc Giám đốc mới được duyệt GDN">
+                            ✅ Duyệt GDN
+                          </button>
+                        )}
+                      </>
+                    ) : null;
+                  })()}
             </div>
 
             {totalSL === 0 && gdn && !gdnApproved && (
@@ -727,8 +775,8 @@ export default function DatSachDetailPage() {
               <div className="flex gap-2 items-center">
                 {pcdi && <button onClick={handleDownloadPCDI} className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">📥 DOCX</button>}
                 {pcdi && <button onClick={handlePreviewPCDI} className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100">👁 Xem trước</button>}
-                <button onClick={() => { setSaveLibType('THONG_TIN_NHA_THAU'); setShowSaveToLibrary(true); }} className="text-xs px-2 py-1 bg-green-50 text-green-700 rounded hover:bg-green-100">💾 Lưu vào thư viện</button>
-                <LibraryPicker libraryType="THONG_TIN_NHA_THAU" onSelect={handleLibraryPCDI} onSaveToLibrary={() => {}} />
+                <button onClick={() => { setSaveLibType('DAT_SACH_PCDI'); setShowSaveToLibrary(true); }} className="text-xs px-2 py-1 bg-green-50 text-green-700 rounded hover:bg-green-100">💾 Lưu vào thư viện</button>
+                <LibraryPicker libraryType="THONG_TIN_NHA_THAU" module="DAT_SACH_PCDI" onSelect={handleLibraryPCDI} onSaveToLibrary={() => setSaveLibType('DAT_SACH_PCDI')} />
               </div>
             </div>
 
@@ -818,11 +866,19 @@ export default function DatSachDetailPage() {
               ) : (
                 <span className="px-4 py-2 bg-gray-100 text-gray-400 rounded-lg text-sm cursor-not-allowed">🔒 Cần duyệt GDN trước</span>
               )}
-              {!pcdiApproved && pcdi && gdnApproved && (
-                <button onClick={handleApprovePCDI} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm">
-                  ✅ Duyệt Phiếu
-                </button>
-              )}
+              {!pcdiApproved && pcdi && gdnApproved && (() => {
+                const canApprove = user && ['ADMIN', 'HEAD_OF_DEPARTMENT', 'DIRECTOR'].includes(user.role);
+                return canApprove ? (
+                  <button onClick={handleApprovePCDI} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm">
+                    ✅ Duyệt Phiếu
+                  </button>
+                ) : (
+                  <button disabled className="px-4 py-2 bg-green-200 text-green-500 rounded-lg text-sm cursor-not-allowed"
+                    title="Chỉ Trưởng phòng hoặc Giám đốc mới được duyệt PCDI">
+                    ✅ Duyệt Phiếu
+                  </button>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -840,8 +896,8 @@ export default function DatSachDetailPage() {
               <div className="flex gap-2 items-center">
                 <button onClick={handleDownloadQD} className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">📥 DOCX</button>
                 <button onClick={handlePreviewQD} className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100">👁 Xem trước</button>
-                <button onClick={() => { setSaveLibType('THONG_TIN_TO_CHUC'); setShowSaveToLibrary(true); }} className="text-xs px-2 py-1 bg-green-50 text-green-700 rounded hover:bg-green-100">💾 Lưu vào thư viện</button>
-                <LibraryPicker libraryType="THONG_TIN_TO_CHUC" onSelect={handleLibraryQD} onSaveToLibrary={() => {}} />
+                <button onClick={() => { setSaveLibType('DAT_SACH_QD'); setShowSaveToLibrary(true); }} className="text-xs px-2 py-1 bg-green-50 text-green-700 rounded hover:bg-green-100">💾 Lưu vào thư viện</button>
+                <LibraryPicker libraryType="THONG_TIN_TO_CHUC" module="DAT_SACH_QD" onSelect={handleLibraryQD} onSaveToLibrary={() => setSaveLibType('DAT_SACH_QD')} />
               </div>
             </div>
 
@@ -927,11 +983,19 @@ export default function DatSachDetailPage() {
                   <button onClick={handleCreateOrUpdateQD} disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm disabled:opacity-50">
                     {saving ? '...' : 'Lưu thông tin QĐ'}
                   </button>
-                  {!projectCompleted && (
-                    <button onClick={handleApproveQD} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm">
-                      ✅ Duyệt & Hoàn thành Đặt sách
-                    </button>
-                  )}
+                  {!projectCompleted && (() => {
+                    const canApprove = user && ['ADMIN', 'HEAD_OF_DEPARTMENT', 'DIRECTOR'].includes(user.role);
+                    return canApprove ? (
+                      <button onClick={handleApproveQD} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm">
+                        ✅ Duyệt & Hoàn thành Đặt sách
+                      </button>
+                    ) : (
+                      <button disabled className="px-4 py-2 bg-green-200 text-green-500 rounded-lg text-sm cursor-not-allowed"
+                        title="Chỉ Trưởng phòng hoặc Giám đốc mới được duyệt QĐ">
+                        ✅ Duyệt & Hoàn thành Đặt sách
+                      </button>
+                    );
+                  })()}
                 </>
               ) : (
                 <span className="px-4 py-2 bg-gray-100 text-gray-400 rounded-lg text-sm">
@@ -950,10 +1014,15 @@ export default function DatSachDetailPage() {
             <h3 className="text-lg font-semibold mb-2">Phân công user điền số lượng</h3>
             <p className="text-sm text-gray-500 mb-3">Chọn người sẽ điền số lượng đề nghị in sách cho mỗi đơn vị/phòng ban:</p>
             <div className="space-y-2">
-              {users.filter(u => u.role !== 'ADMIN').length === 0 && (
+              {loadingUsers ? (
+                <div className="flex items-center justify-center py-6">
+                  <div className="animate-spin h-6 w-6 border-2 border-blue-500 border-t-transparent rounded-full" />
+                  <span className="ml-2 text-sm text-gray-500">Đang tải danh sách...</span>
+                </div>
+              ) : users.filter(u => u.role !== 'ADMIN').length === 0 ? (
                 <p className="text-gray-400 text-sm text-center py-4">Không có user nào để phân công.</p>
-              )}
-              {users.filter(u => u.role !== 'ADMIN').map(u => (
+              ) : null}
+              {!loadingUsers && users.filter(u => u.role !== 'ADMIN').map(u => (
                 <label key={u.id} className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors ${selectedUsers.includes(u.id) ? 'bg-blue-50 border border-blue-200' : 'bg-gray-50 hover:bg-gray-100'}`}>
                   <input
                     type="checkbox"
@@ -1013,5 +1082,13 @@ export default function DatSachDetailPage() {
       />
 
     </div>
+  );
+}
+
+export default function DatSachDetailPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="animate-spin h-8 w-8 border-4 border-green-500 border-t-transparent rounded-full" /></div>}>
+      <DatSachDetailPageInner />
+    </Suspense>
   );
 }

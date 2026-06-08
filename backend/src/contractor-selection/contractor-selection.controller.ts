@@ -7,6 +7,10 @@ import { Response } from 'express';
 import { IsString, IsNumber, IsObject, IsOptional } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Public } from '../auth/public.decorator';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
+import { Role } from '@prisma/client';
+import { RequirePermissions } from '../auth/permissions.decorator';
 import { ContractorSelectionService } from './contractor-selection.service';
 import { convertDocxToPdf } from '../utils/docx-to-pdf';
 import * as JSZip from 'jszip';
@@ -30,7 +34,7 @@ class UploadDto {
 }
 
 @Controller('contractor-selection')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
 export class ContractorSelectionController {
   constructor(private readonly svc: ContractorSelectionService) {}
 
@@ -54,6 +58,7 @@ export class ContractorSelectionController {
 
   /** Steps pending approval (for director/head dashboard) */
   @Get('pending-approvals')
+  @Roles(Role.ADMIN, Role.HEAD_OF_DEPARTMENT, Role.DIRECTOR)
   async getPendingApprovals() {
     return this.svc.getPendingApprovals();
   }
@@ -61,6 +66,7 @@ export class ContractorSelectionController {
   // ====================== CRUD ======================
 
   @Post()
+  @Roles(Role.ADMIN)
   async create(@Body() dto: CreateSelectionDto, @Request() req: any) {
     return this.svc.createSelection(req.user.sub, dto.qdKhlcntId, dto.goiThauIndex, dto.projectId);
   }
@@ -89,6 +95,7 @@ export class ContractorSelectionController {
   }
 
   @Post('step/:stepId/update')
+  @RequirePermissions('doc:edit')
   async updateStep(@Param('stepId') stepId: string, @Body() dto: UpdateStepDto, @Request() req: any) {
     return this.svc.updateStepData(stepId, dto.data, req.user.sub);
   }
@@ -97,16 +104,18 @@ export class ContractorSelectionController {
 
   /** Request approval for a step (trình lên giám đốc/trưởng phòng) */
   @Post('step/:stepId/request-approval')
+  @Roles(Role.ADMIN, Role.HEAD_OF_DEPARTMENT, Role.DIRECTOR)
   async requestApproval(
     @Param('stepId') stepId: string,
     @Body() dto: ApprovalDto,
     @Request() req: any,
   ) {
-    return this.svc.requestApproval(stepId, req.user.sub, dto.comment);
+    return this.svc.requestApproval(stepId, req.user.sub, req.user.role, dto.comment);
   }
 
   /** Approve a step */
   @Post('step/:stepId/approve')
+  @Roles(Role.ADMIN, Role.HEAD_OF_DEPARTMENT, Role.DIRECTOR)
   async approveStep(
     @Param('stepId') stepId: string,
     @Body() dto: ApprovalDto,
@@ -117,6 +126,7 @@ export class ContractorSelectionController {
 
   /** Reject a step */
   @Post('step/:stepId/reject')
+  @Roles(Role.ADMIN, Role.HEAD_OF_DEPARTMENT, Role.DIRECTOR)
   async rejectStep(
     @Param('stepId') stepId: string,
     @Body() dto: ApprovalDto,
@@ -128,6 +138,7 @@ export class ContractorSelectionController {
   // ====================== STEP COMPLETION ======================
 
   @Post(':id/set-package-type')
+  @Roles(Role.ADMIN)
   async setPackageType(
     @Param('id') id: string,
     @Body() body: { contractPackageType: string },
@@ -136,11 +147,13 @@ export class ContractorSelectionController {
   }
 
   @Post('step/:stepId/complete')
+  @Roles(Role.ADMIN, Role.HEAD_OF_DEPARTMENT, Role.DIRECTOR)
   async completeStep(@Param('stepId') stepId: string) {
     return this.svc.completeStep(stepId);
   }
 
   @Post('step/:stepId/reopen')
+  @Roles(Role.ADMIN, Role.HEAD_OF_DEPARTMENT, Role.DIRECTOR)
   async reopenStep(@Param('stepId') stepId: string) {
     return this.svc.reopenStep(stepId);
   }
@@ -220,6 +233,7 @@ export class ContractorSelectionController {
   // ====================== FILE UPLOAD ======================
 
   @Post('step/:stepId/upload')
+  @Roles(Role.ADMIN)
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 50 * 1024 * 1024 } }))
   async uploadAttachment(
     @Param('stepId') stepId: string,
@@ -238,6 +252,7 @@ export class ContractorSelectionController {
   }
 
   @Post('step/:stepId/delete-attachment')
+  @Roles(Role.ADMIN)
   async deleteAttachment(
     @Param('stepId') stepId: string,
     @Body() body: { path: string },

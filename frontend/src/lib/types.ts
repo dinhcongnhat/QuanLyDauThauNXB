@@ -12,6 +12,7 @@ export interface User {
   department?: string;
   createdAt?: string;
   permissions?: string[];
+  dynamicRoles?: DynamicRole[];  // NEW
 }
 
 export interface Review {
@@ -99,4 +100,36 @@ export interface ContractorSelection {
   qdKhlcnt?: { id: string; data: any; status: string };
   createdAt: string;
   updatedAt: string;
+}
+
+// ========== Dynamic RBAC Types ==========
+
+export interface DynamicRole {
+  id: string;
+  name: string;
+  displayName: string;
+  description?: string;
+  priority: number;
+  isActive: boolean;
+  createdAt?: string;
+  permissions?: Permission[];
+  _count?: { userRoles: number };
+}
+
+export interface Permission {
+  id: string;
+  key: string;
+  displayName: string;
+  description?: string;
+  category: string;
+  isActive: boolean;
+  createdAt?: string;
+}
+
+export interface RoleWithPermissions extends DynamicRole {
+  permissions: Permission[];
+}
+
+export interface UserWithDynamicRoles extends User {
+  dynamicRoles: DynamicRole[];
 }

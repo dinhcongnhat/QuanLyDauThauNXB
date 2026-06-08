@@ -97,6 +97,11 @@ export class DocumentLibraryController {
     return this.service.findAllLibraries(organizationId);
   }
 
+  @Get('libraries/by-types')
+  findLibrariesByTypes(@Body('types') types: LibraryType[]) {
+    return this.service.findLibrariesByTypes(types);
+  }
+
   @Get('library/:id')
   findLibrary(@Param('id') id: string) {
     return this.service.findLibrary(id);
