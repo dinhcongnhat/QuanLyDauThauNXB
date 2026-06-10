@@ -38,16 +38,21 @@ export class DatSachService {
       where: { id },
       include: {
         creator: { select: { id: true, name: true, email: true, role: true } },
+        reviewer: { select: { id: true, name: true, email: true } },
         gdnDocuments: {
           include: {
             creator: { select: { id: true, name: true, email: true } },
+            reviewer: { select: { id: true, name: true, email: true } },
             assignments: {
               include: { user: { select: { id: true, name: true, email: true } } },
             },
           },
         },
         pcdiDocuments: {
-          include: { creator: { select: { id: true, name: true, email: true } } },
+          include: {
+            creator: { select: { id: true, name: true, email: true } },
+            reviewer: { select: { id: true, name: true, email: true } },
+          },
         },
       },
     });
@@ -60,14 +65,19 @@ export class DatSachService {
       where: { parentId },
       include: {
         creator: { select: { id: true, name: true, email: true, role: true } },
+        reviewer: { select: { id: true, name: true, email: true } },
         gdnDocuments: {
           include: {
             creator: { select: { id: true, name: true, email: true } },
+            reviewer: { select: { id: true, name: true, email: true } },
             assignments: true,
           },
         },
         pcdiDocuments: {
-          include: { creator: { select: { id: true, name: true, email: true } } },
+          include: {
+            creator: { select: { id: true, name: true, email: true } },
+            reviewer: { select: { id: true, name: true, email: true } },
+          },
         },
       },
       orderBy: { createdAt: 'desc' },
@@ -108,6 +118,9 @@ export class DatSachService {
   async assignUsersForSL(gdnId: string, userIds: string[], assignedBy: string) {
     const existing = await this.prisma.gDNInSach.findUnique({ where: { id: gdnId } });
     if (!existing) throw new NotFoundException('Không tìm thấy GDN');
+    if (existing.status === 'APPROVED') {
+      throw new BadRequestException('GDN đã được phê duyệt, không thể phân công lại');
+    }
 
     await this.prisma.gDNAssignment.deleteMany({ where: { gdnInSachId: gdnId } });
 
@@ -122,7 +135,7 @@ export class DatSachService {
 
     await this.prisma.gDNInSach.update({
       where: { id: gdnId },
-      data: { status: 'ASSIGNED' },
+      data: { status: 'DRAFT', reviewerId: null, reviewStatus: null, reviewComment: null, reviewedAt: null },
     });
 
     // Notify assigned users
@@ -236,27 +249,6 @@ export class DatSachService {
     });
   }
 
-  async approvePCDI(pcdiId: string) {
-    const pcdi = await this.prisma.pCDICoSoIn.findUnique({ where: { id: pcdiId } });
-    if (!pcdi) throw new NotFoundException('Không tìm thấy PCDI');
-    const updated = await this.prisma.pCDICoSoIn.update({
-      where: { id: pcdiId },
-      data: { status: 'APPROVED' },
-      include: {
-        creator: { select: { id: true, name: true, email: true } },
-      },
-    });
-
-    await this.notificationService.create(updated.createdBy, {
-      type: NotificationType.PCDI_APPROVED,
-      title: 'PCDI đã được phê duyệt',
-      message: `Phiếu đề nghị cơ sở in (PCDI) của bạn đã được phê duyệt.`,
-      link: '/dashboard/mua-sam/sach/dat-sach',
-    });
-
-    return updated;
-  }
-
   async markProjectCompleted(projectId: string) {
     const updated = await this.prisma.datSachProject.update({
       where: { id: projectId },
@@ -294,24 +286,6 @@ export class DatSachService {
     });
   }
 
-  async approveQD(projectId: string) {
-    const project = await this.prisma.datSachProject.findUnique({ where: { id: projectId } });
-    if (!project) throw new NotFoundException('Không tìm thấy dự án');
-    const updated = await this.prisma.datSachProject.update({
-      where: { id: projectId },
-      data: { status: 'COMPLETED' },
-    });
-
-    await this.notificationService.create(project.createdBy, {
-      type: NotificationType.QD_APPROVED,
-      title: 'Quyết định đặt sách đã được phê duyệt',
-      message: `Quyết định đặt sách cho dự án "${project.tenDuAn}" đã được phê duyệt.`,
-      link: '/dashboard/mua-sam/sach/dat-sach',
-    });
-
-    return updated;
-  }
-
   // ─── Auto-fill Data ────────────────────────────────────────
   /**
    * Lấy dữ liệu GDN đã duyệt để auto-fill cho PCDI.
@@ -321,7 +295,6 @@ export class DatSachService {
     const gdn = await this.prisma.gDNInSach.findFirst({
       where: {
         datSachProjectId: projectId,
-        status: 'APPROVED',
       },
       include: { assignments: true },
     });
@@ -448,14 +421,11 @@ export class DatSachService {
       where: { id: projectId },
       include: {
         gdnDocuments: {
-          where: { status: 'APPROVED' },
           include: {
             assignments: true,
           },
         },
-        pcdiDocuments: {
-          where: { status: 'APPROVED' },
-        },
+        pcdiDocuments: true,
       },
     });
     if (!project) throw new NotFoundException('Không tìm thấy dự án');
@@ -470,7 +440,7 @@ export class DatSachService {
     });
     if (!gdn) throw new NotFoundException('Không tìm thấy GDN');
 
-    const appUrl = process.env.APP_URL || 'http://localhost:3000';
+    const appUrl = (process.env.APP_URL || 'http://localhost:3000').replace(/^http:/, 'https:');
     const onlyofficeUrl = process.env.ONLYOFFICE_URL || 'https://jtsconlyoffice.duckdns.org';
     const onlyofficeSecret = process.env.ONLYOFFICE_JWT_SECRET || '10122002';
     const docKey = `gdn_${gdnId}_${Date.now()}`;
@@ -525,7 +495,7 @@ export class DatSachService {
     const pcdi = await this.prisma.pCDICoSoIn.findUnique({ where: { id: pcdiId } });
     if (!pcdi) throw new NotFoundException('Không tìm thấy PCDI');
 
-    const appUrl = process.env.APP_URL || 'http://localhost:3000';
+    const appUrl = (process.env.APP_URL || 'http://localhost:3000').replace(/^http:/, 'https:');
     const onlyofficeUrl = process.env.ONLYOFFICE_URL || 'https://jtsconlyoffice.duckdns.org';
     const onlyofficeSecret = process.env.ONLYOFFICE_JWT_SECRET || '10122002';
     const docKey = `pcdi_${pcdiId}_${Date.now()}`;
@@ -562,10 +532,10 @@ export class DatSachService {
     const project = await this.getProjectForGenerate(projectId);
     const pcdi = project.pcdiDocuments[0];
     const qdData: any = project.qdData as object || {};
-    const pcdiData: any = pcdi ? (pcdi.data as object) : {};
+    const pcdiData: any = pcdi?.data as object || {};
     const templateData = { ...pcdiData, ...qdData };
 
-    const appUrl = process.env.APP_URL || 'http://localhost:3000';
+    const appUrl = (process.env.APP_URL || 'http://localhost:3000').replace(/^http:/, 'https:');
     const onlyofficeUrl = process.env.ONLYOFFICE_URL || 'https://jtsconlyoffice.duckdns.org';
     const onlyofficeSecret = process.env.ONLYOFFICE_JWT_SECRET || '10122002';
     const docKey = `qd_${projectId}_${Date.now()}`;
@@ -595,5 +565,259 @@ export class DatSachService {
     });
 
     return { onlyofficeUrl, editorConfig: { ...editorConfig, token }, templateData };
+  }
+
+  // ─── Review Workflow ──────────────────────────────────────────
+
+  private buildHistoryEntry(userId: string, action: string, comment?: string) {
+    return {
+      action,
+      comment,
+      userId,
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  async submitGDNForReview(gdnId: string, reviewerId: string, userId: string) {
+    const gdn = await this.prisma.gDNInSach.findUnique({
+      where: { id: gdnId },
+      include: { assignments: true },
+    });
+    if (!gdn) throw new NotFoundException('Không tìm thấy GDN');
+
+    // Compute total SL from actual assignment records (filled via fillSL)
+    const totalSL = (gdn.assignments || []).reduce((s: number, a) => s + (a.soLuong || 0), 0);
+
+    const history = [...((gdn.reviewHistory as any[]) || []), this.buildHistoryEntry(userId, 'SUBMITTED', `Trình duyệt đến reviewer`)];
+    return this.prisma.gDNInSach.update({
+      where: { id: gdnId },
+      data: {
+        status: 'PENDING_REVIEW',
+        reviewerId,
+        reviewStatus: 'PENDING',
+        reviewHistory: history,
+        reviewComment: null,
+        reviewedAt: null,
+      },
+      include: {
+        creator: { select: { id: true, name: true, email: true } },
+        reviewer: { select: { id: true, name: true, email: true } },
+        assignments: { include: { user: { select: { id: true, name: true, email: true } } } },
+      },
+    });
+  }
+
+  async approveGDNReview(gdnId: string, reviewerId: string, comment?: string) {
+    const gdn = await this.prisma.gDNInSach.findUnique({ where: { id: gdnId } });
+    if (!gdn) throw new NotFoundException('Không tìm thấy GDN');
+    if (gdn.reviewerId !== reviewerId) throw new ForbiddenException('Bạn không phải người được phân công duyệt');
+
+    const history = [...((gdn.reviewHistory as any[]) || []), this.buildHistoryEntry(reviewerId, 'APPROVED', comment)];
+    return this.prisma.gDNInSach.update({
+      where: { id: gdnId },
+      data: {
+        status: 'APPROVED',
+        reviewStatus: 'APPROVED',
+        reviewComment: comment || null,
+        reviewedAt: new Date(),
+        reviewHistory: history,
+      },
+      include: {
+        creator: { select: { id: true, name: true, email: true } },
+        reviewer: { select: { id: true, name: true, email: true } },
+        assignments: { include: { user: { select: { id: true, name: true, email: true } } } },
+      },
+    });
+  }
+
+  async reworkGDN(gdnId: string, reviewerId: string, comment: string) {
+    if (!comment?.trim()) throw new BadRequestException('Vui lòng nhập lý do yêu cầu làm lại');
+
+    const gdn = await this.prisma.gDNInSach.findUnique({ where: { id: gdnId } });
+    if (!gdn) throw new NotFoundException('Không tìm thấy GDN');
+    if (gdn.reviewerId !== reviewerId) throw new ForbiddenException('Bạn không phải người được phân công duyệt');
+
+    const history = [...((gdn.reviewHistory as any[]) || []), this.buildHistoryEntry(reviewerId, 'REWORK', comment)];
+    return this.prisma.gDNInSach.update({
+      where: { id: gdnId },
+      data: {
+        status: 'REWORK',
+        reviewStatus: 'REWORK',
+        reviewComment: comment,
+        reviewedAt: new Date(),
+        reviewHistory: history,
+      },
+      include: {
+        creator: { select: { id: true, name: true, email: true } },
+        reviewer: { select: { id: true, name: true, email: true } },
+        assignments: { include: { user: { select: { id: true, name: true, email: true } } } },
+      },
+    });
+  }
+
+  async submitPCDIForReview(pcdiId: string, reviewerId: string, userId: string) {
+    const pcdi = await this.prisma.pCDICoSoIn.findUnique({ where: { id: pcdiId } });
+    if (!pcdi) throw new NotFoundException('Không tìm thấy PCDI');
+
+    const history = [...((pcdi.reviewHistory as any[]) || []), this.buildHistoryEntry(userId, 'SUBMITTED', `Trình duyệt đến reviewer`)];
+    return this.prisma.pCDICoSoIn.update({
+      where: { id: pcdiId },
+      data: {
+        status: 'PENDING_REVIEW',
+        reviewerId,
+        reviewStatus: 'PENDING',
+        reviewHistory: history,
+        reviewComment: null,
+        reviewedAt: null,
+      },
+      include: {
+        creator: { select: { id: true, name: true, email: true } },
+        reviewer: { select: { id: true, name: true, email: true } },
+      },
+    });
+  }
+
+  async approvePCDIReview(pcdiId: string, reviewerId: string, comment?: string) {
+    const pcdi = await this.prisma.pCDICoSoIn.findUnique({ where: { id: pcdiId } });
+    if (!pcdi) throw new NotFoundException('Không tìm thấy PCDI');
+    if (pcdi.reviewerId !== reviewerId) throw new ForbiddenException('Bạn không phải người được phân công duyệt');
+
+    const history = [...((pcdi.reviewHistory as any[]) || []), this.buildHistoryEntry(reviewerId, 'APPROVED', comment)];
+    return this.prisma.pCDICoSoIn.update({
+      where: { id: pcdiId },
+      data: {
+        status: 'APPROVED',
+        reviewStatus: 'APPROVED',
+        reviewComment: comment || null,
+        reviewedAt: new Date(),
+        reviewHistory: history,
+      },
+      include: {
+        creator: { select: { id: true, name: true, email: true } },
+        reviewer: { select: { id: true, name: true, email: true } },
+      },
+    });
+  }
+
+  async reworkPCDI(pcdiId: string, reviewerId: string, comment: string) {
+    if (!comment?.trim()) throw new BadRequestException('Vui lòng nhập lý do yêu cầu làm lại');
+
+    const pcdi = await this.prisma.pCDICoSoIn.findUnique({ where: { id: pcdiId } });
+    if (!pcdi) throw new NotFoundException('Không tìm thấy PCDI');
+    if (pcdi.reviewerId !== reviewerId) throw new ForbiddenException('Bạn không phải người được phân công duyệt');
+
+    const history = [...((pcdi.reviewHistory as any[]) || []), this.buildHistoryEntry(reviewerId, 'REWORK', comment)];
+    return this.prisma.pCDICoSoIn.update({
+      where: { id: pcdiId },
+      data: {
+        status: 'REWORK',
+        reviewStatus: 'REWORK',
+        reviewComment: comment,
+        reviewedAt: new Date(),
+        reviewHistory: history,
+      },
+      include: {
+        creator: { select: { id: true, name: true, email: true } },
+        reviewer: { select: { id: true, name: true, email: true } },
+      },
+    });
+  }
+
+  async submitQDForReview(projectId: string, reviewerId: string, userId: string) {
+    const project = await this.prisma.datSachProject.findUnique({ where: { id: projectId } });
+    if (!project) throw new NotFoundException('Không tìm thấy dự án');
+
+    const history = [...((project.reviewHistory as any[]) || []), this.buildHistoryEntry(userId, 'SUBMITTED', `Trình duyệt QĐ đến reviewer`)];
+    return this.prisma.datSachProject.update({
+      where: { id: projectId },
+      data: {
+        reviewerId,
+        reviewStatus: 'PENDING',
+        reviewHistory: history,
+        reviewComment: null,
+        reviewedAt: null,
+      },
+      include: {
+        creator: { select: { id: true, name: true, email: true } },
+        reviewer: { select: { id: true, name: true, email: true } },
+      },
+    });
+  }
+
+  async approveQDReview(projectId: string, reviewerId: string, comment?: string) {
+    const project = await this.prisma.datSachProject.findUnique({ where: { id: projectId } });
+    if (!project) throw new NotFoundException('Không tìm thấy dự án');
+    if (project.reviewerId !== reviewerId) throw new ForbiddenException('Bạn không phải người được phân công duyệt');
+
+    const history = [...((project.reviewHistory as any[]) || []), this.buildHistoryEntry(reviewerId, 'APPROVED', comment)];
+    return this.prisma.datSachProject.update({
+      where: { id: projectId },
+      data: {
+        status: 'COMPLETED',
+        reviewStatus: 'APPROVED',
+        reviewComment: comment || null,
+        reviewedAt: new Date(),
+        reviewHistory: history,
+      },
+      include: {
+        creator: { select: { id: true, name: true, email: true } },
+        reviewer: { select: { id: true, name: true, email: true } },
+      },
+    });
+  }
+
+  async reworkQD(projectId: string, reviewerId: string, comment: string) {
+    if (!comment?.trim()) throw new BadRequestException('Vui lòng nhập lý do yêu cầu làm lại');
+
+    const project = await this.prisma.datSachProject.findUnique({ where: { id: projectId } });
+    if (!project) throw new NotFoundException('Không tìm thấy dự án');
+    if (project.reviewerId !== reviewerId) throw new ForbiddenException('Bạn không phải người được phân công duyệt');
+
+    const history = [...((project.reviewHistory as any[]) || []), this.buildHistoryEntry(reviewerId, 'REWORK', comment)];
+    return this.prisma.datSachProject.update({
+      where: { id: projectId },
+      data: {
+        reviewStatus: 'REWORK',
+        reviewComment: comment,
+        reviewedAt: new Date(),
+        reviewHistory: history,
+      },
+      include: {
+        creator: { select: { id: true, name: true, email: true } },
+        reviewer: { select: { id: true, name: true, email: true } },
+      },
+    });
+  }
+
+  async getPendingReviews(userId: string) {
+    const [pendingGDNs, pendingPCDIs, pendingQDs] = await Promise.all([
+      this.prisma.gDNInSach.findMany({
+        where: { reviewerId: userId, reviewStatus: 'PENDING' },
+        include: {
+          datSachProject: { select: { id: true, tenDuAn: true } },
+          creator: { select: { id: true, name: true, email: true } },
+          assignments: { include: { user: { select: { id: true, name: true, email: true } } } },
+        },
+        orderBy: { updatedAt: 'desc' },
+      }),
+      this.prisma.pCDICoSoIn.findMany({
+        where: { reviewerId: userId, reviewStatus: 'PENDING' },
+        include: {
+          datSachProject: { select: { id: true, tenDuAn: true } },
+          creator: { select: { id: true, name: true, email: true } },
+        },
+        orderBy: { updatedAt: 'desc' },
+      }),
+      this.prisma.datSachProject.findMany({
+        where: { reviewerId: userId, reviewStatus: 'PENDING' },
+        include: {
+          creator: { select: { id: true, name: true, email: true } },
+          gdnDocuments: { select: { id: true, status: true } },
+          pcdiDocuments: { select: { id: true, status: true } },
+        },
+        orderBy: { updatedAt: 'desc' },
+      }),
+    ]);
+    return { pendingGDNs, pendingPCDIs, pendingQDs };
   }
 }

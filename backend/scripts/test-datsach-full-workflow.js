@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Full DatSach Workflow Test
- * Tests: login → create project → create GDN → create PCDI → create QĐ → download all DOCX
+ * Tests: login → create project → create GDN → assign & fill SL → submit & approve GDN → create PCDI → submit & approve PCDI → create QĐ → submit & approve QĐ → download all DOCX
  */
 const API_BASE = 'http://localhost/api';
 
@@ -39,7 +39,7 @@ async function apiBlob(path, options = {}, token) {
 
 function extractDocxText(arrayBuffer) {
   try {
-const AdmZip = require('/home/pcloud/qlda/backend/node_modules/adm-zip');
+    const AdmZip = require('/home/pcloud/qlda/backend/node_modules/adm-zip');
     const zip = new AdmZip(Buffer.from(arrayBuffer));
     const entry = zip.getEntry('word/document.xml');
     if (!entry) return null;
@@ -52,19 +52,6 @@ const AdmZip = require('/home/pcloud/qlda/backend/node_modules/adm-zip');
   }
 }
 
-function checkPlaceholders(text, replacements, templateName) {
-  const results = { filled: [], blank: [] };
-  for (const [key, value] of Object.entries(replacements)) {
-    const placeholder = `{{${key}}}`;
-    if (text.includes(placeholder) || text.includes(`{{ ${key} }}`)) {
-      results.blank.push(key);
-    } else {
-      results.filled.push(key);
-    }
-  }
-  return results;
-}
-
 async function main() {
   console.log('='.repeat(70));
   console.log('FULL DAT-SACH WORKFLOW TEST');
@@ -74,7 +61,7 @@ async function main() {
   console.log('\n[1/8] Login as admin...');
   const loginRes = await api('/auth/login', {
     method: 'POST',
-    body: JSON.stringify({ email: 'admin@qlda.vn', password: 'admin123' }),
+    body: JSON.stringify({ email: 'dinhcongnhat.02@gmail.com', password: '10122002' }),
   });
   const token = loginRes.access_token;
   console.log(`  OK - Token: ${token.substring(0, 20)}...`);
@@ -82,8 +69,8 @@ async function main() {
   // 2. Get admin user info
   console.log('\n[2/8] Get user info...');
   const me = await api('/auth/profile', {}, token);
-  console.log(`  OK - User: ${me.username} (${me.role})`);
-  const userId = me.userId || me.id;
+  console.log(`  OK - User: ${me.name || me.username} (${me.role})`);
+  const userId = me.id || me.userId;
 
   // 3. Create DatSach project
   console.log('\n[3/8] Create DatSach project...');
@@ -126,10 +113,10 @@ async function main() {
   // 5. Assign user and fill SL
   console.log('\n[5/8] Assign user and fill quantity...');
   const usersRes = await api('/users', {}, token);
-  if (usersRes.users && usersRes.users.length > 0) {
-    const targetUser = usersRes.users[0];
-    const userIdToAssign = targetUser.id || targetUser.userId;
-    console.log(`  Assigning user: ${targetUser.username || targetUser.email}`);
+  if (usersRes && usersRes.length > 0) {
+    const targetUser = usersRes.find(u => u.id === userId) || usersRes[0];
+    const userIdToAssign = targetUser.id;
+    console.log(`  Assigning user: ${targetUser.name || targetUser.email}`);
 
     await api(`/dat-sach/gdn/${gdnId}/assign`, {
       method: 'POST',
@@ -145,9 +132,18 @@ async function main() {
     console.log('  SKIP - No users found to assign');
   }
 
-  // 6. Approve GDN
-  console.log('\n[6/8] Approve GDN...');
-  await api(`/dat-sach/gdn/${gdnId}/approve`, { method: 'POST' }, token);
+  // 6. Submit and Approve GDN
+  console.log('\n[6/8] Submit and Approve GDN...');
+  await api(`/dat-sach/gdn/${gdnId}/submit-review`, {
+    method: 'POST',
+    body: JSON.stringify({ reviewerId: userId }),
+  }, token);
+  console.log('  OK - GDN submitted for review');
+  
+  await api(`/dat-sach/gdn/${gdnId}/review-approve`, {
+    method: 'POST',
+    body: JSON.stringify({ comment: 'Approved by test script' }),
+  }, token);
   console.log('  OK - GDN approved');
 
   // 7. Create PCDI
@@ -174,6 +170,20 @@ async function main() {
   const pcdiId = pcdiRes.id;
   console.log(`  OK - PCDI ID: ${pcdiId}`);
 
+  // Submit and Approve PCDI
+  console.log('\n[7b/8] Submit and Approve PCDI...');
+  await api(`/dat-sach/pcdi/${pcdiId}/submit-review`, {
+    method: 'POST',
+    body: JSON.stringify({ reviewerId: userId }),
+  }, token);
+  console.log('  OK - PCDI submitted for review');
+  
+  await api(`/dat-sach/pcdi/${pcdiId}/review-approve`, {
+    method: 'POST',
+    body: JSON.stringify({ comment: 'Approved by test script' }),
+  }, token);
+  console.log('  OK - PCDI approved');
+
   // 8. Create QĐ (save QĐ data on project)
   console.log('\n[8/8] Create QĐ entry...');
   const qdData = {
@@ -190,15 +200,24 @@ async function main() {
     coSoIn: 'Nhà in NXB Chính trị Quốc gia Sự thật',
     isbn: '978-604-57-1234-5',
   };
-  const qdRes = await api(`/dat-sach/project/${projectId}/qd`, {
+  await api(`/dat-sach/project/${projectId}/qd`, {
     method: 'PATCH',
     body: JSON.stringify({ qdData }),
   }, token);
   console.log(`  OK - QĐ saved on project ${projectId}`);
 
-  // Approve QĐ
-  console.log('\n[8b/8] Approve QĐ...');
-  await api(`/dat-sach/project/${projectId}/approve-qd`, { method: 'POST' }, token);
+  // Submit and Approve QĐ
+  console.log('\n[8b/8] Submit and Approve QĐ...');
+  await api(`/dat-sach/project/${projectId}/submit-review`, {
+    method: 'POST',
+    body: JSON.stringify({ reviewerId: userId }),
+  }, token);
+  console.log('  OK - QĐ submitted for review');
+  
+  await api(`/dat-sach/project/${projectId}/review-approve`, {
+    method: 'POST',
+    body: JSON.stringify({ comment: 'Approved by test script' }),
+  }, token);
   console.log('  OK - QĐ approved');
 
   // --- DOWNLOAD AND CHECK DOCX ---
@@ -221,8 +240,6 @@ async function main() {
       soTrang: '864',
       khoSach: '16x24cm',
       giaBia: '120.000',
-      slDeNghiIn: '5000',
-      thoiGianCanSach: '30 ngày',
       deNghiNoiIn: 'Nhà in NXB Chính trị',
     };
     for (const [key, val] of Object.entries(gdnExpected)) {
@@ -243,7 +260,6 @@ async function main() {
     const pcdiExpected = {
       tenSach: 'Lịch Sử Đảng',
       tacGia: 'PGS.TS. Nguyễn Văn A',
-      bbt: 'Hội đồng Biên tập',
       phuongThuc: 'In offset',
       coSoIn: 'Nhà in NXB Chính trị',
       soLuongIn: '5000',

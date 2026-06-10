@@ -82,7 +82,7 @@ export default function NotificationBell({ onOpenNotifications }: NotificationBe
     }
 
     if (typeof window !== 'undefined' && 'serviceWorker' in navigator && 'Notification' in window) {
-      subscribePush();
+      subscribePush().catch((e: unknown) => console.error('[NotificationBell] Push subscribe failed:', e));
     }
   }, [loadUnreadCount]);
 
@@ -96,14 +96,16 @@ export default function NotificationBell({ onOpenNotifications }: NotificationBe
   useEffect(() => {
     if (typeof window === 'undefined' || !navigator.serviceWorker) return;
 
-    navigator.serviceWorker.ready.then(() => {
-      navigator.serviceWorker.addEventListener('message', (event: MessageEvent) => {
-        const data = event.data;
-        if (data && typeof data === 'object' && data.type === 'NOTIFICATION_CLICK' && data.url) {
-          window.location.href = data.url;
-        }
-      });
-    });
+    navigator.serviceWorker.ready
+      .then(() => {
+        navigator.serviceWorker.addEventListener('message', (event: MessageEvent) => {
+          const data = event.data;
+          if (data && typeof data === 'object' && data.type === 'NOTIFICATION_CLICK' && data.url) {
+            window.location.href = data.url;
+          }
+        });
+      })
+      .catch((e: unknown) => console.error('[NotificationBell] SW ready failed:', e));
   }, []);
 
   useEffect(() => {
@@ -133,10 +135,10 @@ export default function NotificationBell({ onOpenNotifications }: NotificationBe
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
+  const binaryString = atob(base64);
+  const outputArray = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; ++i) {
+    outputArray[i] = binaryString.charCodeAt(i);
   }
   return outputArray;
 }

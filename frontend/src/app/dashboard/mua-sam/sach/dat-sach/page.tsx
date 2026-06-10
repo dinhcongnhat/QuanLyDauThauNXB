@@ -72,11 +72,11 @@ function SachDatSachPageInner() {
   }, [loadMyAssignments]);
 
   const currentProject = projects.find((p: any) => p.id === selectedProject);
-  const hasDatSachCompleted = datSachProjects.some((d: any) => d.status === 'COMPLETED');
+  const hasDatSachCompleted = datSachProjects.some((d: any) => d.reviewStatus === 'APPROVED');
   const currentDatSach = datSachProjects[0];
 
   const gdnStatus = currentDatSach?.gdnDocuments?.[0]?.status;
-  const pcdiStatus = currentDatSach?.gdnDocuments?.[0]?.status;
+  const pcdiStatus = currentDatSach?.pcdiDocuments?.[0]?.status;
 
   const handleCreateDatSach = async () => {
     if (!tenDuAn.trim()) { toast.error('Nhập tên dự án'); return; }
@@ -121,7 +121,15 @@ function SachDatSachPageInner() {
             {myAssignments.map((a: any) => {
               const gdn = a.gdnInSach;
               const project = gdn?.datSachProject;
-              const isAssigned = gdn?.status === 'ASSIGNED';
+              const hasCompleted = !!a.completedAt;
+              const needsRework = gdn?.status === 'REWORK';
+              const statusBadge = hasCompleted ? (
+                <span className="text-xs px-2 py-1 rounded-full font-medium bg-green-100 text-green-700">Đã điền ({formatMoney(a.soLuong)} cuốn)</span>
+              ) : needsRework ? (
+                <span className="text-xs px-2 py-1 rounded-full font-medium bg-red-100 text-red-700">Cần sửa lại: {gdn?.reviewComment || '—'}</span>
+              ) : (
+                <span className="text-xs px-2 py-1 rounded-full font-medium bg-yellow-100 text-yellow-700">Chưa điền</span>
+              );
               return (
                 <div key={a.id} className="bg-white rounded-lg p-4 border border-orange-200">
                   <div className="flex items-center justify-between mb-2">
@@ -131,11 +139,9 @@ function SachDatSachPageInner() {
                         GDN: {gdn?.data?.tenSach || gdn?.data?.TenSach || '—'} &bull; {gdn?.data?.tacGia || gdn?.data?.TacGia || '—'}
                       </p>
                     </div>
-                    <span className={`text-xs px-2 py-1 rounded-full font-medium ${isAssigned ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>
-                      {isAssigned ? 'Chờ điền SL' : 'Đã điền'}
-                    </span>
+                    {statusBadge}
                   </div>
-                  {isAssigned && (
+                  {!hasCompleted && !needsRework && (
                     <div className="flex items-center gap-2 mt-2">
                       <input
                         type="text"
@@ -152,7 +158,7 @@ function SachDatSachPageInner() {
                       </span>
                     </div>
                   )}
-                  {!isAssigned && a.soLuong > 0 && (
+                  {!hasCompleted && a.soLuong > 0 && (
                     <p className="text-xs text-green-600 mt-1 font-medium">✓ Đã nhập: {formatMoney(a.soLuong)} cuốn</p>
                   )}
                 </div>
@@ -295,25 +301,67 @@ function SachDatSachPageInner() {
             </div>
           </div>
 
-          {currentDatSach && (
-            <div className="bg-white rounded-xl p-5 shadow-sm border">
-              <h3 className="text-sm font-semibold text-gray-700 mb-3">Đơn đặt sách hiện tại</h3>
-              <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                <div>
-                  <p className="text-sm font-medium text-gray-900">{currentDatSach.tenDuAn}</p>
-                  <p className="text-xs text-gray-400 mt-1">
-                    {currentDatSach.gdnDocuments?.length || 0} GDN • {currentDatSach.pcdiDocuments?.length || 0} PCDI
-                    {gdnStatus === 'APPROVED' && ' • GDN ✓'}
-                    {pcdiStatus === 'APPROVED' && ' • PCDI ✓'}
-                  </p>
-                </div>
-                <span className={`text-xs px-2 py-1 rounded ${
-                  currentDatSach.status === 'COMPLETED' ? 'bg-green-50 text-green-700' :
-                  currentDatSach.status === 'ASSIGNED' ? 'bg-blue-50 text-blue-700' :
-                  'bg-yellow-50 text-yellow-700'
-                }`}>
-                  {currentDatSach.status}
-                </span>
+          {datSachProjects.length > 0 && (
+            <div className="bg-white rounded-xl p-5 shadow-sm border space-y-4">
+              <h3 className="text-base font-semibold text-gray-800 border-b pb-2 flex items-center gap-2">
+                ⏳ Lịch sử đơn đặt sách của dự án
+              </h3>
+              <div className="divide-y divide-gray-100">
+                {datSachProjects.map((ds: any) => {
+                  const dsGdn = ds.gdnDocuments?.[0];
+                  const dsPcdi = ds.pcdiDocuments?.[0];
+                  const dsGdnStatus = dsGdn?.status;
+                  const dsPcdiStatus = dsPcdi?.status;
+                  const dsQdStatus = ds.reviewStatus; // APPROVED = QD Approved
+                  
+                  return (
+                    <div key={ds.id} className="py-4 first:pt-0 last:pb-0 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900">{ds.tenDuAn}</p>
+                        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                            dsGdnStatus === 'APPROVED' ? 'bg-green-50 text-green-700 border border-green-200' :
+                            dsGdnStatus === 'PENDING_REVIEW' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+                            dsGdnStatus === 'REWORK' ? 'bg-red-50 text-red-700 border border-red-200' :
+                            'bg-gray-50 text-gray-500 border border-gray-200'
+                          }`}>
+                            GDN: {dsGdnStatus === 'APPROVED' ? 'Đã duyệt' : dsGdnStatus === 'PENDING_REVIEW' ? 'Chờ duyệt' : dsGdnStatus === 'REWORK' ? 'Cần sửa' : 'Nháp'}
+                          </span>
+                          
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                            dsPcdiStatus === 'APPROVED' ? 'bg-green-50 text-green-700 border border-green-200' :
+                            dsPcdiStatus === 'PENDING_REVIEW' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+                            dsPcdiStatus === 'REWORK' ? 'bg-red-50 text-red-700 border border-red-200' :
+                            'bg-gray-50 text-gray-500 border border-gray-200'
+                          }`}>
+                            PCDI: {dsPcdiStatus === 'APPROVED' ? 'Đã duyệt' : dsPcdiStatus === 'PENDING_REVIEW' ? 'Chờ duyệt' : dsPcdiStatus === 'REWORK' ? 'Cần sửa' : 'Nháp'}
+                          </span>
+
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                            dsQdStatus === 'APPROVED' ? 'bg-green-50 text-green-700 border border-green-200' :
+                            dsQdStatus === 'PENDING_REVIEW' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+                            dsQdStatus === 'REWORK' ? 'bg-red-50 text-red-700 border border-red-200' :
+                            'bg-gray-50 text-gray-500 border border-gray-200'
+                          }`}>
+                            QĐ: {dsQdStatus === 'APPROVED' ? 'Đã duyệt' : dsQdStatus === 'PENDING_REVIEW' ? 'Chờ duyệt' : dsQdStatus === 'REWORK' ? 'Cần sửa' : 'Nháp'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-400 mt-1">
+                          Tạo ngày: {format(new Date(ds.createdAt), 'dd/MM/yyyy HH:mm', { locale: vi })}
+                        </p>
+                      </div>
+                      
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={() => router.push(`/dashboard/mua-sam/dat-sach/${ds.id}`)}
+                          className="px-3.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-semibold border border-blue-200 transition-colors flex items-center gap-1"
+                        >
+                          → Tiếp tục điền &amp; xử lý
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

@@ -465,7 +465,30 @@ export const api = {
     request<any>(`/dat-sach/project/${encodeURIComponent(projectId)}/auto-fill/khlcnt`),
 
   approveGDN: (gdnId: string) =>
-    request<any>(`/dat-sach/gdn/${encodeURIComponent(gdnId)}/approve`, {
+    request<any>(`/dat-sach/gdn/${encodeURIComponent(gdnId)}/review-approve`, {
+      method: 'POST',
+    }),
+
+  submitGDNForReview: (gdnId: string, reviewerId: string) =>
+    request<any>(`/dat-sach/gdn/${encodeURIComponent(gdnId)}/submit-review`, {
+      method: 'POST',
+      body: JSON.stringify({ reviewerId }),
+    }),
+
+  reworkGDN: (gdnId: string, comment: string) =>
+    request<any>(`/dat-sach/gdn/${encodeURIComponent(gdnId)}/review-rework`, {
+      method: 'POST',
+      body: JSON.stringify({ comment }),
+    }),
+
+  submitPCDIForReview: (pcdiId: string, reviewerId: string) =>
+    request<any>(`/dat-sach/pcdi/${encodeURIComponent(pcdiId)}/submit-review`, {
+      method: 'POST',
+      body: JSON.stringify({ reviewerId }),
+    }),
+
+  approvePCDI: (pcdiId: string) =>
+    request<any>(`/dat-sach/pcdi/${encodeURIComponent(pcdiId)}/review-approve`, {
       method: 'POST',
     }),
 
@@ -481,9 +504,10 @@ export const api = {
       body: JSON.stringify({ data }),
     }),
 
-  approvePCDI: (pcdiId: string) =>
-    request<any>(`/dat-sach/pcdi/${encodeURIComponent(pcdiId)}/approve`, {
+  reworkPCDI: (pcdiId: string, comment: string) =>
+    request<any>(`/dat-sach/pcdi/${encodeURIComponent(pcdiId)}/review-rework`, {
       method: 'POST',
+      body: JSON.stringify({ comment }),
     }),
 
   downloadGDNDatSach: (gdnId: string) => {
@@ -518,10 +542,26 @@ export const api = {
       body: JSON.stringify({ qdData }),
     }),
 
-  approveQDQuyetDinhDatSach: (projectId: string) =>
-    request<any>(`/dat-sach/project/${encodeURIComponent(projectId)}/approve-qd`, {
+  submitQDForReview: (projectId: string, reviewerId: string) =>
+    request<any>(`/dat-sach/project/${encodeURIComponent(projectId)}/submit-review`, {
       method: 'POST',
+      body: JSON.stringify({ reviewerId }),
     }),
+
+  approveQDQuyetDinhDatSach: (projectId: string, comment?: string) =>
+    request<any>(`/dat-sach/project/${encodeURIComponent(projectId)}/review-approve`, {
+      method: 'POST',
+      body: JSON.stringify({ comment }),
+    }),
+
+  reworkQD: (projectId: string, comment: string) =>
+    request<any>(`/dat-sach/project/${encodeURIComponent(projectId)}/review-rework`, {
+      method: 'POST',
+      body: JSON.stringify({ comment }),
+    }),
+
+  getPendingReviews: () =>
+    request<any>('/dat-sach/my-pending-reviews'),
 
   downloadQDQuyetDinhDatSach: (projectId: string) => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;

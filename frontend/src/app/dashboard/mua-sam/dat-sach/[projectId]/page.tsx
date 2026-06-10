@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, Suspense } from 'react';
+import { useEffect, useState, useCallback, Suspense, useRef } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/lib/store';
@@ -13,7 +13,7 @@ import { LibraryType, SavedValue } from '@/lib/document-library-types';
 import { OnlyOfficePreview } from '@/components/OnlyOfficePreview';
 import type { PreviewType } from '@/components/OnlyOfficePreview';
 
-type Tab = 'gdni' | 'pcdi' | 'quyetdinh';
+type Tab = 'gdn_pcdi' | 'quyetdinh';
 
 interface GDNData {
   tenSach: string; tacGia: string; bbt: string; namXB: string; soTrang: string; khoSach: string;
@@ -22,10 +22,9 @@ interface GDNData {
 }
 
 interface PCDIData {
+  coQuan: string;
   bbt: string; phuongThuc: string; tenSach: string; tacGia: string; soTrang: string; khoSach: string;
   soLuongIn: string; giaTriHopDong: string; coSoIn: string; thongSoKyThuat: string; ghiChu: string;
-  isbn: string; ngonNgu: string; khuonKho: string; soTrangCuaXuatBanPhamIn: string;
-  doiTacLienKet: string; tenBienTapVien: string;
 }
 
 interface QDData {
@@ -34,7 +33,8 @@ interface QDData {
   nguonVon: string; diaDiem: string;
   tacGia: string;
   ngonNgu: string; khuonKho: string; soTrangCuaXuatBanPhamIn: string;
-  doiTacLienKet: string; tenBienTapVien: string; maSoISBN: string;
+  doiTacLienKet: string; tenBienTapVien: string; maSoISBN: string; isbn: string;
+  coSoIn: string; soLuongIn: string;
   ghiChu: string;
 }
 
@@ -74,7 +74,7 @@ function DatSachDetailPageInner() {
   const [project, setProject] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [loadingUsers, setLoadingUsers] = useState(false);
-  const [activeTab, setActiveTab] = useState<Tab>('gdni');
+  const [activeTab, setActiveTab] = useState<Tab>('gdn_pcdi');
   const [users, setUsers] = useState<User[]>([]);
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [showAssignModal, setShowAssignModal] = useState(false);
@@ -84,15 +84,23 @@ function DatSachDetailPageInner() {
   const [previewType, setPreviewType] = useState<PreviewType>('gdn');
   const [showSaveToLibrary, setShowSaveToLibrary] = useState(false);
   const [saveLibType, setSaveLibType] = useState<LibraryType>('THONG_TIN_TO_CHUC');
+  const [showReviewerModal, setShowReviewerModal] = useState(false);
+  const [reviewerModalType, setReviewerModalType] = useState<'gdn' | 'pcdi' | 'gdn_pcdi' | 'qd'>('gdn');
+  const [selectedReviewer, setSelectedReviewer] = useState('');
+  const [showReworkModal, setShowReworkModal] = useState(false);
+  const [reworkModalType, setReworkModalType] = useState<'gdn' | 'pcdi' | 'qd'>('gdn');
+  const [reworkComment, setReworkComment] = useState('');
+  const datePickerRef = useRef<HTMLInputElement>(null);
 
   // QD form state
-  const [qdData, setQdData] = useState({
+  const [qdData, setQdData] = useState<QDData>({
     soQuyetDinh: '', diaDanh: '', ngayBanHanh: '', thangBanHanh: '', namBanHanh: '',
     coQuanPheDuyet: '', nguoiPheDuyet: '', tenDuAn: '',
     nguonVon: '', diaDiem: '',
     tacGia: '',
     ngonNgu: '', khuonKho: '', soTrangCuaXuatBanPhamIn: '',
-    doiTacLienKet: '', tenBienTapVien: '', maSoISBN: '',
+    doiTacLienKet: '', tenBienTapVien: '', maSoISBN: '', isbn: '',
+    coSoIn: '', soLuongIn: '',
     ghiChu: '',
   });
 
@@ -105,16 +113,17 @@ function DatSachDetailPageInner() {
 
   // PCDI form data — matches template + generator fields
   const [pcdiData, setPcdiData] = useState<PCDIData>({
+    coQuan: '',
     bbt: '', phuongThuc: '', tenSach: '', tacGia: '', soTrang: '', khoSach: '',
     soLuongIn: '', giaTriHopDong: '', coSoIn: '', thongSoKyThuat: '', ghiChu: '',
-    isbn: '', ngonNgu: '', khuonKho: '', soTrangCuaXuatBanPhamIn: '',
-    doiTacLienKet: '', tenBienTapVien: '',
   });
 
   const [hasAutoFilledPCDI, setHasAutoFilledPCDI] = useState(false);
   const [hasAutoFilledQD, setHasAutoFilledQD] = useState(false);
 
-  const fetchProject = useCallback(async () => {
+  const hasLoadedRef = useRef(false);
+
+  const fetchProject = useCallback(async (forceReload = false) => {
     try {
       const p = await api.getDatSachProject(projectId);
       setProject(p);
@@ -122,67 +131,70 @@ function DatSachDetailPageInner() {
       const pc = p.pcdiDocuments?.[0];
       const d = g?.data || {};
       const pcd = pc?.data || {};
-
-      // Populate GDN
-      setGdnData({
-        tenSach: d.tenSach || d.TenSach || '',
-        tacGia: d.tacGia || d.TacGia || '',
-        bbt: d.bbt || d.BBT || '',
-        namXB: d.namXB || d.NamXB || '',
-        soTrang: d.soTrang || d.SoTrang || '',
-        khoSach: d.khoSach || d.KhoSach || '',
-        giaBia: d.giaBia || d.GiaBia || '',
-        soLuongTon: d.soLuongTon || d.SoLuongTon || '',
-        slDeNghiIn: d.slDeNghiIn || d.SLDeNghiIn || '',
-        thoiGianCanSach: d.thoiGianCanSach || d.ThoiGianCanSach || '',
-        deNghiNoiIn: d.deNghiNoiIn || d.DeNghiNoiIn || '',
-        ghiChu: d.ghiChu || d.GhiChu || '',
-        vuKHTKBT: d.vuKHTKBT || d.VuKHTKBT || '',
-        banBienTap: d.banBienTap || d.BanBienTap || '',
-      });
-
-      // Populate PCDI
-      setPcdiData({
-        bbt: pcd.bbt || pcd.BBT || d.bbt || d.BBT || '',
-        phuongThuc: pcd.phuongThuc || pcd.PhuongThuc || '',
-        tenSach: pcd.tenSach || pcd.TenSach || d.tenSach || d.TenSach || '',
-        tacGia: pcd.tacGia || pcd.TacGia || d.tacGia || d.TacGia || '',
-        soTrang: pcd.soTrang || pcd.SoTrang || d.soTrang || d.SoTrang || '',
-        khoSach: pcd.khoSach || pcd.KhoSach || d.khoSach || d.KhoSach || '',
-        soLuongIn: pcd.soLuongIn || pcd.SoLuongIn || '',
-        giaTriHopDong: pcd.giaTriHopDong || pcd.GiaTriHopDong || '',
-        coSoIn: pcd.coSoIn || pcd.CoSoIn || '',
-        thongSoKyThuat: pcd.thongSoKyThuat || pcd.ThongSoKyThuat || '',
-        ghiChu: pcd.ghiChu || pcd.GhiChu || d.ghiChu || d.GhiChu || '',
-        isbn: pcd.isbn || pcd.ISBN || '',
-        ngonNgu: pcd.ngonNgu || pcd.NgonNgu || 'Tiếng Việt',
-        khuonKho: pcd.khuonKho || pcd.KhuonKho || d.khoSach || d.KhoSach || '',
-        soTrangCuaXuatBanPhamIn: pcd.soTrangCuaXuatBanPhamIn || pcd.SoTrangCuaXuatBanPhamIn || pcd.soTrang || pcd.SoTrang || '',
-        doiTacLienKet: pcd.doiTacLienKet || pcd.doiTacLienKetXuatBan || '',
-        tenBienTapVien: pcd.tenBienTapVien || pcd.TenBienTapVien || '',
-      });
-      // Populate QD data
       const qdd = p.qdData || {};
-      setQdData(prev => ({
-        soQuyetDinh: qdd.soQuyetDinh || prev.soQuyetDinh,
-        diaDanh: qdd.diaDanh || prev.diaDanh,
-        ngayBanHanh: qdd.ngayBanHanh || prev.ngayBanHanh,
-        thangBanHanh: qdd.thangBanHanh || prev.thangBanHanh,
-        namBanHanh: qdd.namBanHanh || prev.namBanHanh,
-        coQuanPheDuyet: qdd.coQuanPheDuyet || prev.coQuanPheDuyet,
-        nguoiPheDuyet: qdd.nguoiPheDuyet || prev.nguoiPheDuyet,
-        tenDuAn: qdd.tenDuAn || prev.tenDuAn,
-        nguonVon: qdd.nguonVon || prev.nguonVon,
-        diaDiem: qdd.diaDiem || prev.diaDiem,
-        tacGia: qdd.tacGia || prev.tacGia,
-        ngonNgu: qdd.ngonNgu || prev.ngonNgu,
-        khuonKho: qdd.khuonKho || prev.khuonKho,
-        soTrangCuaXuatBanPhamIn: qdd.soTrangCuaXuatBanPhamIn || prev.soTrangCuaXuatBanPhamIn,
-        doiTacLienKet: qdd.doiTacLienKet || prev.doiTacLienKet,
-        tenBienTapVien: qdd.tenBienTapVien || prev.tenBienTapVien,
-        maSoISBN: qdd.maSoISBN || prev.maSoISBN,
-        ghiChu: qdd.ghiChu || prev.ghiChu,
-      }));
+
+      if (!hasLoadedRef.current || forceReload) {
+        // Populate GDN
+        setGdnData({
+          tenSach: d.tenSach || d.TenSach || '',
+          tacGia: d.tacGia || d.TacGia || '',
+          bbt: d.bbt || d.BBT || '',
+          namXB: d.namXB || d.NamXB || '',
+          soTrang: d.soTrang || d.SoTrang || '',
+          khoSach: d.khoSach || d.KhoSach || '',
+          giaBia: d.giaBia || d.GiaBia || '',
+          soLuongTon: d.soLuongTon || d.SoLuongTon || '',
+          slDeNghiIn: d.slDeNghiIn || d.SLDeNghiIn || '',
+          thoiGianCanSach: d.thoiGianCanSach || d.ThoiGianCanSach || '',
+          deNghiNoiIn: d.deNghiNoiIn || d.DeNghiNoiIn || '',
+          ghiChu: d.ghiChu || d.GhiChu || '',
+          vuKHTKBT: d.vuKHTKBT || d.VuKHTKBT || '',
+          banBienTap: d.banBienTap || d.BanBienTap || '',
+        });
+
+        // Populate PCDI
+        setPcdiData({
+          coQuan: pcd.coQuan || pcd.CoQuan || d.coQuan || d.CoQuan || 'Nhà xuất bản Chính trị Quốc gia Sự thật',
+          bbt: pcd.bbt || pcd.BBT || d.bbt || d.BBT || '',
+          phuongThuc: pcd.phuongThuc || pcd.PhuongThuc || '',
+          tenSach: pcd.tenSach || pcd.TenSach || d.tenSach || d.TenSach || '',
+          tacGia: pcd.tacGia || pcd.TacGia || d.tacGia || d.TacGia || '',
+          soTrang: pcd.soTrang || pcd.SoTrang || d.soTrang || d.SoTrang || '',
+          khoSach: pcd.khoSach || pcd.KhoSach || d.khoSach || d.KhoSach || '',
+          soLuongIn: pcd.soLuongIn || pcd.SoLuongIn || '',
+          giaTriHopDong: pcd.giaTriHopDong || pcd.GiaTriHopDong || '',
+          coSoIn: pcd.coSoIn || pcd.CoSoIn || '',
+          thongSoKyThuat: pcd.thongSoKyThuat || pcd.ThongSoKyThuat || '',
+          ghiChu: pcd.ghiChu || pcd.GhiChu || d.ghiChu || d.GhiChu || '',
+        });
+
+        // Populate QD data
+        setQdData(prev => ({
+          soQuyetDinh: qdd.soQuyetDinh || prev.soQuyetDinh,
+          diaDanh: qdd.diaDanh || prev.diaDanh,
+          ngayBanHanh: qdd.ngayBanHanh || prev.ngayBanHanh,
+          thangBanHanh: qdd.thangBanHanh || prev.thangBanHanh,
+          namBanHanh: qdd.namBanHanh || prev.namBanHanh,
+          coQuanPheDuyet: qdd.coQuanPheDuyet || prev.coQuanPheDuyet,
+          nguoiPheDuyet: qdd.nguoiPheDuyet || prev.nguoiPheDuyet,
+          tenDuAn: qdd.tenDuAn || prev.tenDuAn,
+          nguonVon: qdd.nguonVon || prev.nguonVon,
+          diaDiem: qdd.diaDiem || prev.diaDiem,
+          tacGia: qdd.tacGia || qdd.TacGia || pcd.tacGia || d.tacGia || prev.tacGia,
+          ngonNgu: qdd.ngonNgu || qdd.NgonNgu || prev.ngonNgu || 'Tiếng Việt',
+          khuonKho: qdd.khuonKho || qdd.KhuonKho || pcd.khoSach || d.khoSach || prev.khuonKho,
+          soTrangCuaXuatBanPhamIn: qdd.soTrangCuaXuatBanPhamIn || qdd.SoTrangCuaXuatBanPhamIn || pcd.soTrang || d.soTrang || prev.soTrangCuaXuatBanPhamIn,
+          doiTacLienKet: qdd.doiTacLienKet || prev.doiTacLienKet,
+          tenBienTapVien: qdd.tenBienTapVien || prev.tenBienTapVien,
+          maSoISBN: qdd.maSoISBN || prev.maSoISBN,
+          isbn: qdd.isbn || qdd.maSoISBN || prev.isbn,
+          coSoIn: qdd.coSoIn || pcd.coSoIn || prev.coSoIn || '',
+          soLuongIn: qdd.soLuongIn || pcd.soLuongIn || prev.soLuongIn || '',
+          ghiChu: qdd.ghiChu || prev.ghiChu,
+        }));
+
+        hasLoadedRef.current = true;
+      }
       setHasAutoFilledPCDI(!!pc);
       setHasAutoFilledQD(!!qdd.soQuyetDinh || !!qdd.nguoiPheDuyet);
     } catch (err: any) { toast.error(err.message); }
@@ -191,6 +203,15 @@ function DatSachDetailPageInner() {
 
   useEffect(() => {
     fetchProject();
+  }, [projectId, fetchProject]);
+
+  // Poll every 10 seconds for realtime assignment updates
+  useEffect(() => {
+    const interval = setInterval(fetchProject, 10000);
+    return () => clearInterval(interval);
+  }, [fetchProject]);
+
+  useEffect(() => {
     setLoadingUsers(true);
     api.getUsers()
       .then(setUsers)
@@ -236,10 +257,6 @@ function DatSachDetailPageInner() {
       giaTriHopDong: val.duLieu.giaTriHD || val.duLieu.giaTriHopDong || prev.giaTriHopDong,
       coSoIn: val.duLieu.coSoIn || val.duLieu.CoSoIn || prev.coSoIn,
       thongSoKyThuat: val.duLieu.thongSoKyThuat || val.duLieu.ThongSoKyThuat || prev.thongSoKyThuat,
-      isbn: val.duLieu.isbn || val.duLieu.ISBN || prev.isbn,
-      ngonNgu: val.duLieu.ngonNgu || val.duLieu.NgonNgu || prev.ngonNgu,
-      doiTacLienKet: val.duLieu.doiTac || val.duLieu.doiTacLienKet || prev.doiTacLienKet,
-      tenBienTapVien: val.duLieu.bienTapVien || val.duLieu.tenBienTapVien || prev.tenBienTapVien,
       ghiChu: val.duLieu.ghiChu || prev.ghiChu,
     }));
     toast.success('Đã điền từ thư viện văn bản');
@@ -256,8 +273,11 @@ function DatSachDetailPageInner() {
       doiTacLienKet: val.duLieu.doiTac || val.duLieu.doiTacLienKet || prev.doiTacLienKet,
       tenBienTapVien: val.duLieu.bienTapVien || val.duLieu.TenBienTapVien || prev.tenBienTapVien,
       maSoISBN: val.duLieu.isbn || val.duLieu.ISBN || prev.maSoISBN,
+      isbn: val.duLieu.isbn || val.duLieu.ISBN || prev.isbn,
+      coSoIn: val.duLieu.coSoIn || val.duLieu.CoSoIn || prev.coSoIn,
+      soLuongIn: val.duLieu.soLuongIn || val.duLieu.SoLuongIn || prev.soLuongIn,
       coQuanPheDuyet: val.duLieu.coQuanPheDuyet || val.duLieu.CoQuanPheDuyet || prev.coQuanPheDuyet,
-      nguonVon: val.duLieu.nguonVon || val.duLieu.NguonVon || prev.nguonVon,
+      nguonVon: val.duLieu.nguonVon || val.duLieu.NgonNguonVon || prev.nguonVon,
       diaDiem: val.duLieu.diaDiem || val.duLieu.DiaDiem || val.duLieu.diaChi || prev.diaDiem,
       ghiChu: val.duLieu.ghiChu || prev.ghiChu,
     }));
@@ -275,6 +295,7 @@ function DatSachDetailPageInner() {
       const totalSL = (g?.assignments || []).reduce((s: number, a: any) => s + (a.soLuong || 0), 0);
       setPcdiData(prev => ({
         ...prev,
+        coQuan: data.CoQuan || data.coQuan || prev.coQuan || 'Nhà xuất bản Chính trị Quốc gia Sự thật',
         bbt: data.BBT || data.bbt || prev.bbt,
         tenSach: data.TenSach || data.tenSach || prev.tenSach,
         tacGia: data.TacGia || data.tacGia || prev.tacGia,
@@ -300,11 +321,6 @@ function DatSachDetailPageInner() {
         tenDuAn: data.TenDuAn || data.tenDuAn || prev.tenDuAn,
         nguonVon: data.NguonVon || data.nguonVon || prev.nguonVon,
         diaDiem: data.DiaDiemThucHien || data.diaDiemThucHien || prev.diaDiem,
-      }));
-      // Fill PCDI fields needed for QĐ template
-      setPcdiData(prev => ({
-        ...prev,
-        tenSach: data.TenSach || data.tenSach || prev.tenSach,
         tacGia: data.TacGia || data.tacGia || prev.tacGia,
         ngonNgu: data.NgonNgu || prev.ngonNgu || 'Tiếng Việt',
         khuonKho: data.khuonKho || prev.khuonKho || '',
@@ -333,7 +349,7 @@ function DatSachDetailPageInner() {
         await api.createGDNInSach(projectId, gdnData);
       }
       toast.success('Đã lưu Giấy đề nghị in sách');
-      fetchProject();
+      fetchProject(true);
     } catch (err: any) { toast.error(err.message); }
     finally { setSaving(false); }
   };
@@ -347,7 +363,7 @@ function DatSachDetailPageInner() {
       await api.assignUsersForSL(gdn.id, selectedUsers);
       toast.success('Đã phân công! Mỗi user sẽ điền số lượng.');
       setShowAssignModal(false);
-      fetchProject();
+      fetchProject(true);
     } catch (err: any) { toast.error(err.message); }
     finally { setSaving(false); }
   };
@@ -359,28 +375,9 @@ function DatSachDetailPageInner() {
     try {
       await api.fillSL(gdnId, userId, num);
       toast.success('Đã cập nhật số lượng');
-      fetchProject();
+      fetchProject(true);
     } catch (err: any) { toast.error(err.message); }
     finally { setSaving(false); }
-  };
-
-  const handleApproveGDN = async () => {
-    const gdn = project.gdnDocuments?.[0];
-    if (!gdn) return;
-    const totalSL = (gdn.assignments || []).reduce((s: number, a: any) => s + (a.soLuong || 0), 0);
-    if (totalSL === 0) { toast.error('Cần ít nhất 1 user điền số lượng trước khi duyệt'); return; }
-    setSaving(true);
-    try {
-      await api.approveGDN(gdn.id);
-      toast.success('Đã duyệt GDN! Bây giờ có thể auto-fill PCDI.');
-      fetchProject();
-    } catch (err: any) {
-      if (err?.message?.includes('403')) {
-        toast.error('Bạn không có quyền duyệt GDN. Chỉ Trưởng phòng hoặc Giám đốc mới được duyệt.');
-      } else {
-        toast.error(err?.message || 'Lỗi khi duyệt GDN');
-      }
-    } finally { setSaving(false); }
   };
 
   const handleDownloadGDN = async () => {
@@ -400,28 +397,40 @@ function DatSachDetailPageInner() {
     const gdn = project?.gdnDocuments?.[0];
     if (!gdn) return;
     try {
-      await api.getOnlyofficeConfigForGdn(gdn.id);
+      const config = await api.getOnlyofficeConfigForGdn(gdn.id);
+      console.log('[OnlyOffice GDN config]', config);
       setPreviewType('gdn');
       setPreviewDocId(gdn.id);
-    } catch (err: any) { toast.error(err.message); }
+    } catch (err: any) {
+      console.error('[OnlyOffice GDN error]', err);
+      toast.error('Lỗi tải cấu hình OnlyOffice: ' + (err.message || 'Kiểm tra kết nối OnlyOffice server'));
+    }
   };
 
   const handlePreviewPCDI = async () => {
     const pcdi = project?.pcdiDocuments?.[0];
     if (!pcdi) return;
     try {
-      await api.getOnlyofficeConfigForPcdi(pcdi.id);
+      const config = await api.getOnlyofficeConfigForPcdi(pcdi.id);
+      console.log('[OnlyOffice PCDI config]', config);
       setPreviewType('pcdi');
       setPreviewDocId(pcdi.id);
-    } catch (err: any) { toast.error(err.message); }
+    } catch (err: any) {
+      console.error('[OnlyOffice PCDI error]', err);
+      toast.error('Lỗi tải cấu hình OnlyOffice: ' + (err.message || 'Kiểm tra kết nối OnlyOffice server'));
+    }
   };
 
   const handlePreviewQD = async () => {
     try {
-      await api.getOnlyofficeConfigForQD(projectId);
+      const config = await api.getOnlyofficeConfigForQD(projectId);
+      console.log('[OnlyOffice QD config]', config);
       setPreviewType('qd');
       setPreviewDocId(projectId);
-    } catch (err: any) { toast.error(err.message); }
+    } catch (err: any) {
+      console.error('[OnlyOffice QD error]', err);
+      toast.error('Lỗi tải cấu hình OnlyOffice: ' + (err.message || 'Kiểm tra kết nối OnlyOffice server'));
+    }
   };
 
   // ─── PCDI Actions ──────────────────────────────────────────────
@@ -435,27 +444,12 @@ function DatSachDetailPageInner() {
         await api.createPCDICoSoIn(projectId, pcdiData);
       }
       toast.success('Đã lưu Phiếu chỉ định cơ sở in');
-      fetchProject();
+      fetchProject(true);
     } catch (err: any) { toast.error(err.message); }
     finally { setSaving(false); }
   };
 
-  const handleApprovePCDI = async () => {
-    const pcdi = project.pcdiDocuments?.[0];
-    if (!pcdi) return;
-    setSaving(true);
-    try {
-      await api.approvePCDI(pcdi.id);
-      toast.success('Đã duyệt Phiếu chỉ định! Đủ điều kiện tạo Quyết định.');
-      fetchProject();
-    } catch (err: any) {
-      if (err?.message?.includes('403')) {
-        toast.error('Bạn không có quyền duyệt PCDI. Chỉ Trưởng phòng hoặc Giám đốc mới được duyệt.');
-      } else {
-        toast.error(err?.message || 'Lỗi khi duyệt PCDI');
-      }
-    } finally { setSaving(false); }
-  };
+
 
   const handleDownloadPCDI = async () => {
     const pcdi = project?.pcdiDocuments?.[0];
@@ -476,42 +470,12 @@ function DatSachDetailPageInner() {
     try {
       await api.updateQDQuyetDinhDatSach(projectId, qdData);
       toast.success('Đã lưu Quyết định');
-      fetchProject();
+      fetchProject(true);
     } catch (err: any) { toast.error(err.message); }
     finally { setSaving(false); }
   };
 
-  const handleApproveQD = async () => {
-    setSaving(true);
-    try {
-      // Save PCDI first so its fields are available for QĐ template
-      const pcdi = project?.pcdiDocuments?.[0];
-      if (pcdi) {
-        await api.updatePCDICoSoIn(pcdi.id, pcdiData);
-      }
-      // Merge QĐ + PCDI data and save before approving
-      const mergedQdData = {
-        ...qdData,
-        ngonNgu: pcdiData.ngonNgu,
-        khuonKho: pcdiData.khuonKho,
-        soTrangCuaXuatBanPhamIn: pcdiData.soTrangCuaXuatBanPhamIn,
-        doiTacLienKet: pcdiData.doiTacLienKet,
-        tenBienTapVien: pcdiData.tenBienTapVien,
-        isbn: pcdiData.isbn,
-      };
-      await api.updateQDQuyetDinhDatSach(projectId, mergedQdData);
-      await api.approveQDQuyetDinhDatSach(projectId);
-      await api.markDatSachCompleted(projectId);
-      toast.success('Đã duyệt Quyết định! Hoàn thành luồng Đặt sách.');
-      fetchProject();
-    } catch (err: any) {
-      if (err?.message?.includes('403')) {
-        toast.error('Bạn không có quyền duyệt QĐ. Chỉ Trưởng phòng hoặc Giám đốc mới được duyệt.');
-      } else {
-        toast.error(err?.message || 'Lỗi khi duyệt QĐ');
-      }
-    } finally { setSaving(false); }
-  };
+
 
   const handleDownloadQD = async () => {
     try {
@@ -536,6 +500,31 @@ function DatSachDetailPageInner() {
   const gdnApproved = gdn?.status === 'APPROVED';
   const pcdiApproved = pcdi?.status === 'APPROVED';
   const projectCompleted = project?.status === 'COMPLETED';
+  const isReviewer = !!(user && ['ADMIN', 'HEAD_OF_DEPARTMENT', 'DIRECTOR'].includes(user.role));
+  const gdnPendingReview = gdn?.status === "PENDING_REVIEW";
+  const gdnRework = gdn?.status === 'REWORK';
+  const pcdiPendingReview = pcdi?.status === "PENDING_REVIEW";
+  const pcdiRework = pcdi?.status === 'REWORK';
+  const qdPendingReview = project?.reviewStatus === 'PENDING';
+
+  const handleApprove = async (type: 'gdn' | 'pcdi' | 'qd') => {
+    setSaving(true);
+    try {
+      if (type === 'gdn') {
+        await api.approveGDN(gdn!.id);
+      } else if (type === 'pcdi') {
+        await api.approvePCDI(pcdi!.id);
+      } else {
+        await api.approveQDQuyetDinhDatSach(projectId);
+      }
+      toast.success('Phê duyệt thành công!');
+      fetchProject(true);
+    } catch (err: any) {
+      toast.error(err.message || 'Lỗi khi duyệt');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="space-y-5">
@@ -571,9 +560,8 @@ function DatSachDetailPageInner() {
       {/* Tabs */}
       <div className="flex border-b border-gray-200">
         {[
-          { key: 'gdni' as Tab, label: '1. Giấy đề nghị in sách', locked: false },
-          { key: 'pcdi' as Tab, label: '2. Phiếu chỉ định cơ sở in', locked: !gdnApproved },
-          { key: 'quyetdinh' as Tab, label: '3. Quyết định', locked: !(gdnApproved && pcdiApproved) },
+          { key: 'gdn_pcdi' as Tab, label: '1. Đề nghị in & Chỉ định cơ sở in', locked: false },
+          { key: 'quyetdinh' as Tab, label: '2. Quyết định', locked: !(gdnApproved && pcdiApproved) },
         ].map(tab => (
           <button
             key={tab.key}
@@ -587,29 +575,32 @@ function DatSachDetailPageInner() {
           >
             {tab.label}
             {tab.locked && <span className="text-xs">🔒</span>}
-            {tab.key === 'gdni' && gdnApproved && <span className="text-green-500">✅</span>}
-            {tab.key === 'pcdi' && pcdiApproved && <span className="text-green-500">✅</span>}
+            {tab.key === 'gdn_pcdi' && gdnApproved && pcdiApproved && <span className="text-green-500">✅</span>}
             {tab.key === 'quyetdinh' && projectCompleted && <span className="text-green-500">✅</span>}
           </button>
         ))}
       </div>
 
-      {/* ─── Tab 1: GDN ─── */}
-      {activeTab === 'gdni' && (
-        <div className="space-y-4">
+      {/* ─── Tab 1: GDN & PCDI ─── */}
+      {activeTab === 'gdn_pcdi' && (
+        <div className="space-y-6">
+          {/* Section 1: Giấy đề nghị in/tái bản sách */}
           <div className="bg-white rounded-xl p-5 border">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
-                <h2 className="font-semibold text-gray-800">Giấy đề nghị in/tái bản sách</h2>
+                <h2 className="font-semibold text-gray-800">1. Giấy đề nghị in/tái bản sách</h2>
                 {gdnApproved && <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">Đã duyệt ✅</span>}
               </div>
               <div className="flex gap-2 items-center">
-                <span className={`text-xs px-2 py-0.5 rounded-full ${
-                  gdnApproved ? 'bg-green-100 text-green-700' :
-                  gdn?.status === 'ASSIGNED' ? 'bg-yellow-100 text-yellow-700' :
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                  gdn?.status === 'APPROVED' ? 'bg-green-100 text-green-700' :
+                  gdn?.status === 'PENDING_REVIEW' ? 'bg-amber-100 text-amber-700' :
+                  gdn?.status === 'REWORK' ? 'bg-red-100 text-red-700' :
                   'bg-gray-100 text-gray-600'
                 }`}>
-                  {gdnApproved ? 'Đã duyệt' : gdn?.status === 'ASSIGNED' ? 'Đã phân công' : 'Nháp'}
+                  {gdn?.status === 'APPROVED' ? 'Đã duyệt' :
+                   gdn?.status === 'PENDING_REVIEW' ? 'Chờ duyệt' :
+                   gdn?.status === 'REWORK' ? 'Cần sửa lại' : 'Nháp'}
                 </span>
                 {gdn && <button onClick={handleDownloadGDN} className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">📥 DOCX</button>}
                 {gdn && <button onClick={handlePreviewGDN} className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100">👁 Xem trước</button>}
@@ -645,15 +636,53 @@ function DatSachDetailPageInner() {
               </div>
               <MoneyInput label="Giá bìa (đ)" value={gdnData.giaBia} onChange={v => setGdnData({ ...gdnData, giaBia: v })} placeholder="VD: 85.000" />
               <MoneyInput label="Số lượng tồn" value={gdnData.soLuongTon} onChange={v => setGdnData({ ...gdnData, soLuongTon: v })} />
-              <MoneyInput
-                label="SL đề nghị in (tổng)"
-                value={totalSL ? formatMoney(totalSL) : gdnData.slDeNghiIn}
-                onChange={v => setGdnData({ ...gdnData, slDeNghiIn: v })}
-                placeholder="Tự động = tổng SL từ assignments"
-              />
+              <div>
+                <label className="text-xs font-medium text-gray-600">SL đề nghị in (tổng)</label>
+                <div className="mt-1 flex items-center gap-2">
+                  <span className="text-sm font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+                    {totalSL > 0 ? `${formatMoney(totalSL)} cuốn` : '— chưa có người điền —'}
+                  </span>
+                  {!(gdn?.status === 'APPROVED') && (
+                    <button onClick={() => { setSelectedUsers((gdn?.assignments || []).map((a: any) => a.userId)); setShowAssignModal(true); }}
+                      className="px-3 py-1.5 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 text-xs font-medium">
+                      👥 Phân công điền SL
+                    </button>
+                  )}
+                </div>
+                <p className="text-xs text-gray-400 mt-1">Tổng = tổng số lượng của người được phân công. Nhấn "Phân công" để chọn người điền.</p>
+              </div>
               <div>
                 <label className="text-xs font-medium text-gray-600">Thời gian cần sách</label>
-                <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500 mt-1" value={gdnData.thoiGianCanSach} onChange={e => setGdnData({ ...gdnData, thoiGianCanSach: e.target.value })} placeholder="VD: 30/06/2026" />
+                <div className="relative mt-1">
+                  <input
+                    className="w-full border border-gray-300 rounded-lg pl-3 pr-10 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500"
+                    value={gdnData.thoiGianCanSach}
+                    onChange={e => setGdnData({ ...gdnData, thoiGianCanSach: e.target.value })}
+                    placeholder="VD: 30/06/2026"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => (datePickerRef.current as any)?.showPicker?.()}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-blue-600 transition-colors focus:outline-none"
+                    title="Chọn ngày"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  </button>
+                  <input
+                    ref={datePickerRef}
+                    type="date"
+                    className="absolute invisible w-0 h-0"
+                    onChange={e => {
+                      const val = e.target.value;
+                      if (val) {
+                        const [y, m, d] = val.split('-');
+                        setGdnData({ ...gdnData, thoiGianCanSach: `${d}/${m}/${y}` });
+                      }
+                    }}
+                  />
+                </div>
               </div>
               <div className="col-span-2">
                 <label className="text-xs font-medium text-gray-600">Đề nghị nơi in</label>
@@ -675,34 +704,72 @@ function DatSachDetailPageInner() {
 
             <div className="flex gap-2 mt-4 flex-wrap">
               <button onClick={handleCreateOrUpdateGDN} disabled={saving || !gdnData.tenSach.trim()} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm disabled:opacity-50">
-                {saving ? '...' : gdn ? 'Cập nhật' : 'Tạo GDN'}
+                {saving ? '...' : gdn ? 'Cập nhật Đề nghị in' : 'Tạo Đề nghị in'}
               </button>
-                  {(() => {
-                    const canApprove = user && ['ADMIN', 'HEAD_OF_DEPARTMENT', 'DIRECTOR'].includes(user.role);
-                    return !gdnApproved && gdn ? (
-                      <>
-                        <button onClick={() => { setSelectedUsers((gdn.assignments || []).map((a: any) => a.userId)); setShowAssignModal(true); }}
-                          className="px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 text-sm">
-                          👥 Phân công điền SL
-                        </button>
-                        {canApprove ? (
-                          <button onClick={handleApproveGDN} disabled={totalSL === 0} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                            title={totalSL === 0 ? 'Cần user điền SL trước' : 'Duyệt GDN'}>
-                            ✅ Duyệt GDN
-                          </button>
-                        ) : (
-                          <button disabled className="px-4 py-2 bg-green-200 text-green-500 rounded-lg text-sm cursor-not-allowed"
-                            title="Chỉ Trưởng phòng hoặc Giám đốc mới được duyệt GDN">
-                            ✅ Duyệt GDN
-                          </button>
-                        )}
-                      </>
-                    ) : null;
-                  })()}
+
+              {/* Review workflow buttons */}
+              {gdn && gdn.status !== 'APPROVED' && gdn.status !== 'PENDING_REVIEW' && (
+                <button
+                  onClick={() => {
+                    if (totalSL === 0) { toast.error('Cần phân công và điền SL trước khi trình duyệt'); return; }
+                    setReviewerModalType('gdn');
+                    setSelectedReviewer('');
+                    setShowReviewerModal(true);
+                  }}
+                  disabled={saving}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm disabled:opacity-50"
+                >
+                  📤 Trình duyệt GDN
+                </button>
+              )}
+
+              {gdnPendingReview && (
+                <div className="flex items-center gap-2">
+                  <span className="px-3 py-1.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-lg text-sm">
+                    ⏳ Đang chờ duyệt bởi: <strong>{gdn.reviewer?.name || '—'}</strong>
+                  </span>
+                  {user && gdn.reviewerId === user.id && (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleApprove('gdn')}
+                        disabled={saving}
+                        className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 text-xs font-semibold"
+                      >
+                        ✅ Duyệt GDN
+                      </button>
+                      <button
+                        onClick={() => {
+                          setReworkModalType('gdn');
+                          setReworkComment('');
+                          setShowReworkModal(true);
+                        }}
+                        disabled={saving}
+                        className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 text-xs font-semibold"
+                      >
+                        🔁 Yêu cầu sửa lại GDN
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {gdnRework && (
+                <div className="flex items-center gap-2">
+                  <span className="px-3 py-1.5 bg-red-50 text-red-700 border border-red-200 rounded-lg text-sm">
+                    🔁 Cần sửa lại: <em>{gdn.reviewComment || '—'}</em>
+                  </span>
+                </div>
+              )}
+
+              {gdn?.status === 'APPROVED' && (
+                <span className="px-3 py-1.5 bg-green-50 text-green-700 border border-green-200 rounded-lg text-sm font-medium">
+                  ✅ Đã duyệt bởi: {gdn.reviewer?.name || '—'}
+                </span>
+              )}
             </div>
 
-            {totalSL === 0 && gdn && !gdnApproved && (
-              <p className="text-xs text-orange-500 mt-2">⚠️ Cần phân công user và điền số lượng trước khi duyệt.</p>
+            {totalSL === 0 && gdn && gdn.status !== 'APPROVED' && gdn.status !== 'PENDING_REVIEW' && (
+              <p className="text-xs text-orange-500 mt-2">⚠️ Cần phân công user và điền số lượng trước khi trình duyệt.</p>
             )}
           </div>
 
@@ -711,8 +778,15 @@ function DatSachDetailPageInner() {
             <div className="bg-white rounded-xl p-5 border">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-semibold text-gray-800">📋 Phân công điền số lượng</h3>
-                {!gdnApproved && (
-                  <button onClick={() => setShowAssignModal(true)} className="text-xs px-3 py-1.5 bg-yellow-50 text-yellow-700 rounded-lg hover:bg-yellow-100 border border-yellow-200">
+                {!(gdn?.status === 'APPROVED') && (
+                  <button onClick={() => {
+                    if (users.length === 0) {
+                      setLoadingUsers(true);
+                      api.getUsers().then(u => { setUsers(u); setLoadingUsers(false); }).catch(() => setLoadingUsers(false));
+                    }
+                    setSelectedUsers((gdn?.assignments || []).map((a: any) => a.userId));
+                    setShowAssignModal(true);
+                  }} className="text-xs px-3 py-1.5 bg-yellow-50 text-yellow-700 rounded-lg hover:bg-yellow-100 border border-yellow-200">
                     + Thêm người điền
                   </button>
                 )}
@@ -760,19 +834,25 @@ function DatSachDetailPageInner() {
               )}
             </div>
           )}
-        </div>
-      )}
 
-      {/* ─── Tab 2: PCDI ─── */}
-      {activeTab === 'pcdi' && (
-        <div className="space-y-4">
+          {/* Section 2: Phiếu chỉ định cơ sở in */}
           <div className="bg-white rounded-xl p-5 border">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
-                <h2 className="font-semibold text-gray-800">Phiếu chỉ định cơ sở in</h2>
+                <h2 className="font-semibold text-gray-800">2. Phiếu chỉ định cơ sở in</h2>
                 {pcdiApproved && <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">Đã duyệt ✅</span>}
               </div>
               <div className="flex gap-2 items-center">
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                  pcdi?.status === 'APPROVED' ? 'bg-green-100 text-green-700' :
+                  pcdi?.status === 'PENDING_REVIEW' ? 'bg-amber-100 text-amber-700' :
+                  pcdi?.status === 'REWORK' ? 'bg-red-100 text-red-700' :
+                  'bg-gray-100 text-gray-600'
+                }`}>
+                  {pcdi?.status === 'APPROVED' ? 'Đã duyệt' :
+                   pcdi?.status === 'PENDING_REVIEW' ? 'Chờ duyệt' :
+                   pcdi?.status === 'REWORK' ? 'Cần sửa lại' : 'Nháp'}
+                </span>
                 {pcdi && <button onClick={handleDownloadPCDI} className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">📥 DOCX</button>}
                 {pcdi && <button onClick={handlePreviewPCDI} className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100">👁 Xem trước</button>}
                 <button onClick={() => { setSaveLibType('DAT_SACH_PCDI'); setShowSaveToLibrary(true); }} className="text-xs px-2 py-1 bg-green-50 text-green-700 rounded hover:bg-green-100">💾 Lưu vào thư viện</button>
@@ -780,10 +860,10 @@ function DatSachDetailPageInner() {
               </div>
             </div>
 
-            {!hasAutoFilledPCDI && gdnApproved && (
+            {!hasAutoFilledPCDI && gdn && (
               <div className="mb-4 p-3 bg-green-50 rounded-lg border border-green-200 flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-green-800">🎯 Auto-fill từ GDN đã duyệt</p>
+                  <p className="text-sm font-medium text-green-800">🎯 Auto-fill từ GDN</p>
                   <p className="text-xs text-green-600 mt-0.5">Các trường BBT, Tên sách, Tác giả, Số trang, Khổ sách, Số lượng sẽ được điền tự động</p>
                 </div>
                 <button onClick={handleAutoFillPCDI} disabled={fetching} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium disabled:opacity-50 shrink-0 ml-3">
@@ -793,6 +873,10 @@ function DatSachDetailPageInner() {
             )}
 
             <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2">
+                <label className="text-xs font-medium text-gray-600">Kính gửi (Cơ quan)</label>
+                <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500 mt-1" value={pcdiData.coQuan} onChange={e => setPcdiData({ ...pcdiData, coQuan: e.target.value })} placeholder="VD: Nhà xuất bản Chính trị Quốc gia Sự thật" />
+              </div>
               <div>
                 <label className="text-xs font-medium text-gray-600">BBT</label>
                 <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500 bg-blue-50 mt-1" value={pcdiData.bbt} onChange={e => setPcdiData({ ...pcdiData, bbt: e.target.value })} />
@@ -827,60 +911,127 @@ function DatSachDetailPageInner() {
                 <label className="text-xs font-medium text-gray-600">Thông số kỹ thuật</label>
                 <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500 mt-1" value={pcdiData.thongSoKyThuat} onChange={e => setPcdiData({ ...pcdiData, thongSoKyThuat: e.target.value })} />
               </div>
-              {/* Extra fields for QD */}
-              <div>
-                <label className="text-xs font-medium text-gray-600">ISBN</label>
-                <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500 mt-1" value={pcdiData.isbn} onChange={e => setPcdiData({ ...pcdiData, isbn: e.target.value })} placeholder="VD: 978-604-0-12345-6" />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-600">Ngôn ngữ</label>
-                <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500 mt-1" value={pcdiData.ngonNgu} onChange={e => setPcdiData({ ...pcdiData, ngonNgu: e.target.value })} placeholder="VD: Tiếng Việt" />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-600">Khuôn khổ</label>
-                <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500 mt-1" value={pcdiData.khuonKho} onChange={e => setPcdiData({ ...pcdiData, khuonKho: e.target.value })} placeholder="VD: 17x24" />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-600">Số trang của XB phẩm in</label>
-                <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500 mt-1" value={pcdiData.soTrangCuaXuatBanPhamIn} onChange={e => setPcdiData({ ...pcdiData, soTrangCuaXuatBanPhamIn: e.target.value })} />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-600">Đối tác liên kết XB</label>
-                <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500 mt-1" value={pcdiData.doiTacLienKet} onChange={e => setPcdiData({ ...pcdiData, doiTacLienKet: e.target.value })} />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-600">Tên biên tập viên</label>
-                <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500 mt-1" value={pcdiData.tenBienTapVien} onChange={e => setPcdiData({ ...pcdiData, tenBienTapVien: e.target.value })} />
-              </div>
               <div className="col-span-2">
                 <label className="text-xs font-medium text-gray-600">Ghi chú</label>
                 <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500 mt-1" value={pcdiData.ghiChu} onChange={e => setPcdiData({ ...pcdiData, ghiChu: e.target.value })} />
               </div>
             </div>
 
-            <div className="flex gap-2 mt-4">
-              {gdnApproved ? (
-                <button onClick={handleCreateOrUpdatePCDI} disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm disabled:opacity-50">
-                  {saving ? '...' : pcdi ? 'Cập nhật' : 'Tạo Phiếu'}
-                </button>
-              ) : (
-                <span className="px-4 py-2 bg-gray-100 text-gray-400 rounded-lg text-sm cursor-not-allowed">🔒 Cần duyệt GDN trước</span>
+            <div className="flex gap-2 mt-4 flex-wrap">
+              <button onClick={handleCreateOrUpdatePCDI} disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm disabled:opacity-50">
+                {saving ? '...' : pcdi ? 'Cập nhật Phiếu chỉ định' : 'Tạo Phiếu chỉ định'}
+              </button>
+
+              {!pcdiApproved && pcdi && (
+                <>
+                  {pcdiPendingReview ? (
+                    <div className="flex items-center gap-2">
+                      <span className="px-3 py-1.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-lg text-sm">
+                        ⏳ Chờ duyệt bởi: <strong>{pcdi.reviewer?.name || '—'}</strong>
+                      </span>
+                      {pcdi.reviewComment && (
+                        <span className="text-xs text-gray-500 italic">"{pcdi.reviewComment}"</span>
+                      )}
+                      {user && pcdi.reviewerId === user.id && (
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleApprove('pcdi')}
+                            disabled={saving}
+                            className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 text-xs font-semibold"
+                          >
+                            ✅ Duyệt PCDI
+                          </button>
+                          <button
+                            onClick={() => {
+                              setReworkModalType('pcdi');
+                              setReworkComment('');
+                              setShowReworkModal(true);
+                            }}
+                            disabled={saving}
+                            className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 text-xs font-semibold"
+                          >
+                            🔁 Yêu cầu sửa lại PCDI
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ) : pcdiRework ? (
+                    <div className="flex items-center gap-2">
+                      <span className="px-3 py-1.5 bg-red-50 text-red-700 border border-red-200 rounded-lg text-sm">
+                        🔁 Cần sửa lại: <em>{pcdi.reviewComment || '—'}</em>
+                      </span>
+                      <button
+                        onClick={() => {
+                          setReviewerModalType('pcdi');
+                          setSelectedReviewer('');
+                          setShowReviewerModal(true);
+                        }}
+                        disabled={saving}
+                        className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm disabled:opacity-50"
+                      >
+                        Gửi duyệt lại
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setReviewerModalType('pcdi');
+                        setSelectedReviewer('');
+                        setShowReviewerModal(true);
+                      }}
+                      disabled={saving}
+                      className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm disabled:opacity-50"
+                    >
+                      📤 Trình duyệt PCDI
+                    </button>
+                  )}
+                </>
               )}
-              {!pcdiApproved && pcdi && gdnApproved && (() => {
-                const canApprove = user && ['ADMIN', 'HEAD_OF_DEPARTMENT', 'DIRECTOR'].includes(user.role);
-                return canApprove ? (
-                  <button onClick={handleApprovePCDI} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm">
-                    ✅ Duyệt Phiếu
-                  </button>
-                ) : (
-                  <button disabled className="px-4 py-2 bg-green-200 text-green-500 rounded-lg text-sm cursor-not-allowed"
-                    title="Chỉ Trưởng phòng hoặc Giám đốc mới được duyệt PCDI">
-                    ✅ Duyệt Phiếu
-                  </button>
-                );
-              })()}
             </div>
           </div>
+
+          {/* Unified Submission Section */}
+          {gdn && pcdi && (gdn.status !== 'APPROVED' || pcdi.status !== 'APPROVED') && (
+            <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-5 flex items-center justify-between">
+              <div>
+                <h3 className="font-semibold text-indigo-900 text-sm">📤 Trình duyệt cả 2 (GDN & PCDI)</h3>
+                <p className="text-xs text-indigo-700 mt-1">
+                  Gửi đồng thời cả Giấy đề nghị in (GDN) và Phiếu chỉ định cơ sở in (PCDI) cho cùng một người duyệt.
+                </p>
+                <div className="flex gap-4 mt-2 text-xs">
+                  <span className={`font-medium ${gdn.status === 'APPROVED' ? 'text-green-600' : gdn.status === 'PENDING_REVIEW' ? 'text-amber-600' : 'text-gray-500'}`}>
+                    GDN: {gdn.status === 'APPROVED' ? 'Đã duyệt' : gdn.status === 'PENDING_REVIEW' ? 'Chờ duyệt' : gdn.status === 'REWORK' ? 'Cần sửa lại' : 'Nháp'}
+                  </span>
+                  <span className={`font-medium ${pcdi.status === 'APPROVED' ? 'text-green-600' : pcdi.status === 'PENDING_REVIEW' ? 'text-amber-600' : 'text-gray-500'}`}>
+                    PCDI: {pcdi.status === 'APPROVED' ? 'Đã duyệt' : pcdi.status === 'PENDING_REVIEW' ? 'Chờ duyệt' : pcdi.status === 'REWORK' ? 'Cần sửa lại' : 'Nháp'}
+                  </span>
+                </div>
+              </div>
+              
+              <div className="flex gap-2 items-center">
+                {(gdn.status === 'DRAFT' || gdn.status === 'REWORK' || pcdi.status === 'DRAFT' || pcdi.status === 'REWORK') ? (
+                  <button
+                    onClick={() => {
+                      if (totalSL === 0) { toast.error('Cần phân công và điền SL trước khi trình duyệt GDN'); return; }
+                      setReviewerModalType('gdn_pcdi');
+                      setSelectedReviewer('');
+                      setShowReviewerModal(true);
+                    }}
+                    disabled={saving}
+                    className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium disabled:opacity-50"
+                  >
+                    Gửi duyệt cả 2
+                  </button>
+                ) : (
+                  (gdn.status === 'PENDING_REVIEW' || pcdi.status === 'PENDING_REVIEW') && (
+                    <span className="text-xs text-amber-700 bg-amber-100 border border-amber-200 rounded px-2.5 py-1 font-medium">
+                      ⏳ Đang chờ duyệt
+                    </span>
+                  )
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -919,24 +1070,6 @@ function DatSachDetailPageInner() {
                 <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500 mt-1" value={qdData.soQuyetDinh} onChange={e => setQdData({ ...qdData, soQuyetDinh: e.target.value })} placeholder="VD: 01/QĐ-NXBCTQGST" />
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-600">Địa danh</label>
-                <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500 mt-1" value={qdData.diaDanh} onChange={e => setQdData({ ...qdData, diaDanh: e.target.value })} placeholder="Hà Nội" />
-              </div>
-              <div className="flex gap-2">
-                <div className="flex-1">
-                  <label className="text-xs font-medium text-gray-600">Ngày</label>
-                  <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500 mt-1" value={qdData.ngayBanHanh} onChange={e => setQdData({ ...qdData, ngayBanHanh: e.target.value })} placeholder="VD: 15" />
-                </div>
-                <div className="flex-1">
-                  <label className="text-xs font-medium text-gray-600">Tháng</label>
-                  <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500 mt-1" value={qdData.thangBanHanh} onChange={e => setQdData({ ...qdData, thangBanHanh: e.target.value })} placeholder="VD: 06" />
-                </div>
-                <div className="flex-1">
-                  <label className="text-xs font-medium text-gray-600">Năm</label>
-                  <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500 mt-1" value={qdData.namBanHanh} onChange={e => setQdData({ ...qdData, namBanHanh: e.target.value })} placeholder="VD: 2026" />
-                </div>
-              </div>
-              <div>
                 <label className="text-xs font-medium text-gray-600">Cơ quan phê duyệt</label>
                 <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500 mt-1" value={qdData.coQuanPheDuyet} onChange={e => setQdData({ ...qdData, coQuanPheDuyet: e.target.value })} placeholder="Nhà xuất bản Chính trị Quốc gia Sự thật" />
               </div>
@@ -956,6 +1089,43 @@ function DatSachDetailPageInner() {
                 <label className="text-xs font-medium text-gray-600">Tên dự án</label>
                 <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500 mt-1" value={qdData.tenDuAn} onChange={e => setQdData({ ...qdData, tenDuAn: e.target.value })} />
               </div>
+              {/* Fields linked from GDN & PCDI for QD template */}
+              <div>
+                <label className="text-xs font-medium text-gray-600">Tác giả</label>
+                <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500 mt-1" value={qdData.tacGia} onChange={e => setQdData({ ...qdData, tacGia: e.target.value })} />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600">ISBN</label>
+                <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500 mt-1" value={qdData.isbn} onChange={e => setQdData({ ...qdData, isbn: e.target.value })} placeholder="VD: 978-604-0-12345-6" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600">Ngôn ngữ</label>
+                <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500 mt-1" value={qdData.ngonNgu} onChange={e => setQdData({ ...qdData, ngonNgu: e.target.value })} placeholder="VD: Tiếng Việt" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600">Khuôn khổ</label>
+                <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500 mt-1" value={qdData.khuonKho} onChange={e => setQdData({ ...qdData, khuonKho: e.target.value })} placeholder="VD: 17x24" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600">Số trang của XB phẩm in</label>
+                <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500 mt-1" value={qdData.soTrangCuaXuatBanPhamIn} onChange={e => setQdData({ ...qdData, soTrangCuaXuatBanPhamIn: e.target.value })} />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600">Đối tác liên kết XB</label>
+                <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500 mt-1" value={qdData.doiTacLienKet} onChange={e => setQdData({ ...qdData, doiTacLienKet: e.target.value })} />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600">Tên biên tập viên</label>
+                <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500 mt-1" value={qdData.tenBienTapVien} onChange={e => setQdData({ ...qdData, tenBienTapVien: e.target.value })} />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600">Cơ sở in</label>
+                <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500 mt-1" value={qdData.coSoIn} onChange={e => setQdData({ ...qdData, coSoIn: e.target.value })} />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600">Số lượng in</label>
+                <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500 mt-1" value={qdData.soLuongIn} onChange={e => setQdData({ ...qdData, soLuongIn: e.target.value })} />
+              </div>
               <div className="col-span-2">
                 <label className="text-xs font-medium text-gray-600">Ghi chú</label>
                 <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500 mt-1" value={qdData.ghiChu} onChange={e => setQdData({ ...qdData, ghiChu: e.target.value })} />
@@ -965,11 +1135,11 @@ function DatSachDetailPageInner() {
             <div className="mt-4 p-3 bg-gray-50 rounded-lg border">
               <p className="text-xs font-semibold text-gray-600 mb-2">📋 Trạng thái luồng:</p>
               <div className="flex gap-4 text-xs">
-                <span className={gdnApproved ? 'text-green-600' : 'text-gray-400'}>
-                  {gdnApproved ? '✅' : '⏳'} GDN
+                <span className={gdn?.status === 'APPROVED' ? 'text-green-600' : gdn?.status === 'PENDING_REVIEW' ? 'text-amber-600' : gdn?.status === 'REWORK' ? 'text-red-600' : 'text-gray-400'}>
+                  {gdn?.status === 'APPROVED' ? '✅' : gdn?.status === 'PENDING_REVIEW' ? '📤' : gdn?.status === 'REWORK' ? '🔁' : '⏳'} GDN
                 </span>
-                <span className={pcdiApproved ? 'text-green-600' : 'text-gray-400'}>
-                  {pcdiApproved ? '✅' : '⏳'} PCDI
+                <span className={pcdi?.status === 'APPROVED' ? 'text-green-600' : pcdi?.status === 'PENDING_REVIEW' ? 'text-amber-600' : pcdi?.status === 'REWORK' ? 'text-red-600' : 'text-gray-400'}>
+                  {pcdi?.status === 'APPROVED' ? '✅' : pcdi?.status === 'PENDING_REVIEW' ? '📤' : pcdi?.status === 'REWORK' ? '🔁' : '⏳'} PCDI
                 </span>
                 <span className={projectCompleted ? 'text-green-600' : 'text-gray-400'}>
                   {projectCompleted ? '✅' : '⏳'} QĐ
@@ -977,31 +1147,165 @@ function DatSachDetailPageInner() {
               </div>
             </div>
 
-            <div className="flex gap-2 mt-4">
-              {gdnApproved && pcdiApproved ? (
+            <div className="flex gap-2 mt-4 flex-wrap">
+              <button onClick={handleCreateOrUpdateQD} disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm disabled:opacity-50">
+                {saving ? '...' : 'Lưu thông tin QĐ'}
+              </button>
+
+              {/* Review workflow for QĐ */}
+              {gdnApproved && pcdiApproved && (
                 <>
-                  <button onClick={handleCreateOrUpdateQD} disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm disabled:opacity-50">
-                    {saving ? '...' : 'Lưu thông tin QĐ'}
-                  </button>
-                  {!projectCompleted && (() => {
-                    const canApprove = user && ['ADMIN', 'HEAD_OF_DEPARTMENT', 'DIRECTOR'].includes(user.role);
-                    return canApprove ? (
-                      <button onClick={handleApproveQD} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm">
-                        ✅ Duyệt & Hoàn thành Đặt sách
-                      </button>
-                    ) : (
-                      <button disabled className="px-4 py-2 bg-green-200 text-green-500 rounded-lg text-sm cursor-not-allowed"
-                        title="Chỉ Trưởng phòng hoặc Giám đốc mới được duyệt QĐ">
-                        ✅ Duyệt & Hoàn thành Đặt sách
-                      </button>
-                    );
-                  })()}
+                  {projectCompleted ? (
+                    <span className="px-3 py-1.5 bg-green-50 text-green-700 border border-green-200 rounded-lg text-sm font-medium">
+                      ✅ Hoàn thành bởi: {project.reviewer?.name || '—'}
+                    </span>
+                  ) : qdPendingReview ? (
+                    <div className="flex items-center gap-2">
+                      <span className="px-3 py-1.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-lg text-sm">
+                        ⏳ Chờ duyệt bởi: <strong>{project.reviewer?.name || '—'}</strong>
+                      </span>
+                      {project.reviewComment && (
+                        <span className="text-xs text-gray-500 italic">"{project.reviewComment}"</span>
+                      )}
+                      {user && project.reviewerId === user.id && (
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleApprove('qd')}
+                            disabled={saving}
+                            className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 text-xs font-semibold"
+                          >
+                            ✅ Duyệt QĐ
+                          </button>
+                          <button
+                            onClick={() => {
+                              setReworkModalType('qd');
+                              setReworkComment('');
+                              setShowReworkModal(true);
+                            }}
+                            disabled={saving}
+                            className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 text-xs font-semibold"
+                          >
+                            🔁 Yêu cầu sửa lại QĐ
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ) : project.reviewStatus === 'REWORK' ? (
+                    <span className="px-3 py-1.5 bg-red-50 text-red-700 border border-red-200 rounded-lg text-sm">
+                      🔁 Cần sửa lại: <em>{project.reviewComment || '—'}</em>
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setReviewerModalType('qd');
+                        setSelectedReviewer('');
+                        setShowReviewerModal(true);
+                      }}
+                      disabled={saving}
+                      className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm disabled:opacity-50"
+                    >
+                      📤 Trình duyệt QĐ
+                    </button>
+                  )}
                 </>
-              ) : (
-                <span className="px-4 py-2 bg-gray-100 text-gray-400 rounded-lg text-sm">
-                  🔒 Cần duyệt GDN và PCDI trước
-                </span>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Reviewer Selection Modal ─── */}
+      {showReviewerModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setShowReviewerModal(false)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold mb-2">📤 Trình duyệt {reviewerModalType === 'gdn' ? 'GDN' : reviewerModalType === 'pcdi' ? 'PCDI' : reviewerModalType === 'gdn_pcdi' ? 'GDN & PCDI' : 'QĐ'}</h3>
+            <p className="text-sm text-gray-500 mb-4">
+              Chọn người phê duyệt (Trưởng phòng hoặc Giám đốc):
+            </p>
+            <select
+              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm mb-4 focus:ring-2 focus:ring-indigo-500 outline-none"
+              value={selectedReviewer}
+              onChange={e => setSelectedReviewer(e.target.value)}
+            >
+              <option value="">-- Chọn người duyệt --</option>
+              {users.filter(u => ['ADMIN', 'HEAD_OF_DEPARTMENT', 'DIRECTOR'].includes(u.role)).map(u => (
+                <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
+              ))}
+            </select>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setShowReviewerModal(false)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200">Hủy</button>
+              <button
+                onClick={async () => {
+                  if (!selectedReviewer) { toast.error('Chọn người duyệt'); return; }
+                  setSaving(true);
+                  try {
+                    if (reviewerModalType === 'gdn') {
+                      await api.submitGDNForReview(gdn!.id, selectedReviewer);
+                    } else if (reviewerModalType === 'pcdi') {
+                      await api.submitPCDIForReview(pcdi!.id, selectedReviewer);
+                    } else if (reviewerModalType === 'gdn_pcdi') {
+                      if (gdn && (gdn.status === 'DRAFT' || gdn.status === 'REWORK')) {
+                        await api.submitGDNForReview(gdn.id, selectedReviewer);
+                      }
+                      if (pcdi && (pcdi.status === 'DRAFT' || pcdi.status === 'REWORK')) {
+                        await api.submitPCDIForReview(pcdi.id, selectedReviewer);
+                      }
+                    } else {
+                      await api.submitQDForReview(projectId, selectedReviewer);
+                    }
+                    toast.success('Đã gửi trình duyệt!');
+                    setShowReviewerModal(false);
+                    fetchProject(true);
+                  } catch (err: any) { toast.error(err.message); }
+                  finally { setSaving(false); }
+                }}
+                disabled={!selectedReviewer || saving}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm disabled:opacity-50"
+              >
+                {saving ? '...' : '📤 Gửi duyệt'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Rework Comment Modal ─── */}
+      {showReworkModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setShowReworkModal(false)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold mb-2 text-red-700">🔁 Yêu cầu làm lại</h3>
+            <p className="text-sm text-gray-500 mb-3">
+              Nhập lý do yêu cầu làm lại {reworkModalType === 'gdn' ? 'GDN' : reworkModalType === 'pcdi' ? 'PCDI' : 'QĐ'}:
+            </p>
+            <textarea
+              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm mb-4 focus:ring-2 focus:ring-red-500 outline-none resize-none"
+              rows={4}
+              value={reworkComment}
+              onChange={e => setReworkComment(e.target.value)}
+              placeholder="VD: Số lượng chưa chính xác, thông tin cần bổ sung..."
+            />
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => { setShowReworkModal(false); setReworkComment(''); }} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200">Hủy</button>
+              <button
+                onClick={async () => {
+                  if (!reworkComment.trim()) { toast.error('Nhập lý do'); return; }
+                  setSaving(true);
+                  try {
+                    if (reworkModalType === 'gdn') await api.reworkGDN(gdn!.id, reworkComment);
+                    else if (reworkModalType === 'pcdi') await api.reworkPCDI(pcdi!.id, reworkComment);
+                    else await api.reworkQD(projectId, reworkComment);
+                    toast.success('Đã gửi yêu cầu làm lại!');
+                    setShowReworkModal(false);
+                    setReworkComment('');
+                    fetchProject(true);
+                  } catch (err: any) { toast.error(err.message); }
+                  finally { setSaving(false); }
+                }}
+                disabled={!reworkComment.trim() || saving}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm disabled:opacity-50"
+              >
+                {saving ? '...' : '🔁 Gửi làm lại'}
+              </button>
             </div>
           </div>
         </div>
@@ -1019,8 +1323,15 @@ function DatSachDetailPageInner() {
                   <div className="animate-spin h-6 w-6 border-2 border-blue-500 border-t-transparent rounded-full" />
                   <span className="ml-2 text-sm text-gray-500">Đang tải danh sách...</span>
                 </div>
-              ) : users.filter(u => u.role !== 'ADMIN').length === 0 ? (
-                <p className="text-gray-400 text-sm text-center py-4">Không có user nào để phân công.</p>
+              ) : users.length === 0 ? (
+                <div className="text-center py-4">
+                  <p className="text-gray-400 text-sm">Không có user nào để phân công.</p>
+                  <button onClick={() => { setLoadingUsers(true); api.getUsers().then(u => { setUsers(u); setLoadingUsers(false); }).catch(() => setLoadingUsers(false)); }}
+                    className="mt-2 text-xs text-blue-600 hover:underline">Thử lại</button>
+                </div>
+              ) : null}
+              {users.filter(u => u.role !== 'ADMIN').length === 0 && users.length > 0 ? (
+                <p className="text-gray-400 text-sm text-center py-4">Không có user (không phải Admin) để phân công.</p>
               ) : null}
               {!loadingUsers && users.filter(u => u.role !== 'ADMIN').map(u => (
                 <label key={u.id} className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors ${selectedUsers.includes(u.id) ? 'bg-blue-50 border border-blue-200' : 'bg-gray-50 hover:bg-gray-100'}`}>
@@ -1069,26 +1380,144 @@ function DatSachDetailPageInner() {
         onClose={() => setShowSaveToLibrary(false)}
         libraryType={saveLibType}
         formData={
-          activeTab === 'gdni' ? { ...gdnData } :
-          activeTab === 'pcdi' ? { ...pcdiData } :
+          saveLibType === 'DAT_SACH_GDN' ? { ...gdnData } :
+          saveLibType === 'DAT_SACH_PCDI' ? { ...pcdiData } :
           { ...qdData }
         }
         formFieldKeys={
-          activeTab === 'gdni' ? Object.keys(gdnData) :
-          activeTab === 'pcdi' ? Object.keys(pcdiData) :
+          saveLibType === 'DAT_SACH_GDN' ? Object.keys(gdnData) :
+          saveLibType === 'DAT_SACH_PCDI' ? Object.keys(pcdiData) :
           Object.keys(qdData)
         }
         onSave={() => {}}
       />
+
+      {/* ─── Lich su quy trinh ─── */}
+      <div className="bg-white rounded-xl p-5 border">
+        <h3 className="font-semibold text-gray-800 mb-4">Lịch sử quy trình</h3>
+        {project && (
+          <div className="space-y-3">
+            {/* GDN History */}
+            {project.gdnDocuments && project.gdnDocuments.length > 0 && (
+              project.gdnDocuments.map((g: any) => (
+                <div key={g.id} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg border">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
+                    g.status === 'APPROVED' ? 'bg-green-100 text-green-700' :
+                    g.status === 'PENDING_REVIEW' ? 'bg-amber-100 text-amber-700' :
+                    g.status === 'REWORK' ? 'bg-red-100 text-red-700' :
+                    'bg-gray-100 text-gray-600'
+                  }`}>
+                    GDN
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800">
+                      Giấy đề nghị in sách
+                    </p>
+                    <p className="text-xs text-gray-400">
+                      Tên sách: {g.data?.tenSach || g.data?.TenSach || '—'} · SL: {(g.assignments || []).reduce((s: number, a: any) => s + (a.soLuong || 0), 0) || 0} cuốn
+                    </p>
+                    <p className="text-xs text-gray-400">
+                      {g.assignments && g.assignments.length > 0 && (
+                        <>Người điền: {g.assignments.map((a: any) => a.user?.name).filter(Boolean).join(', ')}</>
+                      )}
+                    </p>
+                  </div>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${
+                    g.status === 'APPROVED' ? 'bg-green-100 text-green-700' :
+                    g.status === 'PENDING_REVIEW' ? 'bg-amber-100 text-amber-700' :
+                    g.status === 'REWORK' ? 'bg-red-100 text-red-700' :
+                    'bg-gray-100 text-gray-600'
+                  }`}>
+                    {g.status === 'APPROVED' ? 'Đã duyệt' :
+                     g.status === 'PENDING_REVIEW' ? 'Chờ duyệt' :
+                     g.status === 'REWORK' ? 'Cần sửa lại' : 'Nháp'}
+                  </span>
+                  {g.reviewer && (
+                    <span className="text-xs text-gray-400">👤 {g.reviewer.name}</span>
+                  )}
+                </div>
+              ))
+            )}
+
+            {/* PCDI History */}
+            {project.pcdiDocuments && project.pcdiDocuments.length > 0 && (
+              project.pcdiDocuments.map((p: any) => (
+                <div key={p.id} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg border">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
+                    p.status === 'APPROVED' ? 'bg-green-100 text-green-700' :
+                    p.status === 'PENDING_REVIEW' ? 'bg-amber-100 text-amber-700' :
+                    p.status === 'REWORK' ? 'bg-red-100 text-red-700' :
+                    'bg-gray-100 text-gray-600'
+                  }`}>
+                    PCDI
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800">Phiếu chỉ định cơ sở in</p>
+                    <p className="text-xs text-gray-400">
+                      Cơ sở in: {p.data?.coSoIn || p.data?.CoSoIn || '—'} · SL: {p.data?.soLuongIn || p.data?.SoLuongIn || '—'}
+                    </p>
+                  </div>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${
+                    p.status === 'APPROVED' ? 'bg-green-100 text-green-700' :
+                    p.status === 'PENDING_REVIEW' ? 'bg-amber-100 text-amber-700' :
+                    p.status === 'REWORK' ? 'bg-red-100 text-red-700' :
+                    'bg-gray-100 text-gray-600'
+                  }`}>
+                    {p.status === 'APPROVED' ? 'Đã duyệt' :
+                     p.status === 'PENDING_REVIEW' ? 'Chờ duyệt' :
+                     p.status === 'REWORK' ? 'Cần sửa lại' : 'Nháp'}
+                  </span>
+                  {p.reviewer && (
+                    <span className="text-xs text-gray-400">👤 {p.reviewer.name}</span>
+                  )}
+                </div>
+              ))
+            )}
+
+            {/* QD History */}
+            {(project.qdData as any)?.soQuyetDinh && (
+              <div className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg border">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
+                  project.status === 'COMPLETED' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'
+                }`}>
+                  QĐ
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-800">Quyết định đặt sách</p>
+                  <p className="text-xs text-gray-400">
+                    Số QĐ: {(project.qdData as any).soQuyetDinh} · Cơ quan: {(project.qdData as any).coQuanPheDuyet || '—'}
+                  </p>
+                </div>
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${
+                  project.status === 'COMPLETED' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-600'
+                }`}>
+                  {project.status === 'COMPLETED' ? 'Hoàn thành' : 'Đã lưu'}
+                </span>
+              </div>
+            )}
+
+            {/* Empty state */}
+            {(!project.gdnDocuments || project.gdnDocuments.length === 0) &&
+             (!project.pcdiDocuments || project.pcdiDocuments.length === 0) &&
+             !(project.qdData as any)?.soQuyetDinh ? (
+              <div className="text-center py-6 text-gray-400 text-sm">
+                Chưa có quy trình nào được tạo.
+              </div>
+            ) : null}
+          </div>
+        )}
+      </div>
 
     </div>
   );
 }
 
 export default function DatSachDetailPage() {
+  const params = useParams();
   return (
     <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="animate-spin h-8 w-8 border-4 border-green-500 border-t-transparent rounded-full" /></div>}>
-      <DatSachDetailPageInner />
+      <DatSachDetailPageInner key={params.projectId as string} />
     </Suspense>
   );
 }
+

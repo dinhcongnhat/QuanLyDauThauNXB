@@ -18,51 +18,103 @@ declare global {
   }
 }
 
+function getDownloadHandler(type: PreviewType, documentId: string) {
+  switch (type) {
+    case 'gdn': return () => api.downloadGDNDatSach(documentId);
+    case 'pcdi': return () => api.downloadPCDIDatSach(documentId);
+    case 'qd': return () => api.downloadQDQuyetDinhDatSach(documentId);
+    default: return () => Promise.reject(new Error('Không hỗ trợ loại tài liệu này'));
+  }
+}
+
+function getDownloadFilename(type: PreviewType, documentId: string) {
+  const id = documentId.slice(0, 8);
+  switch (type) {
+    case 'gdn': return `GiayDeNghiIn_${id}.docx`;
+    case 'pcdi': return `PhieuChiDinhCoSoIn_${id}.docx`;
+    case 'qd': return `QuyetDinhDatSach_${id}.docx`;
+    default: return `document_${id}.docx`;
+  }
+}
+
+import React from 'react';
+
+const OnlyOfficeContainer = React.memo(({ containerId }: { containerId: string }) => {
+  return <div id={containerId} className="w-full h-full" />;
+}, () => true);
+OnlyOfficeContainer.displayName = 'OnlyOfficeContainer';
+
 export function OnlyOfficePreview({ documentId, onClose, type = 'document' }: Props) {
+  const [mounted, setMounted] = useState(false);
   const editorRef = useRef<any>(null);
-  const containerRef = useRef<string>(`oo-editor-${Date.now()}-${Math.random()}`);
+  const containerId = useRef<string>(`oo-editor-${documentId.slice(0, 8)}-${Date.now()}`);
+  const scriptLoaded = useRef(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-
-  const getConfig = async (docId: string, docType: PreviewType) => {
-    switch (docType) {
-      case 'gdn': return api.getOnlyofficeConfigForGdn(docId);
-      case 'pcdi': return api.getOnlyofficeConfigForPcdi(docId);
-      case 'qd': return api.getOnlyofficeConfigForQD(docId);
-      default: return api.getOnlyofficeConfig(docId);
-    }
-  };
+  const [onlyofficeUrl, setOnlyofficeUrl] = useState('');
+  const [editorConfig, setEditorConfig] = useState<any>(null);
 
   useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
     let destroyed = false;
 
     const init = async () => {
       try {
-        const { onlyofficeUrl, editorConfig } = await getConfig(documentId, type);
+        const config = await (async () => {
+          switch (type) {
+            case 'gdn': return api.getOnlyofficeConfigForGdn(documentId);
+            case 'pcdi': return api.getOnlyofficeConfigForPcdi(documentId);
+            case 'qd': return api.getOnlyofficeConfigForQD(documentId);
+            default: return api.getOnlyofficeConfig(documentId);
+          }
+        })();
 
         if (destroyed) return;
 
-        if (!window.DocsAPI) {
+        setOnlyofficeUrl(config.onlyofficeUrl);
+        setEditorConfig(config.editorConfig);
+
+        // Load OnlyOffice script if not already loaded
+        if (!window.DocsAPI && !scriptLoaded.current) {
+          scriptLoaded.current = true;
           await new Promise<void>((resolve, reject) => {
             const script = document.createElement('script');
-            script.src = `${onlyofficeUrl}/web-apps/apps/api/documents/api.js`;
+            script.src = `${config.onlyofficeUrl}/web-apps/apps/api/documents/api.js`;
             script.onload = () => resolve();
-            script.onerror = () => reject(new Error('Không thể tải OnlyOffice'));
+            script.onerror = (e) => {
+              scriptLoaded.current = false; // allow retry
+              const isBlocked = (e as any)?.target?.src?.startsWith('https://jtsconlyoffice');
+              reject(new Error(
+                isBlocked
+                  ? 'TRÌNH DUYỆT CHẶN Script OnlyOffice. Vui lòng tắt ad-blocker cho domain "https://jtsconlyoffice.duckdns.org" hoặc dùng nút "Tải DOCX" bên dưới để tải file.'
+                  : 'Không thể kết nối đến máy chủ OnlyOffice. Kiểm tra kết nối mạng.'
+              ));
+            };
             document.head.appendChild(script);
           });
         }
 
         if (destroyed) return;
 
-        editorRef.current = new window.DocsAPI.DocEditor(containerRef.current, {
-          ...editorConfig,
-          height: '100%',
-          width: '100%',
-          events: {
-            onAppReady: () => { if (!destroyed) setLoading(false); },
-            onError: (e: any) => { if (!destroyed) setError(e?.data?.message || 'Lỗi OnlyOffice'); },
-          },
-        });
+        if (window.DocsAPI) {
+          editorRef.current = new window.DocsAPI.DocEditor(containerId.current, {
+            ...config.editorConfig,
+            height: '100%',
+            width: '100%',
+            events: {
+              onAppReady: () => { if (!destroyed) setLoading(false); },
+              onError: (e: any) => {
+                if (!destroyed) setError(e?.data?.message || 'Lỗi bất ngờ từ OnlyOffice');
+              },
+            },
+          });
+        } else {
+          setLoading(false);
+        }
       } catch (err: any) {
         if (!destroyed) {
           setError(err.message || 'Lỗi tải cấu hình');
@@ -76,10 +128,28 @@ export function OnlyOfficePreview({ documentId, onClose, type = 'document' }: Pr
     return () => {
       destroyed = true;
       if (editorRef.current?.destroyEditor) {
-        editorRef.current.destroyEditor();
+        try { editorRef.current.destroyEditor(); } catch {}
       }
     };
-  }, [documentId, type]);
+  }, [documentId, type, mounted]);
+
+  const handleDownload = async () => {
+    try {
+      const downloadFn = getDownloadHandler(type, documentId);
+      const res = await downloadFn();
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = getDownloadFilename(type, documentId);
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      console.error('[OnlyOfficePreview] download error', err);
+    }
+  };
+
+  if (!mounted) return null;
 
   return (
     <motion.div
@@ -90,24 +160,60 @@ export function OnlyOfficePreview({ documentId, onClose, type = 'document' }: Pr
     >
       <div className="bg-white rounded-2xl shadow-xl w-[95vw] h-[90vh] flex flex-col overflow-hidden">
         <div className="flex items-center justify-between px-5 py-3 border-b shrink-0">
-          <h3 className="text-lg font-semibold">Xem trước tài liệu</h3>
+          <div className="flex items-center gap-3">
+            <h3 className="text-lg font-semibold">Xem trước tài liệu</h3>
+            {onlyofficeUrl && (
+              <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded">
+                {onlyofficeUrl}
+              </span>
+            )}
+          </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
         </div>
         <div className="flex-1 relative">
-          {loading && (
+          {loading && !error && (
             <div className="absolute inset-0 flex items-center justify-center bg-white z-10">
-              <div className="animate-spin h-8 w-8 border-4 border-primary-500 border-t-transparent rounded-full" />
+              <div className="text-center">
+                <div className="animate-spin h-8 w-8 border-4 border-green-500 border-t-transparent rounded-full mx-auto mb-3" />
+                <p className="text-gray-600 text-sm">Đang tải trình soạn thảo OnlyOffice...</p>
+                <p className="text-gray-400 text-xs mt-1">
+                  Nếu lâu quá, hãy kiểm tra ad-blocker có chặn domain OnlyOffice không.
+                </p>
+              </div>
             </div>
           )}
           {error && (
             <div className="absolute inset-0 flex items-center justify-center bg-white z-10">
-              <div className="text-center">
-                <p className="text-red-500 mb-2">{error}</p>
-                <button onClick={onClose} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm">Đóng</button>
+              <div className="text-center max-w-md px-4">
+                <div className="text-red-500 mb-2 text-4xl">⚠️</div>
+                <p className="text-red-600 font-medium mb-2">Không thể mở tài liệu trong trình duyệt</p>
+                <p className="text-gray-600 text-sm mb-4 whitespace-pre-wrap">{error}</p>
+                <div className="flex gap-2 justify-center">
+                  <button
+                    onClick={handleDownload}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700"
+                  >
+                    📥 Tải DOCX
+                  </button>
+                  <button
+                    onClick={() => { setError(''); setLoading(true); scriptLoaded.current = false; }}
+                    className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200"
+                  >
+                    🔄 Thử lại
+                  </button>
+                  <button
+                    onClick={onClose}
+                    className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200"
+                  >
+                    Đóng
+                  </button>
+                </div>
               </div>
             </div>
           )}
-          <div id={containerRef.current} className="w-full h-full" />
+          <div style={{ display: error ? 'none' : 'block' }} className="w-full h-full">
+            <OnlyOfficeContainer containerId={containerId.current} />
+          </div>
         </div>
       </div>
     </motion.div>

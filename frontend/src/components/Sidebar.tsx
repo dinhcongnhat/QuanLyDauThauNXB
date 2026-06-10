@@ -133,7 +133,7 @@ export function Sidebar({ onOpenNotifications }: SidebarProps) {
 
   useEffect(() => {
     if (!user || user.role === 'ADMIN') return;
-    const canCDT = !!user.isInvestor;
+    const canCDT = !!user.isInvestor || user.role === 'HEAD_OF_DEPARTMENT' || user.role === 'DIRECTOR';
     const canNT = !!user.isContractor;
     if (activeView === 'chu-dau-tu' && !canCDT && canNT) {
       setActiveView('nha-thau');
@@ -169,7 +169,7 @@ export function Sidebar({ onOpenNotifications }: SidebarProps) {
   };
 
   const isAdmin = user.role === 'ADMIN';
-  const canCDT = !!user.isInvestor;
+  const canCDT = !!user.isInvestor || user.role === 'HEAD_OF_DEPARTMENT' || user.role === 'DIRECTOR';
   const canNT = !!user.isContractor;
   const canSwitch = !isAdmin && canCDT && canNT;
   const isCDT = !isAdmin && canCDT && activeView === 'chu-dau-tu';
@@ -288,6 +288,9 @@ export function Sidebar({ onOpenNotifications }: SidebarProps) {
                   <Link href="/dashboard/mua-sam/sach/dat-sach" className={subLinkCls('/dashboard/mua-sam/sach/dat-sach')}>
                     {Icon.book}<span>Đặt sách</span>
                   </Link>
+                  <Link href="/dashboard/mua-sam/sach/dat-sach/pending-reviews" className={subLinkCls('/dashboard/mua-sam/sach/dat-sach/pending-reviews')}>
+                    {Icon.stamp}<span>Phê duyệt</span>
+                  </Link>
                   <Link href="/dashboard/mua-sam/sach/du-toan" className={subLinkCls('/dashboard/mua-sam/sach/du-toan')}>
                     {Icon.docText}<span>Phê duyệt Dự toán</span>
                   </Link>
@@ -366,7 +369,7 @@ export function Sidebar({ onOpenNotifications }: SidebarProps) {
 
         <div className="flex items-center gap-3 px-4 py-3">
           <div className="w-9 h-9 rounded-full bg-red-100 flex items-center justify-center text-red-700 font-bold text-sm shrink-0">
-            {user.name.charAt(0)}
+            {user.name?.charAt(0) ?? '?'}
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-gray-900 truncate">{user.name}</p>

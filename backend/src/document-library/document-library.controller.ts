@@ -58,7 +58,7 @@ class UpdateValueDto {
 }
 
 @Controller('document-library')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard)
 export class DocumentLibraryController {
   constructor(private service: DocumentLibraryService) {}
 
@@ -97,9 +97,9 @@ export class DocumentLibraryController {
     return this.service.findAllLibraries(organizationId);
   }
 
-  @Get('libraries/by-types')
+  @Post('libraries/by-types')
   findLibrariesByTypes(@Body('types') types: LibraryType[]) {
-    return this.service.findLibrariesByTypes(types);
+    return this.service.findLibrariesByTypes(types || []);
   }
 
   @Get('library/:id')

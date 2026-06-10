@@ -64,6 +64,19 @@ enum ProjectStatus {
   CANCELLED
 }
 
+enum GDNStatus {
+  DRAFT
+  PENDING_REVIEW
+  APPROVED
+  REWORK
+}
+
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  REWORK
+}
+
 model Project {
   id              String          @id @default(uuid())
   tenDuAn         String          @map("ten_du_an")
@@ -94,8 +107,16 @@ model DatSachProject {
   createdAt       DateTime        @default(now()) @map("created_at")
   updatedAt       DateTime        @updatedAt @map("updated_at")
 
+  // Review workflow
+  reviewerId        String?       @map("reviewer_id")
+  reviewStatus      ReviewStatus? @map("review_status")
+  reviewComment     String?       @map("review_comment")
+  reviewedAt        DateTime?    @map("reviewed_at")
+  reviewHistory     Json          @default("[]") @map("review_history")
+
   project        Project?     @relation("ProjectDatSachProjects", fields: [projectId], references: [id])
   creator        User         @relation("DatSachProjectCreator", fields: [createdBy], references: [id])
+  reviewer       User?       @relation("DatSachProjectReviewer", fields: [reviewerId], references: [id])
   gdnDocuments   GDNInSach[] @relation("DatSachProjectGdn")
   pcdiDocuments  PCDICoSoIn[] @relation("DatSachProjectPcdi")
 
@@ -105,14 +126,23 @@ model DatSachProject {
 model GDNInSach {
   id                String          @id @default(uuid())
   datSachProjectId  String          @map("dat_sach_project_id")
-  status            String          @default("DRAFT")
+  status            GDNStatus       @default(DRAFT)
   data              Json            @default("{}")
   createdBy         String          @map("created_by")
   createdAt        DateTime        @default(now()) @map("created_at")
   updatedAt        DateTime        @updatedAt @map("updated_at")
 
+  // Review workflow
+  reviewerId        String?         @map("reviewer_id")
+  reviewStatus      ReviewStatus?   @map("review_status")
+  reviewComment     String?         @map("review_comment")
+  reviewedAt        DateTime?       @map("reviewed_at")
+  reviewHistory     Json            @default("[]") @map("review_history")
+  docxPath         String?         @map("docx_path")
+
   datSachProject DatSachProject @relation("DatSachProjectGdn", fields: [datSachProjectId], references: [id])
   creator        User           @relation("GDNInSachCreator", fields: [createdBy], references: [id])
+  reviewer       User?          @relation("GDNInSachReviewer", fields: [reviewerId], references: [id])
   assignments    GDNAssignment[] @relation("GDNInSachAssignments")
 
   @@map("gdn_in_sach")
@@ -138,14 +168,23 @@ model GDNAssignment {
 model PCDICoSoIn {
   id                String          @id @default(uuid())
   datSachProjectId  String          @map("dat_sach_project_id")
-  status            String          @default("DRAFT")
+  status            GDNStatus       @default(DRAFT)
   data              Json            @default("{}")
   createdBy         String          @map("created_by")
   createdAt        DateTime        @default(now()) @map("created_at")
   updatedAt        DateTime        @updatedAt @map("updated_at")
 
+  // Review workflow
+  reviewerId        String?         @map("reviewer_id")
+  reviewStatus      ReviewStatus?   @map("review_status")
+  reviewComment     String?         @map("review_comment")
+  reviewedAt        DateTime?       @map("reviewed_at")
+  reviewHistory     Json            @default("[]") @map("review_history")
+  docxPath         String?         @map("docx_path")
+
   datSachProject DatSachProject @relation("DatSachProjectPcdi", fields: [datSachProjectId], references: [id])
   creator        User           @relation("PCDICoSoInCreator", fields: [createdBy], references: [id])
+  reviewer       User?          @relation("PCDIReviewer", fields: [reviewerId], references: [id])
 
   @@map("pcdi_co_so_in")
 }
@@ -299,8 +338,11 @@ model User {
   gdnDocuments         GDNInSach[]            @relation("GDNInSachCreator")
   gdnAssignments       GDNAssignment[]        @relation("GDNAssignmentUser")
   gdnAssignmentsGiven  GDNAssignment[]        @relation("AssignmentAssignee")
+  gdnReviewer          GDNInSach[]            @relation("GDNInSachReviewer")
   pcdiDocuments        PCDICoSoIn[]           @relation("PCDICoSoInCreator")
+  pcdiReviewer         PCDICoSoIn[]           @relation("PCDIReviewer")
   datSachProjects      DatSachProject[]       @relation("DatSachProjectCreator")
+  datSachReviewer      DatSachProject[]       @relation("DatSachProjectReviewer")
   createdProjects      Project[]              @relation("ProjectCreator")
   notifications        Notification[]
   pushSubscriptions    PushSubscription[]

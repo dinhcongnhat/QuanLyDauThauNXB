@@ -9,6 +9,8 @@ export default function ServiceWorkerRegistration() {
     const token = localStorage.getItem('token');
     if (!token) return;
 
+    let controllerChangeHandler: () => void;
+
     navigator.serviceWorker
       .register('/sw.js')
       .then((registration) => {
@@ -24,12 +26,19 @@ export default function ServiceWorkerRegistration() {
             });
           }
         });
+
+        controllerChangeHandler = () => {
+          window.location.reload();
+        };
+        navigator.serviceWorker.addEventListener('controllerchange', controllerChangeHandler);
       })
       .catch((err) => console.error('SW registration failed:', err));
 
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      window.location.reload();
-    });
+    return () => {
+      if (controllerChangeHandler) {
+        navigator.serviceWorker.removeEventListener('controllerchange', controllerChangeHandler);
+      }
+    };
   }, []);
 
   return null;

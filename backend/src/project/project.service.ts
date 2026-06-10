@@ -104,8 +104,8 @@ export class ProjectService {
       include: {
         datSachProjects: {
           include: {
-            gdnDocuments: { where: { status: 'APPROVED' } },
-            pcdiDocuments: { where: { status: 'APPROVED' } },
+            gdnDocuments: true,
+            pcdiDocuments: true,
           },
         },
         documents: {
@@ -138,9 +138,10 @@ export class ProjectService {
 
     // Step 1: Đặt sách (Thầu Sách only)
     const datSachProjects = project.datSachProjects;
-    const datSachCompleted = datSachProjects.some(p => p.status === 'COMPLETED');
+    // A dat-sach project is completed when its review has been approved (reviewStatus === 'APPROVED')
+    const datSachCompleted = datSachProjects.some(p => p.reviewStatus === 'APPROVED');
     const datSachProgress = datSachProjects.length > 0
-      ? Math.round((datSachProjects.filter(p => p.status === 'COMPLETED').length / datSachProjects.length) * 100)
+      ? Math.round((datSachProjects.filter(p => p.reviewStatus === 'APPROVED').length / datSachProjects.length) * 100)
       : 0;
 
     // Step 2: Phê duyệt Dự toán
@@ -195,7 +196,7 @@ export class ProjectService {
         label: 'Đặt sách',
         status: datSachCompleted ? 'COMPLETED' : datSachProjects.length > 0 ? 'IN_PROGRESS' : 'NOT_STARTED',
         progress: datSachProgress,
-        count: datSachProjects.filter(p => p.status === 'COMPLETED').length,
+        count: datSachProjects.filter(p => p.reviewStatus === 'APPROVED').length,
         total: datSachProjects.length,
       });
     }
@@ -250,6 +251,7 @@ export class ProjectService {
       totalSteps: steps.length,
       completedSteps,
       steps,
+      datSachProjects,
       stats: {
         totalDocuments: project.documents.length,
         totalGoiThau: lcntProcesses.length,
