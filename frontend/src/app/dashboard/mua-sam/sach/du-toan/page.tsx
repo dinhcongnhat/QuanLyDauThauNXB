@@ -10,6 +10,8 @@ import { vi } from 'date-fns/locale';
 import { useSearchParams } from 'next/navigation';
 import { LibraryPicker, SaveToLibraryModal } from '@/components/LibraryPicker';
 import { SavedValue } from '@/lib/document-library-types';
+import { HistoryModal } from '@/components/HistoryModal';
+import { OnlyOfficePreview } from '@/components/OnlyOfficePreview';
 
 const PROJ_TYPE = 'THAU_SACH';
 
@@ -49,6 +51,7 @@ function SachDuToanPageInner() {
   const [datSachCompleted, setDatSachCompleted] = useState(false);
   const [saveTTOpen, setSaveTTOpen] = useState(false);
   const [saveQDOpen, setSaveQDOpen] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
 
   const checkDatSachStatus = useCallback(async (projId: string) => {
     if (!projId) { setDatSachCompleted(false); return; }
@@ -165,6 +168,7 @@ function SachDuToanPageInner() {
 
   const approvedTTs = docs.filter(d => d.type === 'TT_DUTOAN' && d.status === 'APPROVED');
   const hasApprovedTT = approvedTTs.length > 0;
+  const hasQD = docs.some(d => d.type === 'QD_DUTOAN');
 
   const handleCreateTT = async () => {
     if (!selectedDirector) { toast.error('Chọn người duyệt'); return; }
@@ -190,6 +194,22 @@ function SachDuToanPageInner() {
       fetchData();
     } catch (err: any) { toast.error(err.message); }
     finally { setSubmitting(false); }
+  };
+
+  const handleDownloadDocx = async (docId: string) => {
+    try {
+      const res = await api.downloadDocument(docId);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `DuToan_${docId.slice(0, 8)}.docx`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success('Tải file thành công!');
+    } catch (err: any) {
+      toast.error(err.message || 'Lỗi khi tải file');
+    }
   };
 
   const handleApprove = async (id: string) => {
@@ -220,21 +240,32 @@ function SachDuToanPageInner() {
           <h1 className="text-2xl font-bold text-gray-900">Phê duyệt dự toán</h1>
           <p className="text-gray-500 mt-1 text-sm">Thầu Sách — Dữ liệu từ GDN + PCDI sẽ được auto-fill</p>
         </div>
-        {!datSachCompleted && (
-          <div className="flex items-center gap-2 text-xs px-3 py-1.5 bg-orange-50 border border-orange-200 rounded-lg text-orange-700">
-            <span>🔒</span>
-            <span>Hoàn thành <strong>Đặt sách</strong> trước khi làm dự toán</span>
-          </div>
-        )}
-        {canCreate && !showForm && (
-          <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          {selectedProject && (
+            <button
+              onClick={() => setShowHistory(true)}
+              className="px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-sm font-semibold flex items-center gap-1 transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Lịch sử
+            </button>
+          )}
+          {!datSachCompleted && (
+            <div className="flex items-center gap-2 text-xs px-3 py-1.5 bg-orange-50 border border-orange-200 rounded-lg text-orange-700">
+              <span>🔒</span>
+              <span>Hoàn thành <strong>Đặt sách</strong> trước khi làm dự toán</span>
+            </div>
+          )}
+          {canCreate && !showForm && !hasQD && (
             <button onClick={() => setShowForm(true)}
               disabled={!datSachCompleted}
               className="px-4 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium disabled:bg-gray-300 disabled:cursor-not-allowed disabled:text-gray-500">
-              {!datSachCompleted ? '🔒 Tạo Dự toán' : '+ Tạo Dự toán'}
+              {!datSachCompleted ? '🔒 Tạo Dự toán' : hasApprovedTT ? '+ Tạo Quyết định Dự toán' : '+ Tạo Tờ trình Dự toán'}
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       <div className="bg-green-50 rounded-xl p-4 border border-green-100">
@@ -292,13 +323,15 @@ function SachDuToanPageInner() {
       {showForm && (
         <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
           <div className="px-6 py-4 bg-green-50 border-b flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-green-900">Tạo Dự toán</h3>
+            <h3 className="text-lg font-semibold text-green-900">
+              {hasApprovedTT ? 'Tạo Quyết định Dự toán' : 'Tạo Tờ trình Dự toán'}
+            </h3>
             <div className="flex gap-2 items-center">
               <LibraryPicker
                 libraryType="THONG_TIN_TO_CHUC"
-                module="DUTOAN_TT"
-                onSelect={handleLibraryTT}
-                onSaveToLibrary={() => setSaveTTOpen(true)}
+                module={hasApprovedTT ? 'DUTOAN_QD' : 'DUTOAN_TT'}
+                onSelect={hasApprovedTT ? handleLibraryQD : handleLibraryTT}
+                onSaveToLibrary={() => hasApprovedTT ? setSaveQDOpen(true) : setSaveTTOpen(true)}
               />
               {selectedProject && (
                 <button
@@ -313,18 +346,26 @@ function SachDuToanPageInner() {
           </div>
           <div className="p-6 space-y-4">
             <div className="grid grid-cols-2 gap-4">
-              <input className="inp" placeholder="Số tờ trình" value={ttData.SoToTrinh} onChange={e => setTtData({...ttData, SoToTrinh: e.target.value})} />
-              <input className="inp" placeholder="Địa danh" value={ttData.DiaDanh} onChange={e => setTtData({...ttData, DiaDanh: e.target.value})} />
-              <input className="inp" placeholder="Chủ đầu tư" value={ttData.ChuDauTu} onChange={e => setTtData({...ttData, ChuDauTu: e.target.value})} />
-              <input className="inp" placeholder="Tên dự án" value={ttData.TenDuAn} onChange={e => setTtData({...ttData, TenDuAn: e.target.value})} />
-              <input className="inp" placeholder="Tên gói thầu" value={ttData.TenGoiThau} onChange={e => setTtData({...ttData, TenGoiThau: e.target.value})} />
-              <input className="inp" placeholder="Đơn vị trình" value={ttData.DonViTrinh} onChange={e => setTtData({...ttData, DonViTrinh: e.target.value})} />
-              <input className="inp" placeholder="Đơn vị mua sắm" value={ttData.DonViMuaSam} onChange={e => setTtData({...ttData, DonViMuaSam: e.target.value})} />
-              <input className="inp" placeholder="Nguồn vốn" value={ttData.NguonVon} onChange={e => setTtData({...ttData, NguonVon: e.target.value})} />
-              <input className="inp" placeholder="Địa điểm thực hiện" value={ttData.DiaDiemThucHien} onChange={e => setTtData({...ttData, DiaDiemThucHien: e.target.value})} />
-              <input className="inp" placeholder="Thời gian thực hiện" value={ttData.ThoiGianThucHien} onChange={e => setTtData({...ttData, ThoiGianThucHien: e.target.value})} />
-              <input className="inp" placeholder="Dự toán bằng số (auto-fill)" value={ttData.DuToanBangSo} onChange={e => setTtData({...ttData, DuToanBangSo: e.target.value})} style={{backgroundColor: ttData.DuToanBangSo ? '#f0fdf4' : undefined}} />
-              <input className="inp" placeholder="Dự toán bằng chữ" value={ttData.DuToanBangChu} onChange={e => setTtData({...ttData, DuToanBangChu: e.target.value})} />
+              {hasApprovedTT ? (
+                <input className="inp" placeholder="Số quyết định" value={qdData.SoQuyetDinh} onChange={e => setQdData({...qdData, SoQuyetDinh: e.target.value})} />
+              ) : (
+                <input className="inp" placeholder="Số tờ trình" value={ttData.SoToTrinh} onChange={e => setTtData({...ttData, SoToTrinh: e.target.value})} />
+              )}
+              <input className="inp" placeholder="Địa danh" value={hasApprovedTT ? qdData.DiaDanh : ttData.DiaDanh} onChange={e => hasApprovedTT ? setQdData({...qdData, DiaDanh: e.target.value}) : setTtData({...ttData, DiaDanh: e.target.value})} />
+              <input className="inp" placeholder="Chủ đầu tư" value={hasApprovedTT ? qdData.ChuDauTu : ttData.ChuDauTu} onChange={e => hasApprovedTT ? setQdData({...qdData, ChuDauTu: e.target.value}) : setTtData({...ttData, ChuDauTu: e.target.value})} />
+              {!hasApprovedTT && (
+                <input className="inp" placeholder="Tên dự án" value={ttData.TenDuAn} onChange={e => setTtData({...ttData, TenDuAn: e.target.value})} />
+              )}
+              <input className="inp" placeholder="Tên gói thầu" value={hasApprovedTT ? qdData.TenGoiThau : ttData.TenGoiThau} onChange={e => hasApprovedTT ? setQdData({...qdData, TenGoiThau: e.target.value}) : setTtData({...ttData, TenGoiThau: e.target.value})} />
+              {!hasApprovedTT && (
+                <input className="inp" placeholder="Đơn vị trình" value={ttData.DonViTrinh} onChange={e => setTtData({...ttData, DonViTrinh: e.target.value})} />
+              )}
+              <input className="inp" placeholder="Đơn vị mua sắm" value={hasApprovedTT ? qdData.DonViMuaSam : ttData.DonViMuaSam} onChange={e => hasApprovedTT ? setQdData({...qdData, DonViMuaSam: e.target.value}) : setTtData({...ttData, DonViMuaSam: e.target.value})} />
+              <input className="inp" placeholder="Nguồn vốn" value={hasApprovedTT ? qdData.NguonVon : ttData.NguonVon} onChange={e => hasApprovedTT ? setQdData({...qdData, NguonVon: e.target.value}) : setTtData({...ttData, NguonVon: e.target.value})} />
+              <input className="inp" placeholder="Địa điểm thực hiện" value={hasApprovedTT ? qdData.DiaDiemThucHien : ttData.DiaDiemThucHien} onChange={e => hasApprovedTT ? setQdData({...qdData, DiaDiemThucHien: e.target.value}) : setTtData({...ttData, DiaDiemThucHien: e.target.value})} />
+              <input className="inp" placeholder="Thời gian thực hiện" value={hasApprovedTT ? qdData.ThoiGianThucHien : ttData.ThoiGianThucHien} onChange={e => hasApprovedTT ? setQdData({...qdData, ThoiGianThucHien: e.target.value}) : setTtData({...ttData, ThoiGianThucHien: e.target.value})} />
+              <input className="inp" placeholder="Dự toán bằng số (auto-fill)" value={hasApprovedTT ? qdData.DuToanBangSo : ttData.DuToanBangSo} onChange={e => hasApprovedTT ? setQdData({...qdData, DuToanBangSo: e.target.value}) : setTtData({...ttData, DuToanBangSo: e.target.value})} style={{backgroundColor: (hasApprovedTT ? qdData.DuToanBangSo : ttData.DuToanBangSo) ? '#f0fdf4' : undefined}} />
+              <input className="inp" placeholder="Dự toán bằng chữ" value={hasApprovedTT ? qdData.DuToanBangChu : ttData.DuToanBangChu} onChange={e => hasApprovedTT ? setQdData({...qdData, DuToanBangChu: e.target.value}) : setTtData({...ttData, DuToanBangChu: e.target.value})} />
             </div>
             <div>
               <label className="block text-sm font-medium mb-2">Người duyệt</label>
@@ -335,11 +376,11 @@ function SachDuToanPageInner() {
             </div>
             <div className="flex gap-2 justify-end">
               <button onClick={() => setShowForm(false)} className="px-4 py-2 bg-gray-200 rounded-lg text-sm">Hủy</button>
-              <button onClick={() => setSaveTTOpen(true)}
+              <button onClick={() => hasApprovedTT ? setSaveQDOpen(true) : setSaveTTOpen(true)}
                 className="px-4 py-2 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-100 text-sm">
                 Lưu vào thư viện
               </button>
-              <button onClick={handleCreateTT} disabled={submitting}
+              <button onClick={hasApprovedTT ? handleCreateQD : handleCreateTT} disabled={submitting}
                 className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm font-medium">
                 {submitting ? '...' : 'Tạo & Gửi duyệt'}
               </button>
@@ -395,18 +436,22 @@ function SachDuToanPageInner() {
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-500">{format(new Date(doc.createdAt), 'dd/MM/yyyy', { locale: vi })}</td>
                   <td className="px-4 py-3">
-                    {canApprove && doc.status === 'PENDING_DIRECTOR' && (
-                      <>
-                        <button onClick={() => handleApprove(doc.id)} className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 mr-1">✅</button>
-                        <button onClick={() => setRejectingId(doc.id)} className="text-xs px-2 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200">🔄</button>
-                        {rejectingId === doc.id && (
-                          <div className="flex gap-1 mt-1">
-                            <input className="text-xs border rounded px-2 py-1 w-32" placeholder="Lý do..." value={rejectComment} onChange={e => setRejectComment(e.target.value)} />
-                            <button onClick={() => handleReject(doc.id)} className="text-xs px-2 py-1 bg-red-100 text-red-700 rounded">Gửi</button>
-                            <button onClick={() => setRejectingId(null)} className="text-xs px-2 py-1 bg-gray-100 rounded">Hủy</button>
-                          </div>
-                        )}
-                      </>
+                    <div className="flex items-center gap-1.5">
+                      <button onClick={() => setDetailDoc(doc)} className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100">👁 Xem</button>
+                      <button onClick={() => handleDownloadDocx(doc.id)} className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">📥 Tải</button>
+                      {canApprove && doc.status === 'PENDING_DIRECTOR' && (
+                        <>
+                          <button onClick={() => handleApprove(doc.id)} className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200">✅</button>
+                          <button onClick={() => setRejectingId(doc.id)} className="text-xs px-2 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200">🔄</button>
+                        </>
+                      )}
+                    </div>
+                    {rejectingId === doc.id && (
+                      <div className="flex gap-1 mt-1">
+                        <input className="text-xs border rounded px-2 py-1 w-32" placeholder="Lý do..." value={rejectComment} onChange={e => setRejectComment(e.target.value)} />
+                        <button onClick={() => handleReject(doc.id)} className="text-xs px-2 py-1 bg-red-100 text-red-700 rounded">Gửi</button>
+                        <button onClick={() => setRejectingId(null)} className="text-xs px-2 py-1 bg-gray-100 rounded">Hủy</button>
+                      </div>
                     )}
                   </td>
                 </tr>
@@ -444,6 +489,22 @@ function SachDuToanPageInner() {
         formFieldKeys={['SoQuyetDinh', 'DiaDanh', 'ChuDauTu', 'TenGoiThau', 'DonViMuaSam', 'PhongBanThuocDonViTrinh', 'NguonVon', 'DiaDiemThucHien', 'ThoiGianThucHien', 'DuToanBangSo', 'DuToanBangChu']}
         onSave={() => setSaveQDOpen(false)}
       />
+
+      <HistoryModal
+        isOpen={showHistory}
+        onClose={() => setShowHistory(false)}
+        projectId={selectedProject}
+        stepKey="phe_duyet_du_toan"
+        title="Lịch sử Phê duyệt Dự toán"
+      />
+
+      {detailDoc && (
+        <OnlyOfficePreview
+          documentId={detailDoc.id}
+          onClose={() => setDetailDoc(null)}
+          type="document"
+        />
+      )}
     </div>
   );
 }

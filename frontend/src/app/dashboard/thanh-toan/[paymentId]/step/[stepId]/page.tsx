@@ -8,6 +8,7 @@ import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import { SmartFormField, FieldDef } from '@/components/SmartFormField';
 import { GroupedFieldRenderer } from '@/components/GroupedFieldRenderer';
+import { HistoryModal } from '@/components/HistoryModal';
 
 // ====================== FIELD DEFINITIONS ======================
 // Mapped from template placeholders per step, per package type
@@ -686,6 +687,7 @@ export default function PaymentStepPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadGhiChu, setUploadGhiChu] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showHistory, setShowHistory] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -708,17 +710,32 @@ export default function PaymentStepPage() {
 
   // Auto-fill for new steps — also persist to DB so DOCX generation has the data
   useEffect(() => {
-    if (!step || step.status !== 'NOT_STARTED') return;
+    if (!step || step.status === 'COMPLETED') return;
     api.getPaymentAutoFill(stepId).then(async (data) => {
       if (!data || Object.keys(data).length === 0) return;
       setAutoFillData(data);
       setFormData(prev => {
-        const merged = { ...data, ...prev };
+        const merged = { ...prev };
+        for (const [key, val] of Object.entries(data)) {
+          if (!merged[key] || merged[key].trim() === '') {
+            merged[key] = String(val ?? '');
+          }
+        }
         return merged;
       });
       // Persist auto-fill data to DB immediately so it's available for DOCX generation
       try {
-        await api.updatePaymentStep(stepId, data);
+        const keysToUpdate: Record<string, string> = {};
+        for (const [key, val] of Object.entries(data)) {
+          const rawData = (step.data || {}) as Record<string, any>;
+          const rawVal = String(rawData[key] ?? '');
+          if (!rawVal || rawVal.trim() === '') {
+            keysToUpdate[key] = String(val ?? '');
+          }
+        }
+        if (Object.keys(keysToUpdate).length > 0) {
+          await api.updatePaymentStep(stepId, keysToUpdate);
+        }
       } catch { /* ignore - will be saved on explicit save */ }
     }).catch(() => {});
   }, [stepId, step]);
@@ -879,6 +896,17 @@ export default function PaymentStepPage() {
               </span>
             </div>
           </div>
+          {payment.projectId && (
+            <button
+              onClick={() => setShowHistory(true)}
+              className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-sm font-semibold flex items-center gap-1.5 transition-colors border border-indigo-100"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Lịch sử
+            </button>
+          )}
         </div>
       </div>
 
@@ -982,6 +1010,13 @@ export default function PaymentStepPage() {
           </button>
         )}
       </div>
+      <HistoryModal
+        isOpen={showHistory}
+        onClose={() => setShowHistory(false)}
+        projectId={payment.projectId}
+        stepKey="payment"
+        title="Lịch sử Thanh toán"
+      />
     </div>
   );
 }

@@ -133,7 +133,7 @@ export const CHCT_STEP_FIELDS: Record<string, FieldDef[]> = {
   to_trinh_hsmt: [
     { key: 'tendonvicuatochuyengia', label: 'Tên tổ chức, đơn vị' },
     { key: 'MaSoToTrinhPheDuyetHSMT', label: 'Mã số tờ trình phê duyệt HSMT' },
-    { key: 'ĐiaDanh', label: 'Địa danh' },
+    { key: 'DiaDanh', label: 'Địa danh' },
     { key: 'TenGoiThau', label: 'Tên gói thầu' },
     { key: 'TenKeHoachLuaChonNhaThau', label: 'Tên kế hoạch lựa chọn nhà thầu' },
     { key: 'TenDuAn', label: 'Tên dự án/dự toán mua sắm' },
@@ -170,6 +170,7 @@ export const CHCT_STEP_FIELDS: Record<string, FieldDef[]> = {
     { key: 'TenChuyenGia3', label: 'Tên chuyên gia 3' },
   ],
   quyet_dinh_hsmt: [
+    { key: 'TenQuyetDinhPheDuyetHSMT', label: 'Tên quyết định phê duyệt HSMT' },
     { key: 'TenChuDauTu', label: 'Tên chủ đầu tư' },
     { key: 'ChuDauTu', label: 'Chủ đầu tư' },
     { key: 'TenGoiThau', label: 'Tên gói thầu' },

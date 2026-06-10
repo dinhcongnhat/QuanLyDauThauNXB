@@ -41,6 +41,11 @@ export class ProjectController {
     return this.svc.getProjectSummary(id);
   }
 
+  @Get(':id/logs')
+  async getLogs(@Param('id') id: string, @Query('stepKey') stepKey?: string) {
+    return this.svc.getLogs(id, stepKey);
+  }
+
   @Post()
   async create(@Body() dto: CreateProjectDto, @Request() req: any) {
     return this.svc.create(dto.tenDuAn, dto.procurementType, req.user.sub);

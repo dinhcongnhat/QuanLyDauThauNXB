@@ -118,7 +118,6 @@ export function SmartFormField({
 
   // Determine col-span
   const isWide = effectiveType === 'textarea';
-
   const handleMoneyChange = (rawDigits: string) => {
     // Also auto-fill the corresponding "bằng chữ" field
     const wordsKey = field.linkedTo || getMoneyWordsKey(field.key);
@@ -128,6 +127,22 @@ export function SmartFormField({
       return;
     }
   };
+
+  // Auto-update money words value when the numerical field changes
+  useEffect(() => {
+    if (effectiveType === 'money-words' && formData && onFormDataChange) {
+      const numericKey = field.linkedTo || field.key.replace('BangChu', 'BangSo');
+      const numericVal = formData[numericKey] || '';
+      const currentWords = formData[field.key] || '';
+      const computedWords = numericVal ? numberToVietnameseWords(numericVal) : '';
+      if (computedWords !== currentWords) {
+        onFormDataChange({
+          ...formData,
+          [field.key]: computedWords,
+        });
+      }
+    }
+  }, [effectiveType, field.key, field.linkedTo, formData, onFormDataChange]);
 
   return (
     <div className={isWide ? 'md:col-span-2' : ''}>

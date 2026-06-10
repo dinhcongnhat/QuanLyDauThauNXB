@@ -14,10 +14,10 @@
  */
 
 const BASE_URL = process.env.API_BASE_URL || 'http://localhost:4002/api';
-const TEST_EMAIL = 'nhat.var@gmail.com';
-const TEST_PASSWORD = '123456';
-const ADMIN_EMAIL = 'admin@qlda.vn';
-const ADMIN_PASSWORD = 'password123';
+const TEST_EMAIL = process.env.TEST_EMAIL || 'nvana@qlda.vn';
+const TEST_PASSWORD = process.env.TEST_PASSWORD || '10122002';
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'dinhcongnhat.02@gmail.com';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '10122002';
 
 let userToken = '';
 let adminToken = '';
@@ -247,7 +247,7 @@ async function phase5_create_lcnt() {
     qdKhlcntId: qdKhlcntId,
     goiThauIndex: 0,
     projectId,
-  }, userToken);
+  }, adminToken);
   assert('Create LCNT Selection', res.ok, `Status ${res.status}: ${res.data?.message || ''}`);
   lcntId = res.data?.id || '';
   assert('LCNT ID returned', !!lcntId, lcntId.substring(0, 8));
@@ -290,8 +290,8 @@ async function phase6_library_read() {
   const libs = Array.isArray(res.data) ? res.data : [];
   assert('At least 4 libraries', libs.length >= 4, `Found ${libs.length}`);
 
-  const libCdt = libs.find(l => l.loai === 'THONG_TIN_TO_CHUC');
-  const libNt = libs.find(l => l.loai === 'THONG_TIN_NHA_THAU');
+  const libCdt = libs.find(l => l.ten.includes('Chủ đầu tư') || l.loai === 'THONG_TIN_TO_CHUC');
+  const libNt = libs.find(l => l.ten.includes('Nhà thầu') || l.loai === 'THONG_TIN_NHA_THAU');
   assert('CDT library exists', !!libCdt, libCdt?.ten || 'missing');
   assert('NT library exists', !!libNt, libNt?.ten || 'missing');
   libCdtId = libCdt?.id || '';

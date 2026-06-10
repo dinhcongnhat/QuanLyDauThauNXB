@@ -52,7 +52,14 @@ export class MinioService implements OnModuleInit {
   }
 
   async getPresignedUrl(objectName: string, expiry = 3600): Promise<string> {
-    return this.client.presignedGetObject(this.bucket, objectName, expiry);
+    const url = await this.client.presignedGetObject(this.bucket, objectName, expiry);
+    const appUrl = process.env.APP_URL || 'https://demo.jtsc.vn';
+    if (appUrl.startsWith('https://') || appUrl.includes('demo.jtsc.vn')) {
+      const publicUrl = appUrl.replace(/\/$/, '');
+      const urlObj = new URL(url);
+      return `${publicUrl}${urlObj.pathname}${urlObj.search}`;
+    }
+    return url;
   }
 
   async delete(objectName: string): Promise<void> {

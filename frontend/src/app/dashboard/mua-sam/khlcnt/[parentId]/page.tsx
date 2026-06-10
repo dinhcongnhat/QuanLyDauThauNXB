@@ -11,6 +11,7 @@ import { vi } from 'date-fns/locale';
 import { OnlyOfficePreview } from '@/components/OnlyOfficePreview';
 import { LibraryPicker } from '@/components/LibraryPicker';
 import { SavedValue } from '@/lib/document-library-types';
+import { HistoryModal } from '@/components/HistoryModal';
 
 const statusLabels: Record<DocStatus, string> = {
   DRAFT: 'Bản nháp', PENDING_HEAD: 'Chờ Trưởng phòng', PENDING_DIRECTOR: 'Chờ Giám đốc',
@@ -47,6 +48,7 @@ function KHLCNTDetailPageInner() {
   const [selectedApprover, setSelectedApprover] = useState('');
   const [selectedTTRef, setSelectedTTRef] = useState('');
   const [editingDoc, setEditingDoc] = useState<Doc | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
 
   // TT KHLCNT form
   const [ttData, setTtData] = useState({
@@ -246,18 +248,34 @@ function KHLCNTDetailPageInner() {
   if (loading) return <div className="flex items-center justify-center h-64"><div className="animate-spin h-8 w-8 border-4 border-primary-500 border-t-transparent rounded-full" /></div>;
 
   const investors = users.filter(u => u.role === 'INVESTOR');
+  const activeProjectId = projectId || parent?.projectId;
 
   return (
     <div className="space-y-6">
       {/* Parent info */}
       <div className="bg-white rounded-xl p-5 shadow-sm border">
-        <p className="text-xs text-gray-400 mb-1">QĐ dự toán gốc</p>
-        <h1 className="text-xl font-bold text-gray-900">
-          {parent?.data?.soQuyetDinh || 'QĐ dự toán'} – {parent?.data?.tenChuDauTu || ''}
-        </h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Giá trị: {parent?.data?.giaTriDuToanDuyet?.toLocaleString('vi-VN')} đồng
-        </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs text-gray-400 mb-1">QĐ dự toán gốc</p>
+            <h1 className="text-xl font-bold text-gray-900">
+              {parent?.data?.soQuyetDinh || 'QĐ dự toán'} – {parent?.data?.tenChuDauTu || ''}
+            </h1>
+            <p className="text-sm text-gray-500 mt-1">
+              Giá trị: {parent?.data?.giaTriDuToanDuyet?.toLocaleString('vi-VN')} đồng
+            </p>
+          </div>
+          {activeProjectId && (
+            <button
+              onClick={() => setShowHistory(true)}
+              className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Lịch sử
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Action buttons */}
@@ -642,6 +660,14 @@ function KHLCNTDetailPageInner() {
       {previewDocId && (
         <OnlyOfficePreview documentId={previewDocId} onClose={() => setPreviewDocId(null)} />
       )}
+
+      <HistoryModal
+        isOpen={showHistory}
+        onClose={() => setShowHistory(false)}
+        projectId={activeProjectId}
+        stepKey="khlcnt"
+        title="Lịch sử Kế hoạch lựa chọn nhà thầu"
+      />
     </div>
   );
 }

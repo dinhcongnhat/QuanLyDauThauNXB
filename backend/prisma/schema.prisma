@@ -91,6 +91,7 @@ model Project {
   contractorSelections ContractorSelection[] @relation("ProjectContractorSelections")
   payments            Payment[]             @relation("ProjectPayments")
   datSachProjects    DatSachProject[]     @relation("ProjectDatSachProjects")
+  logs               ProjectLog[]         @relation("ProjectLogs")
 
   @@map("projects")
 }
@@ -347,6 +348,7 @@ model User {
   notifications        Notification[]
   pushSubscriptions    PushSubscription[]
   dynamicRoles         UserDynamicRole[]    @relation("UserDynamicRoles")
+  projectLogs          ProjectLog[]         @relation("UserProjectLogs")
 
   @@map("users")
 }
@@ -616,4 +618,20 @@ model BidStep {
 
   @@unique([bidParticipationId, stepKey])
   @@map("bid_steps")
+}
+
+model ProjectLog {
+  id              String      @id @default(uuid())
+  projectId       String      @map("project_id")
+  stepKey         String      @map("step_key")
+  action          String
+  message         String
+  data            Json?       @map("data")
+  userId          String      @map("user_id")
+  createdAt       DateTime    @default(now()) @map("created_at")
+
+  project         Project     @relation("ProjectLogs", fields: [projectId], references: [id], onDelete: Cascade)
+  user            User        @relation("UserProjectLogs", fields: [userId], references: [id])
+
+  @@map("project_logs")
 }

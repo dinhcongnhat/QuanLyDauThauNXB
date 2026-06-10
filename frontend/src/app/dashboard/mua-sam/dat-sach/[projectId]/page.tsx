@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, Suspense, useRef } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
+import { HistoryModal } from '@/components/HistoryModal';
 import { useAuthStore } from '@/lib/store';
 import { User } from '@/lib/types';
 import toast from 'react-hot-toast';
@@ -90,6 +91,7 @@ function DatSachDetailPageInner() {
   const [showReworkModal, setShowReworkModal] = useState(false);
   const [reworkModalType, setReworkModalType] = useState<'gdn' | 'pcdi' | 'qd'>('gdn');
   const [reworkComment, setReworkComment] = useState('');
+  const [showHistory, setShowHistory] = useState(false);
   const datePickerRef = useRef<HTMLInputElement>(null);
 
   // QD form state
@@ -526,6 +528,20 @@ function DatSachDetailPageInner() {
     }
   };
 
+  const handleMarkComplete = async () => {
+    if (!confirm('Bạn có chắc chắn muốn xác nhận hoàn thành quy trình đặt sách này?')) return;
+    setSaving(true);
+    try {
+      await api.markDatSachCompleted(projectId);
+      toast.success('Xác nhận hoàn thành thành công!');
+      fetchProject(true);
+    } catch (err: any) {
+      toast.error(err.message || 'Lỗi khi xác nhận hoàn thành');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-5">
       {/* Project Info */}
@@ -545,15 +561,37 @@ function DatSachDetailPageInner() {
               Người tạo: {project?.creator?.name} &bull; {format(new Date(project?.createdAt), 'dd/MM/yyyy', { locale: vi })}
             </p>
           </div>
-          {projectCompleted && (
-            <div className="text-right">
-              <p className="text-green-600 font-semibold text-sm">Luồng hoàn thành</p>
-              <button onClick={() => window.open(`/dashboard/mua-sam/sach/du-toan?project=${projectId}`, '_self')}
-                className="mt-1 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs hover:bg-blue-700">
-                Tiếp tục &rarr; Dự toán
+          <div className="text-right flex flex-col items-end gap-2">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowHistory(true)}
+                className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Lịch sử
               </button>
+              {!projectCompleted && (
+                <button
+                  onClick={handleMarkComplete}
+                  disabled={saving}
+                  className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors disabled:opacity-50"
+                >
+                  ✅ Xác nhận hoàn thành
+                </button>
+              )}
             </div>
-          )}
+            {projectCompleted && (
+              <div>
+                <p className="text-green-600 font-semibold text-xs mb-1">Luồng hoàn thành</p>
+                <button onClick={() => window.open(`/dashboard/mua-sam/sach/du-toan?project=${project?.projectId}`, '_self')}
+                  className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs hover:bg-blue-700">
+                  Tiếp tục &rarr; Dự toán
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1508,6 +1546,13 @@ function DatSachDetailPageInner() {
         )}
       </div>
 
+      <HistoryModal
+        isOpen={showHistory}
+        onClose={() => setShowHistory(false)}
+        projectId={project?.projectId}
+        stepKey="dat_sach"
+        title="Lịch sử Đặt sách"
+      />
     </div>
   );
 }

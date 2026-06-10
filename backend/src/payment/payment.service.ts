@@ -4,6 +4,7 @@ import { MinioService } from '../minio/minio.service';
 import { ContractPackageType, NotificationType } from '@prisma/client';
 import { NotificationService } from '../notifications/notification.service';
 import { generatePaymentDocx, getPaymentSteps } from './payment-docx-generator';
+import { JwtService } from '@nestjs/jwt';
 
 @Injectable()
 export class PaymentService {
@@ -11,6 +12,7 @@ export class PaymentService {
     private prisma: PrismaService,
     private minio: MinioService,
     private notificationService: NotificationService,
+    private jwtService: JwtService,
   ) {}
 
   // ====================== LIST / GET ======================
@@ -149,7 +151,7 @@ export class PaymentService {
     const payment = await this.prisma.payment.create({
       data: {
         contractorSelectionId,
-        projectId,
+        projectId: projectId || selection.projectId,
         contractPackageType: packageType,
         maSoHD,
         createdBy: userId,
@@ -168,30 +170,51 @@ export class PaymentService {
       },
     });
 
+    if (projectId) {
+      await this.prisma.projectLog.create({
+        data: {
+          projectId,
+          stepKey: 'thanh_toan',
+          action: 'CREATE_PAYMENT',
+          message: `Khởi tạo hồ sơ thanh toán cho gói thầu "${payment.contractorSelection.tenGoiThau}"`,
+          userId,
+        }
+      });
+    }
+
     return payment;
   }
 
   // ====================== UPDATE STEP DATA ======================
 
-  async updateStepData(stepId: string, data: any) {
+  async updateStepData(stepId: string, data: any, userId?: string) {
     const step = await this.prisma.paymentStep.findUnique({ where: { id: stepId } });
     if (!step) throw new NotFoundException('Không tìm thấy bước');
     if (step.status === 'COMPLETED') {
       throw new BadRequestException('Bước đã hoàn thành');
     }
 
-    return this.prisma.paymentStep.update({
+    const existingData = (step.data as any) || {};
+    const updatedData = { ...existingData, ...data };
+
+    const res = await this.prisma.paymentStep.update({
       where: { id: stepId },
       data: {
-        data,
+        data: updatedData,
         status: step.status === 'NOT_STARTED' ? 'IN_PROGRESS' : step.status,
       },
     });
+
+    if (userId) {
+      await this.writeLog(step.paymentId, 'UPDATE_STEP', `Cập nhật dữ liệu bước thanh toán "${step.title}"`, userId);
+    }
+
+    return res;
   }
 
   // ====================== STEP COMPLETION ======================
 
-  async completeStep(stepId: string) {
+  async completeStep(stepId: string, userId?: string) {
     const step = await this.prisma.paymentStep.findUnique({
       where: { id: stepId },
       include: { payment: { include: { contractorSelection: true } } },
@@ -221,19 +244,25 @@ export class PaymentService {
       link: '/dashboard/mua-sam/hop-dong',
     });
 
+    await this.writeLog(step.paymentId, 'COMPLETE_STEP', `Hoàn thành bước thanh toán "${step.title}"`, userId || 'SYSTEM');
+
     return updated;
   }
 
-  async reopenStep(stepId: string) {
+  async reopenStep(stepId: string, userId?: string) {
     const step = await this.prisma.paymentStep.findUnique({ where: { id: stepId } });
     if (!step) throw new NotFoundException('Không tìm thấy bước');
     if (step.status !== 'COMPLETED') {
       throw new BadRequestException('Bước chưa hoàn thành');
     }
-    return this.prisma.paymentStep.update({
+    const res = await this.prisma.paymentStep.update({
       where: { id: stepId },
       data: { status: 'IN_PROGRESS', completedAt: null },
     });
+
+    await this.writeLog(step.paymentId, 'REOPEN_STEP', `Mở lại bước thanh toán "${step.title}"`, userId || 'SYSTEM');
+
+    return res;
   }
 
   // ====================== DOCX ======================
@@ -349,7 +378,7 @@ export class PaymentService {
 
   // ====================== FILE UPLOAD ======================
 
-  async uploadAttachment(stepId: string, file: { buffer: Buffer; originalname: string; mimetype: string }) {
+  async uploadAttachment(stepId: string, file: { buffer: Buffer; originalname: string; mimetype: string }, userId?: string) {
     // File type validation - whitelist only safe document types
     const ALLOWED_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'jpg', 'jpeg', 'png']);
     const ALLOWED_MIME_TYPES = new Set([
@@ -397,10 +426,14 @@ export class PaymentService {
       },
     });
 
+    if (userId) {
+      await this.writeLog(step.payment.id, 'UPLOAD_FILE', `Đính kèm tài liệu "${file.originalname}" vào bước "${step.title}"`, userId);
+    }
+
     return objectName;
   }
 
-  async deleteAttachment(stepId: string, objectPath: string) {
+  async deleteAttachment(stepId: string, objectPath: string, userId?: string) {
     const step = await this.prisma.paymentStep.findUnique({ where: { id: stepId } });
     if (!step) throw new NotFoundException('Không tìm thấy bước');
 
@@ -414,11 +447,21 @@ export class PaymentService {
       data: { data: { ...data, _attachments: attachments } },
     });
 
+    if (userId) {
+      const fileName = objectPath.split('/').pop() || 'tài liệu';
+      await this.writeLog(step.paymentId, 'DELETE_FILE', `Xóa tài liệu đính kèm "${fileName}" khỏi bước "${step.title}"`, userId);
+    }
+
     try { await this.minio.delete(objectPath); } catch { /* ignore */ }
   }
 
   async getFileUrl(objectName: string): Promise<string> {
-    return this.minio.getPresignedUrl(objectName, 7200);
+    const appUrl = process.env.APP_URL || 'https://demo.jtsc.vn';
+    const downloadToken = this.jwtService.sign(
+      { path: objectName, purpose: 'lcnt-download' },
+      { expiresIn: '24h' },
+    );
+    return `${appUrl}/api/contractor-selection/file/download-public?token=${downloadToken}`;
   }
 
   async downloadFile(objectName: string): Promise<Buffer> {
@@ -539,5 +582,28 @@ export class PaymentService {
     });
     if (!step) throw new NotFoundException('Không tìm thấy bước');
     return this.getAutoFillData(step.paymentId, step.stepKey);
+  }
+
+  private async writeLog(paymentId: string, action: string, message: string, userId: string, data?: any) {
+    try {
+      const payment = await this.prisma.payment.findUnique({
+        where: { id: paymentId },
+        select: { projectId: true }
+      });
+      if (payment?.projectId) {
+        await this.prisma.projectLog.create({
+          data: {
+            projectId: payment.projectId,
+            stepKey: 'thanh_toan',
+            action,
+            message,
+            userId,
+            data: data || {},
+          }
+        });
+      }
+    } catch (err) {
+      console.error('Error writing Payment log:', err);
+    }
   }
 }

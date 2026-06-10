@@ -10,6 +10,9 @@ import { vi } from 'date-fns/locale';
 import { SmartFormField, FieldDef } from '@/components/SmartFormField';
 import { getFieldsForStep, ATTACHMENT_ONLY } from '@/lib/lcnt-field-defs';
 import { ZipDownloadModal } from '@/components/ZipDownloadModal';
+import { HistoryModal } from '@/components/HistoryModal';
+import { OnlyOfficeFilePreview } from '@/components/OnlyOfficeFilePreview';
+import { motion } from 'framer-motion';
 
 const METHOD_LABELS: Record<string, string> = {
   CHI_DINH_THAU: 'Chỉ định thầu',
@@ -58,6 +61,7 @@ export default function LCNTProcessDetailPage() {
   const [saving, setSaving] = useState(false);
   const [uploadGhiChu, setUploadGhiChu] = useState('');
   const [contractPackageType, setContractPackageType] = useState<string>('');
+  const [previewPath, setPreviewPath] = useState<string | null>(null);
 
   // Step form data
   const [stepFormData, setStepFormData] = useState<Record<string, string>>({});
@@ -70,6 +74,7 @@ export default function LCNTProcessDetailPage() {
   const [approvers, setApprovers] = useState<any[]>([]);
   const [selectedApproverId, setSelectedApproverId] = useState<string>('');
   const [showZipModal, setShowZipModal] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
 
   const loadSelection = useCallback(async () => {
     try {
@@ -92,7 +97,21 @@ export default function LCNTProcessDetailPage() {
     finally { setLoading(false); }
   }, [selectionId, selectedStepId]);
 
-  useEffect(() => { loadSelection(); }, [loadSelection]);
+  // Load selection only on mount or selectionId change to avoid selectedStepId selection race conditions
+  useEffect(() => {
+    const initLoad = async () => {
+      try {
+        const data = await api.getContractorSelection(selectionId);
+        setSelection(data);
+        if (data.contractPackageType) setContractPackageType(data.contractPackageType);
+      } catch (err: any) {
+        toast.error(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+    initLoad();
+  }, [selectionId]);
 
   // Load approvers
   useEffect(() => {
@@ -118,16 +137,48 @@ export default function LCNTProcessDetailPage() {
     setStepFormData(stringData);
     setAutoFillData({});
 
-    // Load auto-fill for NOT_STARTED steps
-    if (step.status === 'NOT_STARTED') {
+    // Load auto-fill for NOT_STARTED or IN_PROGRESS steps to populate blank fields
+    if (step.status !== 'COMPLETED') {
       try {
         const data = await api.getLCNTAutoFill(step.id);
         if (data && Object.keys(data).length > 0) {
           setAutoFillData(data);
-          setStepFormData(prev => ({ ...data, ...prev }));
-          try { await api.updateLCNTStep(step.id, data); } catch {}
+          
+          const mergedData = { ...stringData };
+          let hasNewUpdates = false;
+          const keysToUpdate: Record<string, string> = {};
+
+          for (const [key, val] of Object.entries(data)) {
+            if (!mergedData[key] || mergedData[key].trim() === '') {
+              const strVal = String(val ?? '');
+              mergedData[key] = strVal;
+              keysToUpdate[key] = strVal;
+              hasNewUpdates = true;
+            }
+          }
+
+          if (hasNewUpdates) {
+            setStepFormData(mergedData);
+            await api.updateLCNTStep(step.id, keysToUpdate);
+            
+            // Reload selection so that selection.steps gets the updated data from DB
+            const updatedSelection = await api.getContractorSelection(selectionId);
+            setSelection(updatedSelection);
+          } else {
+            setStepFormData(prev => {
+              const merged = { ...prev };
+              for (const [key, val] of Object.entries(data)) {
+                if (!merged[key] || merged[key].trim() === '') {
+                  merged[key] = String(val ?? '');
+                }
+              }
+              return merged;
+            });
+          }
         }
-      } catch {}
+      } catch (err) {
+        console.error('Auto-fill error:', err);
+      }
     }
   };
 
@@ -245,6 +296,16 @@ export default function LCNTProcessDetailPage() {
     } catch (err: any) { toast.error(err.message); }
     finally { setUploading(false); }
   };
+  
+  const handleDeleteAttachment = async (path: string) => {
+    if (!selectedStepId) return;
+    if (!confirm('Bạn có chắc chắn muốn xóa file đính kèm này không?')) return;
+    try {
+      await api.deleteLCNTAttachment(selectedStepId, path);
+      toast.success('Đã xóa file đính kèm');
+      await loadSelection();
+    } catch (err: any) { toast.error(err.message); }
+  };
 
   const onFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -253,10 +314,16 @@ export default function LCNTProcessDetailPage() {
   };
 
   const handlePreviewFile = async (objectPath: string) => {
-    try {
-      const { url } = await api.getLCNTFileUrl(objectPath);
-      window.open(url, '_blank');
-    } catch (err: any) { toast.error(err.message); }
+    const ext = objectPath.split('.').pop()?.toLowerCase();
+    const officeExtensions = ['docx', 'doc', 'xlsx', 'xls', 'pptx', 'ppt', 'pdf'];
+    if (ext && officeExtensions.includes(ext)) {
+      setPreviewPath(objectPath);
+    } else {
+      try {
+        const { url } = await api.getLCNTFileUrl(objectPath);
+        window.open(url, '_blank');
+      } catch (err: any) { toast.error(err.message); }
+    }
   };
 
   const getAttachments = (step: ProcurementStep): any[] => {
@@ -303,12 +370,25 @@ export default function LCNTProcessDetailPage() {
             {selection.qdKhlcnt && ` · QĐ: ${((selection.qdKhlcnt.data as any)?.tenDuAn) || ''}`}
           </p>
         </div>
-        {steps.every(s => s.status === 'COMPLETED') && (
-          <button onClick={() => setShowZipModal(true)}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 flex items-center gap-2">
-            📦 Tải toàn bộ file
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {selection.projectId && (
+            <button
+              onClick={() => setShowHistory(true)}
+              className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-sm font-semibold flex items-center gap-1.5 transition-colors border border-indigo-100"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Lịch sử
+            </button>
+          )}
+          {steps.every(s => s.status === 'COMPLETED') && (
+            <button onClick={() => setShowZipModal(true)}
+              className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 flex items-center gap-2">
+              📦 Tải toàn bộ file
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Steps Timeline */}
@@ -393,7 +473,7 @@ export default function LCNTProcessDetailPage() {
                 </div>
               </div>
               <div className="flex gap-2">
-                {canEdit && currentStep.status === 'IN_PROGRESS' && canComplete && (
+                {canEdit && canComplete && (
                   <button onClick={handleComplete}
                     className="text-xs px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700">
                     ✓ Hoàn thành
@@ -535,6 +615,10 @@ export default function LCNTProcessDetailPage() {
                               } catch { toast.error('Lỗi tải file'); }
                             }}
                               className="text-xs px-2.5 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">📥</button>
+                            {canEdit && (
+                              <button onClick={() => handleDeleteAttachment(att.path)}
+                                className="text-xs px-2.5 py-1 bg-red-50 text-red-600 rounded hover:bg-red-100">🗑️ Xóa</button>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -681,6 +765,16 @@ export default function LCNTProcessDetailPage() {
         loadPreview={() => api.getLCNTZipPreview(selectionId)}
         downloadZip={() => api.downloadLCNTZip(selectionId)}
       />
+      <HistoryModal
+        isOpen={showHistory}
+        onClose={() => setShowHistory(false)}
+        projectId={selection.projectId}
+        stepKey="lcnt"
+        title="Lịch sử Lựa chọn nhà thầu"
+      />
+      {previewPath && (
+        <OnlyOfficeFilePreview objectPath={previewPath} onClose={() => setPreviewPath(null)} />
+      )}
     </div>
   );
 }

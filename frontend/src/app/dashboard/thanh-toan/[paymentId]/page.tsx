@@ -8,6 +8,7 @@ import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import { ZipDownloadModal } from '@/components/ZipDownloadModal';
+import { OnlyOfficeFilePreview } from '@/components/OnlyOfficeFilePreview';
 
 const PACKAGE_TYPE_LABELS: Record<string, string> = {
   GOI_THAU_TU_VAN: 'Gói thầu tư vấn',
@@ -47,6 +48,7 @@ export default function PaymentDetailPage() {
   const [uploading, setUploading] = useState(false);
   const [generating, setGenerating] = useState<string | null>(null);
   const [showZipModal, setShowZipModal] = useState(false);
+  const [previewPath, setPreviewPath] = useState<string | null>(null);
 
   const loadPayment = useCallback(async () => {
     try {
@@ -66,6 +68,15 @@ export default function PaymentDetailPage() {
       await loadPayment();
     } catch (err: any) { toast.error(err.message); }
     finally { setUploading(false); }
+  };
+
+  const handleDeleteAttachment = async (stepId: string, path: string) => {
+    if (!confirm('Bạn có chắc chắn muốn xóa file đính kèm này không?')) return;
+    try {
+      await api.deletePaymentAttachment(stepId, path);
+      toast.success('Đã xóa file đính kèm');
+      await loadPayment();
+    } catch (err: any) { toast.error(err.message); }
   };
 
   const handleGenerateDocx = async (stepId: string) => {
@@ -99,10 +110,16 @@ export default function PaymentDetailPage() {
   };
 
   const handlePreviewFile = async (objectPath: string) => {
-    try {
-      const { url } = await api.getPaymentFileUrl(objectPath);
-      window.open(url, '_blank');
-    } catch (err: any) { toast.error(err.message); }
+    const ext = objectPath.split('.').pop()?.toLowerCase();
+    const officeExtensions = ['docx', 'doc', 'xlsx', 'xls', 'pptx', 'ppt', 'pdf'];
+    if (ext && officeExtensions.includes(ext)) {
+      setPreviewPath(objectPath);
+    } else {
+      try {
+        const { url } = await api.getPaymentFileUrl(objectPath);
+        window.open(url, '_blank');
+      } catch (err: any) { toast.error(err.message); }
+    }
   };
 
   const triggerFileUpload = (stepId: string) => {
@@ -203,9 +220,17 @@ export default function PaymentDetailPage() {
 
       {/* Contract Info from LCNT */}
       <div className="bg-white rounded-xl shadow-sm border p-5">
-        <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-          📋 Thông tin hợp đồng lựa chọn nhà thầu
-        </h3>
+        <div className="flex justify-between items-center mb-3">
+          <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+            📋 Thông tin hợp đồng lựa chọn nhà thầu
+          </h3>
+          <Link
+            href={`/dashboard/lua-chon-nha-thau/${payment.contractorSelectionId}`}
+            className="text-xs text-indigo-600 hover:text-indigo-800 font-medium bg-indigo-50 px-2 py-1 rounded transition-colors"
+          >
+            Xem chi tiết LCNT →
+          </Link>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2 text-sm">
           {hopDongFields.tenDuAn && (
             <div className="flex gap-2"><span className="text-gray-500 shrink-0 w-36">Dự án:</span><span className="text-gray-900 font-medium">{hopDongFields.tenDuAn}</span></div>
@@ -363,8 +388,14 @@ export default function PaymentDetailPage() {
                     {attachments.map((att: any, i: number) => (
                       <div key={i} className="bg-gray-50 rounded-lg px-4 py-2 flex items-center justify-between">
                         <span className="text-sm text-gray-600 truncate">{att.fileName}</span>
-                        <button onClick={() => handlePreviewFile(att.path)}
-                          className="text-xs text-blue-600 hover:text-blue-700 font-medium shrink-0 ml-2">Xem</button>
+                        <div className="flex gap-2 shrink-0 ml-2">
+                          <button onClick={() => handlePreviewFile(att.path)}
+                            className="text-xs text-blue-600 hover:text-blue-700 font-medium">Xem</button>
+                          {canWork && (
+                            <button onClick={() => handleDeleteAttachment(step.id, att.path)}
+                              className="text-xs text-red-600 hover:text-red-700 font-medium">Xóa</button>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -382,6 +413,9 @@ export default function PaymentDetailPage() {
         loadPreview={() => api.getPaymentZipPreview(paymentId)}
         downloadZip={() => api.downloadPaymentZip(paymentId)}
       />
+      {previewPath && (
+        <OnlyOfficeFilePreview objectPath={previewPath} onClose={() => setPreviewPath(null)} />
+      )}
     </div>
   );
 }

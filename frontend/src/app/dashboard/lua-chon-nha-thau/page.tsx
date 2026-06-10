@@ -173,7 +173,7 @@ const CHCT_STEP_FIELDS: Record<string, { key: string; label: string; type?: 'tex
   to_trinh_hsmt: [
     { key: 'tendonvicuatochuyengia', label: 'Tên tổ chức, đơn vị' },
     { key: 'MaSoToTrinhPheDuyetHSMT', label: 'Mã số tờ trình phê duyệt HSMT' },
-    { key: 'ĐiaDanh', label: 'Địa danh' },
+    { key: 'DiaDanh', label: 'Địa danh' },
     { key: 'TenGoiThau', label: 'Tên gói thầu' },
     { key: 'TenKeHoachLuaChonNhaThau', label: 'Tên kế hoạch lựa chọn nhà thầu' },
     { key: 'TenDuAn', label: 'Tên dự án/dự toán mua sắm' },
@@ -524,7 +524,7 @@ function LuaChonNhaThauPageInner() {
       const sel = await api.createContractorSelection(selectedQD.id, goiThauIndex, selectedProject || undefined);
       toast.success('Đã tạo quy trình lựa chọn nhà thầu');
       setSelections(prev => [...prev, sel]);
-      setActiveSelection(sel);
+      router.push(`/dashboard/lua-chon-nha-thau/${sel.id}`);
     } catch (err: any) { toast.error(err.message); }
   };
 

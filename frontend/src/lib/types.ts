@@ -31,6 +31,7 @@ export interface Document {
   status: DocStatus;
   data: any;
   parentId?: string;
+  projectId?: string;
   createdBy: string;
   delegatedTo?: string;
   createdAt: string;
@@ -95,6 +96,8 @@ export interface ContractorSelection {
   procurementMethod: ProcurementMethod;
   data?: any;
   createdBy: string;
+  projectId?: string;
+  project?: { id: string; tenDuAn: string; procurementType: string; status: string };
   creator?: Pick<User, 'id' | 'name' | 'role'>;
   steps: ProcurementStep[];
   qdKhlcnt?: { id: string; data: any; status: string };

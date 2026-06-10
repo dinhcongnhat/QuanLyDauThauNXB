@@ -292,9 +292,36 @@ export class DatSachService {
    * Các trường trùng: BBT, TenSach, TacGia, SoTrang, KhoSach
    */
   async getAutoFillForPCDI(projectId: string) {
+    let targetProjectId = projectId;
+    let subProj = await this.prisma.datSachProject.findFirst({
+      where: {
+        OR: [
+          { id: projectId },
+          { projectId: projectId },
+          { parentId: projectId },
+        ],
+        status: 'COMPLETED',
+      },
+    });
+    if (!subProj) {
+      subProj = await this.prisma.datSachProject.findFirst({
+        where: {
+          OR: [
+            { id: projectId },
+            { projectId: projectId },
+            { parentId: projectId },
+          ],
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+    }
+    if (subProj) {
+      targetProjectId = subProj.id;
+    }
+
     const gdn = await this.prisma.gDNInSach.findFirst({
       where: {
-        datSachProjectId: projectId,
+        datSachProjectId: targetProjectId,
       },
       include: { assignments: true },
     });
@@ -333,16 +360,43 @@ export class DatSachService {
    * Các trường trùng: TenSach, TacGia, nguonVon, giaTri...
    */
   async getAutoFillForDutoan(projectId: string) {
+    let targetProjectId = projectId;
+    let subProj = await this.prisma.datSachProject.findFirst({
+      where: {
+        OR: [
+          { id: projectId },
+          { projectId: projectId },
+          { parentId: projectId },
+        ],
+        status: 'COMPLETED',
+      },
+    });
+    if (!subProj) {
+      subProj = await this.prisma.datSachProject.findFirst({
+        where: {
+          OR: [
+            { id: projectId },
+            { projectId: projectId },
+            { parentId: projectId },
+          ],
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+    }
+    if (subProj) {
+      targetProjectId = subProj.id;
+    }
+
     const gdn = await this.prisma.gDNInSach.findFirst({
       where: {
-        datSachProjectId: projectId,
+        datSachProjectId: targetProjectId,
         status: 'APPROVED',
       },
       include: { assignments: true },
     });
     const pcdi = await this.prisma.pCDICoSoIn.findFirst({
       where: {
-        datSachProjectId: projectId,
+        datSachProjectId: targetProjectId,
         status: 'APPROVED',
       },
     });

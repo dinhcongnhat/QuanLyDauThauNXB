@@ -68,7 +68,8 @@ const AUTO_FILL_MAPPINGS: Record<string, Array<{ fromStep: string; toStep: strin
         'TenQuyetDinhPheDuyetKeHoachLuaChonNhaThau', 'TenCacVanBanPhapLyLienQuan',
         'LoaiHopDong', 'ThoiGianThucHienGoiThau',
         'HinhThucPhuongThucLuaChonNhaThau', 'TuyChonMuaThem',
-        'ThoiGianToChucLuaChonNhaThau', 'ThoiGianBatDauToChucLuaChonNhaThau'],
+        'ThoiGianToChucLuaChonNhaThau', 'ThoiGianBatDauToChucLuaChonNhaThau',
+        'TenQuyetDinhPheDuyetHSMT'],
     },
     {
       fromStep: 'to_trinh_kqlcnt',
@@ -106,7 +107,8 @@ const AUTO_FILL_MAPPINGS: Record<string, Array<{ fromStep: string; toStep: strin
         'TenQuyetDinhPheDuyetKeHoachLuaChonNhaThau', 'TenCacVanBanPhapLyLienQuan',
         'LoaiHopDong', 'ThoiGianThucHienGoiThau',
         'HinhThucPhuongThucLuaChonNhaThau', 'TuyChonMuaThem',
-        'ThoiGianToChucLuaChonNhaThau', 'ThoiGianBatDauToChucLuaChonNhaThau'],
+        'ThoiGianToChucLuaChonNhaThau', 'ThoiGianBatDauToChucLuaChonNhaThau',
+        'TenQuyetDinhPheDuyetHSMT'],
     },
     {
       fromStep: 'to_trinh_kqlcnt',
@@ -392,6 +394,69 @@ export class ContractorSelectionService {
       }
     }
 
+    // Custom cross-key mappings for hop_dong and others
+    if (nextStepKey === 'hop_dong') {
+      // Find quyet_dinh_lcnt or quyet_dinh_kqlcnt
+      const qdLcntStep = await this.prisma.procurementStep.findFirst({
+        where: {
+          contractorSelectionId: selectionId,
+          stepKey: { in: ['quyet_dinh_lcnt', 'quyet_dinh_kqlcnt'] },
+        },
+      });
+      if (qdLcntStep && qdLcntStep.data) {
+        const d = qdLcntStep.data as Record<string, any>;
+        if (d.GiaTrungThau && !autoFill.GiaHDBangSo) {
+          autoFill.GiaHDBangSo = d.GiaTrungThau;
+        }
+        if (d.GiaTrungThau && !autoFill.TongGiaTriHopDongBangSo) {
+          autoFill.TongGiaTriHopDongBangSo = d.GiaTrungThau;
+        }
+        if (d.TenNhaThauTrungThau && !autoFill.NhaThau) {
+          autoFill.NhaThau = d.TenNhaThauTrungThau;
+        }
+        if (d.NhaThauTrungThau && !autoFill.NhaThau) {
+          autoFill.NhaThau = d.NhaThauTrungThau;
+        }
+        if (d.MaSoThueNhaThau && !autoFill.MaSoThueNhaThau) {
+          autoFill.MaSoThueNhaThau = d.MaSoThueNhaThau;
+        }
+        if (d.ThoiGianThucHienHD && !autoFill.ThoiGianThucHienHD) {
+          autoFill.ThoiGianThucHienHD = d.ThoiGianThucHienHD;
+        }
+      }
+
+      // Find quyet_dinh_hsmt
+      const qdHsmtStep = await this.prisma.procurementStep.findFirst({
+        where: { contractorSelectionId: selectionId, stepKey: 'quyet_dinh_hsmt' },
+      });
+      if (qdHsmtStep && qdHsmtStep.data) {
+        const d = qdHsmtStep.data as Record<string, any>;
+        if (d.DaiDienChuDauTu && !autoFill.DaiDienChuDauTu) {
+          autoFill.DaiDienChuDauTu = d.DaiDienChuDauTu;
+        }
+        if (d.ChucVuDaiDienChuDauTu && !autoFill.ChucVuDaiDienChuDauTu) {
+          autoFill.ChucVuDaiDienChuDauTu = d.ChucVuDaiDienChuDauTu;
+        }
+      }
+
+      // Find to_trinh_hsmt
+      const toTrinhHsmtStep = await this.prisma.procurementStep.findFirst({
+        where: { contractorSelectionId: selectionId, stepKey: 'to_trinh_hsmt' },
+      });
+      if (toTrinhHsmtStep && toTrinhHsmtStep.data) {
+        const d = toTrinhHsmtStep.data as Record<string, any>;
+        if (d.MaSoHD && !autoFill.MaSoHD) {
+          autoFill.MaSoHD = d.MaSoHD;
+        }
+        if (d.ThoiGianKyHĐ && !autoFill.ThoiGianKyHĐ) {
+          autoFill.ThoiGianKyHĐ = d.ThoiGianKyHĐ;
+        }
+        if (d.NamKyHD && !autoFill.NamKyHD) {
+          autoFill.NamKyHD = d.NamKyHD;
+        }
+      }
+    }
+
     return autoFill;
   }
 
@@ -539,7 +604,7 @@ export class ContractorSelectionService {
         procurementMethod: method,
         data: goiThau,
         createdBy: userId,
-        projectId,
+        projectId: projectId || doc.projectId,
         steps: {
           create: steps.map(s => ({
             stepKey: s.stepKey,
@@ -556,6 +621,18 @@ export class ContractorSelectionService {
         creator: { select: { id: true, name: true, role: true } },
       },
     });
+
+    if (projectId) {
+      await this.prisma.projectLog.create({
+        data: {
+          projectId,
+          stepKey: 'lcnt',
+          action: 'CREATE_LCNT',
+          message: `Khởi tạo quy trình Lựa chọn nhà thầu cho gói thầu "${goiThau.tenGoiThau || `Gói thầu ${goiThauIndex + 1}`}"`,
+          userId,
+        }
+      });
+    }
 
     return selection;
   }
@@ -574,14 +651,21 @@ export class ContractorSelectionService {
     // If step was rejected, reset approval status when editing
     const needsReset = step.approvalStatus === 'REJECTED';
 
-    return this.prisma.procurementStep.update({
+    const existingData = (step.data as any) || {};
+    const updatedData = { ...existingData, ...data };
+
+    const res = await this.prisma.procurementStep.update({
       where: { id: stepId },
       data: {
-        data,
+        data: updatedData,
         status: step.status === 'NOT_STARTED' ? 'IN_PROGRESS' : step.status,
         ...(needsReset ? { approvalStatus: 'NO_APPROVAL_REQUIRED' } : {}),
       },
     });
+
+    await this.writeLog(step.contractorSelectionId, 'UPDATE_STEP', `Cập nhật dữ liệu bước "${step.title}"`, userId);
+
+    return res;
   }
 
   // ====================== APPROVAL WORKFLOW ======================
@@ -611,6 +695,8 @@ export class ContractorSelectionService {
       where: { id: stepId },
       data: { approvalStatus: 'PENDING_APPROVAL' },
     });
+
+    await this.writeLog(step.contractorSelectionId, 'REQUEST_APPROVAL', `Trình duyệt bước "${step.title}"`, userId);
 
     // Create approval request record
     const request = await this.prisma.stepApprovalRequest.create({
@@ -692,6 +778,8 @@ export class ContractorSelectionService {
       });
     });
 
+    await this.writeLog(step.contractorSelectionId, 'APPROVE_STEP', `Phê duyệt bước "${step.title}"`, userId);
+
     const stepData = await this.getStep(stepId);
     const selectionData = stepData.contractorSelection;
     const projectName = (selectionData.data as any)?.tenGoiThau || (selectionData.data as any)?.tenDuAn || '';
@@ -746,6 +834,8 @@ export class ContractorSelectionService {
         },
       });
     });
+
+    await this.writeLog(step.contractorSelectionId, 'REJECT_STEP', `Từ chối bước "${step.title}". Lý do: ${comment}`, userId);
 
     const stepData = await this.getStep(stepId);
     const selectionData = stepData.contractorSelection;
@@ -811,7 +901,7 @@ export class ContractorSelectionService {
 
   // ====================== STEP COMPLETION ======================
 
-  async completeStep(stepId: string) {
+  async completeStep(stepId: string, userId?: string) {
     const step = await this.prisma.procurementStep.findUnique({
       where: { id: stepId },
       include: { contractorSelection: true },
@@ -868,17 +958,19 @@ export class ContractorSelectionService {
       });
     }
 
+    await this.writeLog(step.contractorSelectionId, 'COMPLETE_STEP', `Hoàn thành bước "${step.title}"`, userId || 'SYSTEM');
+
     return updated;
   }
 
-  async reopenStep(stepId: string) {
+  async reopenStep(stepId: string, userId?: string) {
     const step = await this.prisma.procurementStep.findUnique({ where: { id: stepId } });
     if (!step) throw new NotFoundException('Không tìm thấy bước');
     if (step.status !== 'COMPLETED') {
       throw new BadRequestException('Bước này chưa hoàn thành, không cần mở lại');
     }
 
-    return this.prisma.procurementStep.update({
+    const res = await this.prisma.procurementStep.update({
       where: { id: stepId },
       data: {
         status: 'IN_PROGRESS',
@@ -890,6 +982,10 @@ export class ContractorSelectionService {
         approvalComment: null,
       },
     });
+
+    await this.writeLog(step.contractorSelectionId, 'REOPEN_STEP', `Mở lại bước "${step.title}"`, userId || 'SYSTEM');
+
+    return res;
   }
 
   // ====================== DOCX ======================
@@ -940,7 +1036,7 @@ export class ContractorSelectionService {
 
   // ====================== FILE UPLOAD ======================
 
-  async uploadAttachment(stepId: string, file: { buffer: Buffer; originalname: string; mimetype: string; ghiChu?: string }): Promise<string> {
+  async uploadAttachment(stepId: string, file: { buffer: Buffer; originalname: string; mimetype: string; ghiChu?: string }, userId?: string): Promise<string> {
     // File type validation - whitelist only safe document types
     const ALLOWED_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'jpg', 'jpeg', 'png']);
     const ALLOWED_MIME_TYPES = new Set([
@@ -992,10 +1088,14 @@ export class ContractorSelectionService {
       },
     });
 
+    if (userId) {
+      await this.writeLog(step.contractorSelection.id, 'UPLOAD_FILE', `Đính kèm tài liệu "${file.originalname}" vào bước "${step.title}"`, userId);
+    }
+
     return objectName;
   }
 
-  async deleteAttachment(stepId: string, objectPath: string) {
+  async deleteAttachment(stepId: string, objectPath: string, userId?: string) {
     const step = await this.prisma.procurementStep.findUnique({ where: { id: stepId } });
     if (!step) throw new NotFoundException('Không tìm thấy bước');
 
@@ -1010,6 +1110,11 @@ export class ContractorSelectionService {
       where: { id: stepId },
       data: { data: { ...data, _attachments: attachments } },
     });
+
+    if (userId) {
+      const fileName = objectPath.split('/').pop() || 'tài liệu';
+      await this.writeLog(step.contractorSelectionId, 'DELETE_FILE', `Xóa tài liệu đính kèm "${fileName}" khỏi bước "${step.title}"`, userId);
+    }
 
     try {
       await this.minio.delete(objectPath);
@@ -1148,5 +1253,28 @@ export class ContractorSelectionService {
     }
 
     return { files, zipName: `${selection.tenGoiThau}.zip` };
+  }
+
+  private async writeLog(selectionId: string, action: string, message: string, userId: string, data?: any) {
+    try {
+      const selection = await this.prisma.contractorSelection.findUnique({
+        where: { id: selectionId },
+        select: { projectId: true }
+      });
+      if (selection?.projectId) {
+        await this.prisma.projectLog.create({
+          data: {
+            projectId: selection.projectId,
+            stepKey: 'lcnt',
+            action,
+            message,
+            userId,
+            data: data || {},
+          }
+        });
+      }
+    } catch (err) {
+      console.error('Error writing LCNT log:', err);
+    }
   }
 }

@@ -66,7 +66,7 @@ export class ContractorSelectionController {
   // ====================== CRUD ======================
 
   @Post()
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.INVESTOR)
   async create(@Body() dto: CreateSelectionDto, @Request() req: any) {
     return this.svc.createSelection(req.user.sub, dto.qdKhlcntId, dto.goiThauIndex, dto.projectId);
   }
@@ -104,7 +104,7 @@ export class ContractorSelectionController {
 
   /** Request approval for a step (trình lên giám đốc/trưởng phòng) */
   @Post('step/:stepId/request-approval')
-  @Roles(Role.ADMIN, Role.HEAD_OF_DEPARTMENT, Role.DIRECTOR)
+  @Roles(Role.ADMIN, Role.INVESTOR, Role.HEAD_OF_DEPARTMENT, Role.DIRECTOR)
   async requestApproval(
     @Param('stepId') stepId: string,
     @Body() dto: ApprovalDto,
@@ -138,7 +138,7 @@ export class ContractorSelectionController {
   // ====================== STEP COMPLETION ======================
 
   @Post(':id/set-package-type')
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.INVESTOR)
   async setPackageType(
     @Param('id') id: string,
     @Body() body: { contractPackageType: string },
@@ -147,15 +147,15 @@ export class ContractorSelectionController {
   }
 
   @Post('step/:stepId/complete')
-  @Roles(Role.ADMIN, Role.HEAD_OF_DEPARTMENT, Role.DIRECTOR)
-  async completeStep(@Param('stepId') stepId: string) {
-    return this.svc.completeStep(stepId);
+  @Roles(Role.ADMIN, Role.INVESTOR, Role.HEAD_OF_DEPARTMENT, Role.DIRECTOR)
+  async completeStep(@Param('stepId') stepId: string, @Request() req: any) {
+    return this.svc.completeStep(stepId, req.user.sub);
   }
 
   @Post('step/:stepId/reopen')
-  @Roles(Role.ADMIN, Role.HEAD_OF_DEPARTMENT, Role.DIRECTOR)
-  async reopenStep(@Param('stepId') stepId: string) {
-    return this.svc.reopenStep(stepId);
+  @Roles(Role.ADMIN, Role.INVESTOR, Role.HEAD_OF_DEPARTMENT, Role.DIRECTOR)
+  async reopenStep(@Param('stepId') stepId: string, @Request() req: any) {
+    return this.svc.reopenStep(stepId, req.user.sub);
   }
 
   // ====================== DOCX ======================
@@ -233,31 +233,34 @@ export class ContractorSelectionController {
   // ====================== FILE UPLOAD ======================
 
   @Post('step/:stepId/upload')
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.INVESTOR)
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 50 * 1024 * 1024 } }))
   async uploadAttachment(
     @Param('stepId') stepId: string,
     @UploadedFile() file: Express.Multer.File,
     @Body() dto: UploadDto,
+    @Request() req: any,
   ) {
     if (!file) throw new Error('No file uploaded');
+    const originalname = Buffer.from(file.originalname, 'latin1').toString('utf8');
     const objectName = await this.svc.uploadAttachment(stepId, {
       buffer: file.buffer,
-      originalname: file.originalname,
+      originalname,
       mimetype: file.mimetype,
       ghiChu: dto.ghiChu,
-    });
+    }, req.user.sub);
     const url = await this.svc.getFileUrl(objectName);
     return { objectName, url };
   }
 
   @Post('step/:stepId/delete-attachment')
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.INVESTOR)
   async deleteAttachment(
     @Param('stepId') stepId: string,
     @Body() body: { path: string },
+    @Request() req: any,
   ) {
-    await this.svc.deleteAttachment(stepId, body.path);
+    await this.svc.deleteAttachment(stepId, body.path, req.user.sub);
     return { success: true };
   }
 
@@ -291,9 +294,10 @@ export class ContractorSelectionController {
       jpeg: 'image/jpeg',
       png: 'image/png',
     };
+    const safeFilename = encodeURIComponent(filename);
     res.set({
       'Content-Type': mimeTypes[ext] || 'application/octet-stream',
-      'Content-Disposition': `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`,
+      'Content-Disposition': `attachment; filename="${safeFilename}"; filename*=UTF-8''${safeFilename}`,
       'Content-Length': buffer.length,
     });
     res.end(buffer);

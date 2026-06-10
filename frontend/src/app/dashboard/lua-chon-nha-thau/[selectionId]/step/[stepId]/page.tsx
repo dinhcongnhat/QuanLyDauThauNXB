@@ -104,15 +104,33 @@ export default function LCNTStepDetailPage() {
 
   // Load auto-fill data — also persist to DB so DOCX generation has the data
   useEffect(() => {
-    if (!step || step.status !== 'NOT_STARTED') return;
+    if (!step || step.status === 'COMPLETED') return;
     api.getLCNTAutoFill(stepId).then(async (data) => {
       if (!data || Object.keys(data).length === 0) return;
       setAutoFillData(data);
-      // Merge auto-fill into formData for new steps
-      setFormData(prev => ({ ...data, ...prev }));
+      // Merge auto-fill into formData for non-completed steps
+      setFormData(prev => {
+        const merged = { ...prev };
+        for (const [key, val] of Object.entries(data)) {
+          if (!merged[key] || merged[key].trim() === '') {
+            merged[key] = String(val ?? '');
+          }
+        }
+        return merged;
+      });
       // Persist auto-fill data to DB immediately
       try {
-        await api.updateLCNTStep(stepId, data);
+        const keysToUpdate: Record<string, string> = {};
+        for (const [key, val] of Object.entries(data)) {
+          const rawData = (step.data || {}) as Record<string, any>;
+          const rawVal = String(rawData[key] ?? '');
+          if (!rawVal || rawVal.trim() === '') {
+            keysToUpdate[key] = String(val ?? '');
+          }
+        }
+        if (Object.keys(keysToUpdate).length > 0) {
+          await api.updateLCNTStep(stepId, keysToUpdate);
+        }
       } catch { /* ignore - will be saved on explicit save */ }
     }).catch(() => {});
   }, [stepId, step]);

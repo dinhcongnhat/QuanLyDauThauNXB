@@ -29,6 +29,8 @@ export const api = {
   getProjects: () => request<any[]>('/projects'),
   getProject: (id: string) => request<any>(`/projects/${encodeURIComponent(id)}`),
   getProjectSummary: (id: string) => request<any>(`/projects/${encodeURIComponent(id)}/summary`),
+  getProjectLogs: (id: string, stepKey?: string) =>
+    request<any[]>(`/projects/${encodeURIComponent(id)}/logs${stepKey ? `?stepKey=${encodeURIComponent(stepKey)}` : ''}`),
   createProject: (tenDuAn: string, procurementType: string) =>
     request<any>('/projects', {
       method: 'POST',
@@ -234,8 +236,12 @@ export const api = {
       const err = await res.json().catch(() => ({ message: 'Upload failed' }));
       throw new Error(err.message || `HTTP ${res.status}`);
     }
-    return res.json() as Promise<{ objectName: string; url: string }>;
   },
+  deleteLCNTAttachment: (stepId: string, path: string) =>
+    request<{ success: boolean }>(`/contractor-selection/step/${encodeURIComponent(stepId)}/delete-attachment`, {
+      method: 'POST',
+      body: JSON.stringify({ path }),
+    }),
 
   getLCNTFileUrl: (objectPath: string) =>
     request<{ url: string }>(`/contractor-selection/file/url?path=${encodeURIComponent(objectPath)}`),
@@ -315,7 +321,6 @@ export const api = {
     }
     return res.json() as Promise<{ objectName: string; url: string }>;
   },
-
   deletePaymentAttachment: (stepId: string, path: string) =>
     request<any>(`/payment/step/${encodeURIComponent(stepId)}/delete-attachment`, {
       method: 'POST',

@@ -291,4 +291,31 @@ export class ProjectService {
 
     return this.prisma.project.delete({ where: { id } });
   }
+
+  async getLogs(projectId: string, stepKey?: string) {
+    const where: any = { projectId };
+    if (stepKey) {
+      where.stepKey = stepKey;
+    }
+    return this.prisma.projectLog.findMany({
+      where,
+      include: {
+        user: { select: { id: true, name: true, email: true, role: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async createLog(projectId: string, stepKey: string, action: string, message: string, userId: string, data?: any) {
+    return this.prisma.projectLog.create({
+      data: {
+        projectId,
+        stepKey,
+        action,
+        message,
+        userId,
+        data: data || {},
+      },
+    });
+  }
 }

@@ -11,6 +11,8 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useSearchParams } from 'next/navigation';
 import { LibraryPicker } from '@/components/LibraryPicker';
 import { LibraryType, SavedValue } from '@/lib/document-library-types';
+import { HistoryModal } from '@/components/HistoryModal';
+import { OnlyOfficePreview } from '@/components/OnlyOfficePreview';
 
 const statusLabels: Record<DocStatus, string> = {
   DRAFT: 'Bản nháp',
@@ -55,6 +57,7 @@ function ThietBiDuToanPageInner() {
   const [submitting, setSubmitting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTTId, setSelectedTTId] = useState('');
+  const [showHistory, setShowHistory] = useState(false);
 
   const [ttData, setTtData] = useState({
     SoToTrinh: '', DiaDanh: '', Ngay: '', Thang: '', Nam: '',
@@ -246,25 +249,38 @@ function ThietBiDuToanPageInner() {
           <h1 className="text-2xl font-bold text-gray-900">Phê duyệt dự toán</h1>
           <p className="text-gray-500 mt-1 text-sm">Thầu Thiết Bị — Chọn dự án để xem và tạo tài liệu</p>
         </div>
-        {canCreate && !showForm && (
-          <div className="flex gap-2">
-            <button onClick={() => setShowForm('TT_DUTOAN')}
-              className="px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
-              + Tờ trình dự toán
+        <div className="flex items-center gap-2">
+          {selectedProject && (
+            <button
+              onClick={() => setShowHistory(true)}
+              className="px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-sm font-semibold flex items-center gap-1 transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Lịch sử
             </button>
-            {hasApprovedTT ? (
-              <button onClick={() => setShowForm('QD_DUTOAN')}
-                className="px-4 py-2.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-medium">
-                + Quyết định dự toán
+          )}
+          {canCreate && !showForm && (
+            <>
+              <button onClick={() => setShowForm('TT_DUTOAN')}
+                className="px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
+                + Tờ trình dự toán
               </button>
-            ) : (
-              <span className="px-4 py-2.5 bg-gray-100 text-gray-400 rounded-lg text-sm cursor-not-allowed"
-                title="Cần có Tờ trình được duyệt">
-                🔒 QĐ dự toán
-              </span>
-            )}
-          </div>
-        )}
+              {hasApprovedTT ? (
+                <button onClick={() => setShowForm('QD_DUTOAN')}
+                  className="px-4 py-2.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-medium">
+                  + Quyết định dự toán
+                </button>
+              ) : (
+                <span className="px-4 py-2.5 bg-gray-100 text-gray-400 rounded-lg text-sm cursor-not-allowed"
+                  title="Cần có Tờ trình được duyệt">
+                  🔒 QĐ dự toán
+                </span>
+              )}
+            </>
+          )}
+        </div>
       </div>
 
       {/* Project Selector */}
@@ -430,6 +446,7 @@ function ThietBiDuToanPageInner() {
                   <td className="px-4 py-3 text-sm text-gray-500">{format(new Date(doc.createdAt), 'dd/MM/yyyy', { locale: vi })}</td>
                   <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                     <div className="flex gap-1 flex-wrap">
+                      <button onClick={() => setDetailDoc(doc)} className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100">👁</button>
                       <button onClick={() => handleDownload(doc.id)} className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">📥</button>
                       {canApprove && doc.status === 'PENDING_DIRECTOR' && (
                         <>
@@ -469,6 +486,20 @@ function ThietBiDuToanPageInner() {
         }
         .inp:focus { border-color: #6366f1; box-shadow: 0 0 0 2px rgba(99,102,241,0.1); }
       `}</style>
+      <HistoryModal
+        isOpen={showHistory}
+        onClose={() => setShowHistory(false)}
+        projectId={selectedProject}
+        stepKey="phe_duyet_du_toan"
+        title="Lịch sử Phê duyệt Dự toán"
+      />
+      {detailDoc && (
+        <OnlyOfficePreview
+          documentId={detailDoc.id}
+          onClose={() => setDetailDoc(null)}
+          type="document"
+        />
+      )}
     </div>
   );
 }

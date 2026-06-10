@@ -24,13 +24,13 @@ services:
       DATABASE_URL: "postgresql://postgres:jtsc12345@192.168.1.90:5432/qlda_nxb"
       JWT_SECRET: "Q9qHU+5khmVqKmLNQl8ppQKqT8Gae46Jl3NKrK5FVE0="
       PORT: "4000"
-      APP_URL: "http://demo.jtsc.vn"
-      ONLYOFFICE_URL: "https://jtsconlyoffice.duckdns.org"
+      APP_URL: "https://demo.jtsc.vn"
+      ONLYOFFICE_URL: "https://demo.jtsc.vn/onlyoffice"
       ONLYOFFICE_JWT_SECRET: "10122002"
       FILEMAU_PATH: "/app/FileMau"
-      MINIO_ENDPOINT: "jtscminio.duckdns.org"
-      MINIO_PORT: "443"
-      MINIO_USE_SSL: "true"
+      MINIO_ENDPOINT: "minio"
+      MINIO_PORT: "9000"
+      MINIO_USE_SSL: "false"
       MINIO_ACCESS_KEY: "jtsc"
       MINIO_SECRET_KEY: "jtsc12345"
       MINIO_BUCKET: "qldanxb"
@@ -44,6 +44,33 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      minio:
+        condition: service_started
+      onlyoffice:
+        condition: service_started
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:RELEASE.2024-01-28T22-35-53Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: "jtsc"
+      MINIO_ROOT_PASSWORD: "jtsc12345"
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    restart: unless-stopped
+
+  onlyoffice:
+    image: onlyoffice/documentserver:8.0
+    environment:
+      JWT_ENABLED: "true"
+      JWT_SECRET: "10122002"
+      JWT_HEADER: "Authorization"
+    ports:
+      - "8080:80"
     restart: unless-stopped
 
   frontend:
@@ -71,3 +98,4 @@ services:
 
 volumes:
   pgdata:
+  minio_data:

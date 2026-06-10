@@ -23,6 +23,7 @@ function getDownloadHandler(type: PreviewType, documentId: string) {
     case 'gdn': return () => api.downloadGDNDatSach(documentId);
     case 'pcdi': return () => api.downloadPCDIDatSach(documentId);
     case 'qd': return () => api.downloadQDQuyetDinhDatSach(documentId);
+    case 'document': return () => api.downloadDocument(documentId);
     default: return () => Promise.reject(new Error('Không hỗ trợ loại tài liệu này'));
   }
 }
@@ -33,6 +34,7 @@ function getDownloadFilename(type: PreviewType, documentId: string) {
     case 'gdn': return `GiayDeNghiIn_${id}.docx`;
     case 'pcdi': return `PhieuChiDinhCoSoIn_${id}.docx`;
     case 'qd': return `QuyetDinhDatSach_${id}.docx`;
+    case 'document': return `TaiLieu_${id}.docx`;
     default: return `document_${id}.docx`;
   }
 }
@@ -87,11 +89,9 @@ export function OnlyOfficePreview({ documentId, onClose, type = 'document' }: Pr
             script.onload = () => resolve();
             script.onerror = (e) => {
               scriptLoaded.current = false; // allow retry
-              const isBlocked = (e as any)?.target?.src?.startsWith('https://jtsconlyoffice');
+              const srcUrl = (e as any)?.target?.src || config.onlyofficeUrl;
               reject(new Error(
-                isBlocked
-                  ? 'TRÌNH DUYỆT CHẶN Script OnlyOffice. Vui lòng tắt ad-blocker cho domain "https://jtsconlyoffice.duckdns.org" hoặc dùng nút "Tải DOCX" bên dưới để tải file.'
-                  : 'Không thể kết nối đến máy chủ OnlyOffice. Kiểm tra kết nối mạng.'
+                `TRÌNH DUYỆT CHẶN Script OnlyOffice hoặc không thể tải được script từ "${srcUrl}". Vui lòng tắt ad-blocker hoặc dùng nút "Tải DOCX" bên dưới để tải file.`
               ));
             };
             document.head.appendChild(script);

@@ -56,7 +56,7 @@ export class PaymentController {
   // ====================== CREATE ======================
 
   @Post()
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.INVESTOR)
   async create(@Body() dto: CreatePaymentDto, @Request() req: any) {
     return this.svc.createPayment(req.user.sub, dto.contractorSelectionId, dto.projectId);
   }
@@ -69,23 +69,23 @@ export class PaymentController {
   }
 
   @Post('step/:stepId/update')
-  @Roles(Role.ADMIN, Role.HEAD_OF_DEPARTMENT, Role.DIRECTOR)
-  async updateStep(@Param('stepId') stepId: string, @Body() dto: UpdateStepDto) {
-    return this.svc.updateStepData(stepId, dto.data);
+  @Roles(Role.ADMIN, Role.INVESTOR, Role.HEAD_OF_DEPARTMENT, Role.DIRECTOR)
+  async updateStep(@Param('stepId') stepId: string, @Body() dto: UpdateStepDto, @Request() req: any) {
+    return this.svc.updateStepData(stepId, dto.data, req.user.sub);
   }
 
   // ====================== STEP COMPLETION ======================
 
   @Post('step/:stepId/complete')
-  @Roles(Role.ADMIN, Role.HEAD_OF_DEPARTMENT, Role.DIRECTOR)
-  async completeStep(@Param('stepId') stepId: string) {
-    return this.svc.completeStep(stepId);
+  @Roles(Role.ADMIN, Role.INVESTOR, Role.HEAD_OF_DEPARTMENT, Role.DIRECTOR)
+  async completeStep(@Param('stepId') stepId: string, @Request() req: any) {
+    return this.svc.completeStep(stepId, req.user.sub);
   }
 
   @Post('step/:stepId/reopen')
-  @Roles(Role.ADMIN, Role.HEAD_OF_DEPARTMENT, Role.DIRECTOR)
-  async reopenStep(@Param('stepId') stepId: string) {
-    return this.svc.reopenStep(stepId);
+  @Roles(Role.ADMIN, Role.INVESTOR, Role.HEAD_OF_DEPARTMENT, Role.DIRECTOR)
+  async reopenStep(@Param('stepId') stepId: string, @Request() req: any) {
+    return this.svc.reopenStep(stepId, req.user.sub);
   }
 
   // ====================== DOCX ======================
@@ -148,28 +148,31 @@ export class PaymentController {
 
   @Post('step/:stepId/upload')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 50 * 1024 * 1024 } }))
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.INVESTOR)
   async uploadAttachment(
     @Param('stepId') stepId: string,
     @UploadedFile() file: Express.Multer.File,
+    @Request() req: any,
   ) {
     if (!file) throw new Error('No file uploaded');
+    const originalname = Buffer.from(file.originalname, 'latin1').toString('utf8');
     const objectName = await this.svc.uploadAttachment(stepId, {
       buffer: file.buffer,
-      originalname: file.originalname,
+      originalname,
       mimetype: file.mimetype,
-    });
+    }, req.user.sub);
     const url = await this.svc.getFileUrl(objectName);
     return { objectName, url };
   }
 
   @Post('step/:stepId/delete-attachment')
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.INVESTOR)
   async deleteAttachment(
     @Param('stepId') stepId: string,
     @Body() body: { path: string },
+    @Request() req: any,
   ) {
-    await this.svc.deleteAttachment(stepId, body.path);
+    await this.svc.deleteAttachment(stepId, body.path, req.user.sub);
     return { success: true };
   }
 

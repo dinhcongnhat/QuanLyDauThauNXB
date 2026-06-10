@@ -63,6 +63,14 @@ export class DocumentsService {
     assignedTo?: string,
     projectId?: string,
   ) {
+    // If parentId is provided and projectId is not, inherit from parent document
+    if (parentId && !projectId) {
+      const parent = await this.prisma.document.findUnique({ where: { id: parentId } });
+      if (parent && parent.projectId) {
+        projectId = parent.projectId;
+      }
+    }
+
     // Validate project exists if provided
     let projectType: ProcurementType | null = null;
     if (projectId) {
