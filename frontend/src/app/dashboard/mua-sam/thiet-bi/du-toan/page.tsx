@@ -13,6 +13,7 @@ import { LibraryPicker, SaveToLibraryModal } from '@/components/LibraryPicker';
 import { LibraryType, SavedValue } from '@/lib/document-library-types';
 import { HistoryModal } from '@/components/HistoryModal';
 import { OnlyOfficePreview } from '@/components/OnlyOfficePreview';
+import { ProjectChat } from '@/components/ProjectChat';
 
 const statusLabels: Record<DocStatus, string> = {
   DRAFT: 'Bản nháp',
@@ -87,7 +88,8 @@ function ThietBiDuToanPageInner() {
         api.getDocumentsByType(['TT_DUTOAN', 'QD_DUTOAN'], selectedProject || undefined),
         api.getProjects(),
       ]);
-      setDocs(data);
+      const docsList = Array.isArray(data) ? data : ((data as any)?.documents || []);
+      setDocs(docsList);
       setProjects((projectList.projects || []).filter((p: any) => p.procurementType === PROJ_TYPE));
     } catch (err: any) { toast.error(err.message); }
     finally { setLoading(false); }
@@ -494,6 +496,14 @@ function ThietBiDuToanPageInner() {
           documentId={detailDoc.id}
           onClose={() => setDetailDoc(null)}
           type="document"
+        />
+      )}
+
+      {selectedProject && (
+        <ProjectChat
+          projectId={selectedProject}
+          module="DU_TOAN"
+          projectName={projects.find((p: any) => p.id === selectedProject)?.tenDuAn}
         />
       )}
     </div>

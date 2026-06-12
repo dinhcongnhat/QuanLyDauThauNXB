@@ -1,7 +1,7 @@
 import {
   Controller, Get, Post, Put, Delete, Param, Body, Query, UseGuards, Request,
 } from '@nestjs/common';
-import { IsString, IsEnum, IsOptional, IsInt, Min } from 'class-validator';
+import { IsString, IsEnum, IsOptional, IsInt, Min, IsArray } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ProjectService } from './project.service';
 import { ProjectStatus, ProcurementType } from '@prisma/client';
@@ -9,6 +9,11 @@ import { ProjectStatus, ProcurementType } from '@prisma/client';
 class CreateProjectDto {
   @IsString() tenDuAn: string;
   @IsEnum(ProcurementType) procurementType: ProcurementType;
+  @IsOptional() @IsArray() @IsString({ each: true }) memberIds?: string[];
+}
+
+class AddMemberDto {
+  @IsString() userId: string;
 }
 
 class UpdateProjectDto {
@@ -57,7 +62,23 @@ export class ProjectController {
 
   @Post()
   async create(@Body() dto: CreateProjectDto, @Request() req: any) {
-    return this.svc.create(dto.tenDuAn, dto.procurementType, req.user.sub);
+    return this.svc.create(dto.tenDuAn, dto.procurementType, req.user.sub, dto.memberIds);
+  }
+
+  // ── Project Members ──
+  @Get(':id/members')
+  async getMembers(@Param('id') id: string) {
+    return this.svc.getMembers(id);
+  }
+
+  @Post(':id/members')
+  async addMember(@Param('id') id: string, @Body() dto: AddMemberDto, @Request() req: any) {
+    return this.svc.addMember(id, dto.userId, req.user.sub);
+  }
+
+  @Delete(':id/members/:userId')
+  async removeMember(@Param('id') id: string, @Param('userId') userId: string, @Request() req: any) {
+    return this.svc.removeMember(id, userId, req.user.sub);
   }
 
   @Put(':id')

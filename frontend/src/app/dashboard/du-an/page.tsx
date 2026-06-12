@@ -20,6 +20,11 @@ export default function DuAnPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [summaryData, setSummaryData] = useState<any>({});
   const [loadingSummary, setLoadingSummary] = useState(false);
+  // Member picker state
+  const [allUsers, setAllUsers] = useState<any[]>([]);
+  const [selectedMembers, setSelectedMembers] = useState<any[]>([]);
+  const [memberSearch, setMemberSearch] = useState('');
+  const [showMemberPicker, setShowMemberPicker] = useState(false);
 
   const loadProjects = async () => {
     setLoading(true);
@@ -36,14 +41,39 @@ export default function DuAnPage() {
 
   useEffect(() => { loadProjects(); }, []);
 
+  // Load users when create dialog opens
+  useEffect(() => {
+    if (showCreate && allUsers.length === 0) {
+      api.getUsers().then((data: any) => setAllUsers(Array.isArray(data) ? data : (data?.users || []))).catch(() => {});
+    }
+  }, [showCreate]);
+
+  const filteredUsers = allUsers.filter(u => {
+    if (!memberSearch.trim()) return true;
+    const q = memberSearch.toLowerCase();
+    return u.name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q);
+  }).filter(u => !selectedMembers.some(m => m.id === u.id));
+
+  const toggleMember = (user: any) => {
+    setSelectedMembers(prev =>
+      prev.some(m => m.id === user.id)
+        ? prev.filter(m => m.id !== user.id)
+        : [...prev, user],
+    );
+  };
+
   const handleCreate = async () => {
     if (!createForm.tenDuAn.trim()) { toast.error('Vui lòng nhập tên dự án'); return; }
     setCreating(true);
     try {
-      await api.createProject(createForm.tenDuAn, createForm.procurementType);
+      const memberIds = selectedMembers.map(m => m.id);
+      await api.createProject(createForm.tenDuAn, createForm.procurementType, memberIds.length > 0 ? memberIds : undefined);
       toast.success('Tạo dự án thành công');
       setShowCreate(false);
       setCreateForm({ tenDuAn: '', procurementType: 'THAU_THIET_BI' });
+      setSelectedMembers([]);
+      setMemberSearch('');
+      setShowMemberPicker(false);
       loadProjects();
     } catch (err: any) { toast.error(err.message); }
     finally { setCreating(false); }
@@ -389,6 +419,36 @@ export default function DuAnPage() {
                       : 'Luồng: Phê duyệt Dự toán → Phê duyệt KHLCNT → LCNT → Thanh toán'}
                   </p>
                 </div>
+
+                {/* Member Picker */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Thành viên dự án</label>
+                  {/* Selected members tags */}
+                  {selectedMembers.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mb-2 max-h-24 overflow-y-auto p-1.5 bg-gray-50 rounded-lg">
+                      {selectedMembers.map(m => (
+                        <span key={m.id} className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 text-blue-700 rounded-full text-xs font-medium">
+                          {m.name}
+                          <button type="button" onClick={() => toggleMember(m)} className="hover:text-red-500 font-bold ml-0.5 transition-colors">×</button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {/* Dialog Trigger Button */}
+                  <button
+                    type="button"
+                    onClick={() => { setShowMemberPicker(true); setMemberSearch(''); }}
+                    className="w-full flex items-center justify-between border rounded-lg px-3 py-2 text-sm text-gray-700 bg-white hover:bg-gray-50 focus:ring-2 focus:ring-primary-500 outline-none transition-all"
+                  >
+                    <span className="text-gray-500 font-normal">
+                      {selectedMembers.length === 0 ? 'Chọn thành viên...' : `Đã chọn ${selectedMembers.length} người`}
+                    </span>
+                    <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                  <p className="text-xs text-gray-400 mt-1.5">Chỉ thành viên mới có thể thấy dự án này.</p>
+                </div>
               </div>
               <div className="flex gap-3 mt-6">
                 <button
@@ -409,6 +469,89 @@ export default function DuAnPage() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Member Selection Popup Dialog */}
+      {showMemberPicker && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[60]" onClick={() => setShowMemberPicker(false)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm mx-4 p-5 flex flex-col max-h-[70vh]" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4 shrink-0">
+              <h4 className="font-semibold text-gray-900 text-base">Thành viên hệ thống</h4>
+              <button onClick={() => setShowMemberPicker(false)} className="text-gray-400 hover:text-gray-600 transition-colors p-1 rounded-lg">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Search input in dialog */}
+            <div className="relative mb-3 shrink-0">
+              <input
+                type="text"
+                placeholder="Tìm tên hoặc email..."
+                className="w-full border rounded-lg pl-8 pr-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary-500"
+                value={memberSearch}
+                onChange={e => setMemberSearch(e.target.value)}
+              />
+              <svg className="absolute left-2.5 top-2.5 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </div>
+
+            {/* Checkbox User List */}
+            <div className="flex-1 overflow-y-auto space-y-1 pr-1 min-h-[150px]">
+              {allUsers.filter(u => {
+                if (!memberSearch.trim()) return true;
+                const q = memberSearch.toLowerCase();
+                return u.name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q);
+              }).length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-4">Không tìm thấy người dùng</p>
+              ) : (
+                allUsers.filter(u => {
+                  if (!memberSearch.trim()) return true;
+                  const q = memberSearch.toLowerCase();
+                  return u.name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q);
+                }).map(u => {
+                  const isSelected = selectedMembers.some(m => m.id === u.id);
+                  return (
+                    <label
+                      key={u.id}
+                      className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                          {u.name?.charAt(0)?.toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold text-gray-800 truncate">{u.name}</p>
+                          <p className="text-[10px] text-gray-400 truncate">{u.email}</p>
+                        </div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleMember(u)}
+                        className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 cursor-pointer shrink-0"
+                      />
+                    </label>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="mt-4 pt-3 border-t flex justify-between items-center shrink-0">
+              <span className="text-xs text-gray-500">Đã chọn {selectedMembers.length} người</span>
+              <button
+                type="button"
+                onClick={() => setShowMemberPicker(false)}
+                className="px-4 py-1.5 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-xs font-medium transition-colors"
+              >
+                Xác nhận
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

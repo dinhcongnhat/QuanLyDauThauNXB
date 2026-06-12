@@ -54,7 +54,26 @@ async function main() {
         updatedPaymentsCount++;
       }
     }
-    console.log('Healed Payments:', updatedPaymentsCount);
+    // Heal Project Members
+    let updatedMembersCount = 0;
+    const projects = await prisma.project.findMany({
+      include: { members: true },
+    });
+    for (const project of projects) {
+      if (project.members.length === 0 && project.createdBy) {
+        await prisma.projectMember.create({
+          data: {
+            projectId: project.id,
+            userId: project.createdBy,
+            role: 'OWNER',
+            addedBy: project.createdBy,
+          },
+        });
+        updatedMembersCount++;
+      }
+    }
+    console.log('Healed Project Members:', updatedMembersCount);
+
   } catch (err) {
     console.error('Error during database healing:', err);
   } finally {

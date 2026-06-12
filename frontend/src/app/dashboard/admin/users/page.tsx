@@ -27,7 +27,7 @@ export default function UsersPage() {
   const fetchUsers = async () => {
     try {
       const data = await api.getUsers();
-      setUsers(data);
+      setUsers(Array.isArray(data) ? data : (data?.users || []));
     } catch (err: any) {
       toast.error(err.message);
     } finally {

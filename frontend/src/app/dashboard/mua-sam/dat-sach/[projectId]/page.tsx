@@ -13,6 +13,7 @@ import { LibraryPicker, SaveToLibraryModal } from '@/components/LibraryPicker';
 import { LibraryType, SavedValue } from '@/lib/document-library-types';
 import { OnlyOfficePreview } from '@/components/OnlyOfficePreview';
 import type { PreviewType } from '@/components/OnlyOfficePreview';
+import { ProjectChat } from '@/components/ProjectChat';
 
 type Tab = 'gdn_pcdi' | 'quyetdinh';
 
@@ -216,7 +217,7 @@ function DatSachDetailPageInner() {
   useEffect(() => {
     setLoadingUsers(true);
     api.getUsers()
-      .then(setUsers)
+      .then((res: any) => setUsers(Array.isArray(res) ? res : (res?.users || [])))
       .catch((err) => {
         toast.error('Không thể tải danh sách người dùng: ' + (err?.message || 'Lỗi không xác định'));
       })
@@ -820,7 +821,7 @@ function DatSachDetailPageInner() {
                   <button onClick={() => {
                     if (users.length === 0) {
                       setLoadingUsers(true);
-                      api.getUsers().then(u => { setUsers(u); setLoadingUsers(false); }).catch(() => setLoadingUsers(false));
+                      api.getUsers().then((u: any) => { setUsers(Array.isArray(u) ? u : (u?.users || [])); setLoadingUsers(false); }).catch(() => setLoadingUsers(false));
                     }
                     setSelectedUsers((gdn?.assignments || []).map((a: any) => a.userId));
                     setShowAssignModal(true);
@@ -1364,7 +1365,7 @@ function DatSachDetailPageInner() {
               ) : users.length === 0 ? (
                 <div className="text-center py-4">
                   <p className="text-gray-400 text-sm">Không có user nào để phân công.</p>
-                  <button onClick={() => { setLoadingUsers(true); api.getUsers().then(u => { setUsers(u); setLoadingUsers(false); }).catch(() => setLoadingUsers(false)); }}
+                  <button onClick={() => { setLoadingUsers(true); api.getUsers().then((u: any) => { setUsers(Array.isArray(u) ? u : (u?.users || [])); setLoadingUsers(false); }).catch(() => setLoadingUsers(false)); }}
                     className="mt-2 text-xs text-blue-600 hover:underline">Thử lại</button>
                 </div>
               ) : null}
@@ -1553,6 +1554,14 @@ function DatSachDetailPageInner() {
         stepKey="dat_sach"
         title="Lịch sử Đặt sách"
       />
+
+      {project?.projectId && (
+        <ProjectChat
+          projectId={project.projectId}
+          module="DAT_SACH"
+          projectName={project.tenDuAn}
+        />
+      )}
     </div>
   );
 }

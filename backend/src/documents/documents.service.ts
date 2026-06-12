@@ -309,16 +309,20 @@ export class DocumentsService {
     const doc = await this.prisma.document.findUnique({ where: { id } });
     if (!doc) throw new NotFoundException('Không tìm thấy tài liệu');
 
-    // Check if user has permission to approve
+    // Check if user has permission to approve (either assignedTo or ADMIN/canApprove)
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { role: true, canApprove: true },
     });
-    if (!user || (user.role !== 'ADMIN' && user.canApprove !== true)) {
-      throw new ForbiddenException('Bạn không có quyền phê duyệt tài liệu. Vui lòng liên hệ Admin để được cấp quyền.');
+    const isAssigned = doc.assignedTo === userId;
+    if (!isAssigned && (!user || (user.role !== 'ADMIN' && user.canApprove !== true))) {
+      throw new ForbiddenException('Bạn không có quyền phê duyệt tài liệu.');
     }
 
-    if (doc.status !== DocStatus.PENDING_APPROVAL) {
+    const isPending = doc.status === DocStatus.PENDING_APPROVAL ||
+                      doc.status === DocStatus.PENDING_HEAD ||
+                      doc.status === DocStatus.PENDING_DIRECTOR;
+    if (!isPending) {
       throw new BadRequestException('Tài liệu không ở trạng thái chờ duyệt');
     }
 
@@ -352,11 +356,15 @@ export class DocumentsService {
       where: { id: userId },
       select: { role: true, canApprove: true },
     });
-    if (!user || (user.role !== 'ADMIN' && user.canApprove !== true)) {
-      throw new ForbiddenException('Bạn không có quyền từ chối tài liệu. Vui lòng liên hệ Admin để được cấp quyền.');
+    const isAssigned = doc.assignedTo === userId;
+    if (!isAssigned && (!user || (user.role !== 'ADMIN' && user.canApprove !== true))) {
+      throw new ForbiddenException('Bạn không có quyền từ chối tài liệu.');
     }
 
-    if (doc.status !== DocStatus.PENDING_APPROVAL) {
+    const isPending = doc.status === DocStatus.PENDING_APPROVAL ||
+                      doc.status === DocStatus.PENDING_HEAD ||
+                      doc.status === DocStatus.PENDING_DIRECTOR;
+    if (!isPending) {
       throw new BadRequestException('Tài liệu không ở trạng thái chờ duyệt');
     }
 

@@ -163,7 +163,7 @@ export default function DuToanPage() {
   const fetchDocs = async () => {
     try {
       const data = await api.getDocumentsByType(['TT_DUTOAN', 'QD_DUTOAN']);
-      setDocs(data);
+      setDocs(Array.isArray(data) ? data : ((data as any)?.documents || []));
     } catch (err: any) { toast.error(err.message); }
     finally { setLoading(false); }
   };

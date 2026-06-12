@@ -23,9 +23,21 @@ export class MinioService implements OnModuleInit {
       if (!exists) {
         await this.client.makeBucket(this.bucket);
       }
-      console.log('[MinioService] Bucket ready:', this.bucket);
+      const policy = {
+        Version: '2012-10-17',
+        Statement: [
+          {
+            Effect: 'Allow',
+            Principal: { AWS: ['*'] },
+            Action: ['s3:GetObject'],
+            Resource: [`arn:aws:s3:::${this.bucket}/*`],
+          },
+        ],
+      };
+      await this.client.setBucketPolicy(this.bucket, JSON.stringify(policy));
+      console.log('[MinioService] Bucket ready and policy set to public:', this.bucket);
     } catch (err: any) {
-      console.warn('[MinioService] MinIO unavailable at startup, will retry on first use:', err.message);
+      console.warn('[MinioService] MinIO unavailable at startup:', err.message);
     }
   }
 

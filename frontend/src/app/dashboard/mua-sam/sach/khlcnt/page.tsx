@@ -26,7 +26,8 @@ function SachKHLcntPageInner() {
         api.getDocumentsByType(['QD_DUTOAN'], selectedProject || undefined),
         api.getProjects(),
       ]);
-      setApprovedDuToan(data.filter((d: Doc) => d.status === 'APPROVED'));
+      const docsList = Array.isArray(data) ? data : ((data as any)?.documents || []);
+      setApprovedDuToan(docsList.filter((d: Doc) => d.status === 'APPROVED'));
       setProjects((projectList.projects || []).filter((p: any) => p.procurementType === PROJ_TYPE));
     } catch (err: any) { toast.error(err.message); }
     finally { setLoading(false); }

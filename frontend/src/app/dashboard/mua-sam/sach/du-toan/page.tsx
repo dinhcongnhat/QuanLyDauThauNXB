@@ -12,6 +12,7 @@ import { LibraryPicker, SaveToLibraryModal } from '@/components/LibraryPicker';
 import { SavedValue } from '@/lib/document-library-types';
 import { HistoryModal } from '@/components/HistoryModal';
 import { OnlyOfficePreview } from '@/components/OnlyOfficePreview';
+import { ProjectChat } from '@/components/ProjectChat';
 
 const PROJ_TYPE = 'THAU_SACH';
 
@@ -82,7 +83,8 @@ function SachDuToanPageInner() {
         api.getDocumentsByType(['TT_DUTOAN', 'QD_DUTOAN'], selectedProject || undefined),
         api.getProjects(),
       ]);
-      setDocs(data);
+      const documentsList = Array.isArray(data) ? data : ((data as any)?.documents || []);
+      setDocs(documentsList);
       setProjects((projectList.projects || []).filter((p: any) => p.procurementType === PROJ_TYPE));
     } catch (err: any) { toast.error(err.message); }
     finally { setLoading(false); }
@@ -489,6 +491,14 @@ function SachDuToanPageInner() {
           documentId={detailDoc.id}
           onClose={() => setDetailDoc(null)}
           type="document"
+        />
+      )}
+
+      {selectedProject && (
+        <ProjectChat
+          projectId={selectedProject}
+          module="DU_TOAN"
+          projectName={projects.find((p: any) => p.id === selectedProject)?.tenDuAn}
         />
       )}
     </div>

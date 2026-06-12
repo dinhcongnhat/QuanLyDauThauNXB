@@ -91,8 +91,48 @@ model Project {
   payments            Payment[]             @relation("ProjectPayments")
   datSachProjects    DatSachProject[]     @relation("ProjectDatSachProjects")
   logs               ProjectLog[]         @relation("ProjectLogs")
+  members            ProjectMember[]      @relation("ProjectMembers")
+  messages           ProjectMessage[]     @relation("ProjectMessages")
 
   @@map("projects")
+}
+
+model ProjectMember {
+  id        String   @id @default(uuid())
+  projectId String   @map("project_id")
+  userId    String   @map("user_id")
+  role      String   @default("MEMBER")  // OWNER, MEMBER
+  addedBy   String   @map("added_by")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  project     Project @relation("ProjectMembers", fields: [projectId], references: [id], onDelete: Cascade)
+  user        User    @relation("UserProjectMembers", fields: [userId], references: [id])
+  addedByUser User    @relation("AddedByProjectMembers", fields: [addedBy], references: [id])
+
+  @@unique([projectId, userId])
+  @@index([userId])
+  @@map("project_members")
+}
+
+model ProjectMessage {
+  id        String   @id @default(uuid())
+  projectId String   @map("project_id")
+  userId    String   @map("user_id")
+  content   String
+  type      String   @default("TEXT")  // TEXT, FILE, IMAGE
+  fileUrl   String?  @map("file_url")
+  fileName  String?  @map("file_name")
+  fileType  String?  @map("file_type")
+  fileSize  Int?     @map("file_size")
+  module    String?                    // DAT_SACH, DU_TOAN, KHLCNT, LCNT, THANH_TOAN
+  createdAt DateTime @default(now()) @map("created_at")
+
+  project Project @relation("ProjectMessages", fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation("UserProjectMessages", fields: [userId], references: [id])
+
+  @@index([projectId, createdAt])
+  @@index([projectId, module])
+  @@map("project_messages")
 }
 
 model DatSachProject {
@@ -353,6 +393,9 @@ model User {
   pushSubscriptions    PushSubscription[]
   dynamicRoles         UserDynamicRole[]    @relation("UserDynamicRoles")
   projectLogs          ProjectLog[]         @relation("UserProjectLogs")
+  projectMemberships   ProjectMember[]      @relation("UserProjectMembers")
+  addedProjectMembers  ProjectMember[]      @relation("AddedByProjectMembers")
+  projectMessages      ProjectMessage[]     @relation("UserProjectMessages")
 
   @@map("users")
 }

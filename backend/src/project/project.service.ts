@@ -10,20 +10,42 @@ export class ProjectService {
     tenDuAn: string,
     procurementType: ProcurementType,
     createdBy: string,
+    memberIds?: string[],
   ) {
-    return this.prisma.project.create({
+    const project = await this.prisma.project.create({
       data: { tenDuAn, procurementType, createdBy },
       include: {
         creator: { select: { id: true, name: true, email: true, role: true } },
       },
     });
+
+    // Auto-add creator as OWNER
+    await this.prisma.projectMember.create({
+      data: { projectId: project.id, userId: createdBy, role: 'OWNER', addedBy: createdBy },
+    });
+
+    // Add additional members
+    if (memberIds?.length) {
+      const uniqueIds = [...new Set(memberIds.filter(id => id !== createdBy))];
+      if (uniqueIds.length) {
+        await this.prisma.projectMember.createMany({
+          data: uniqueIds.map(userId => ({
+            projectId: project.id, userId, role: 'MEMBER', addedBy: createdBy,
+          })),
+          skipDuplicates: true,
+        });
+      }
+    }
+
+    return this.findOne(project.id);
   }
 
   async findAll(userId?: string, role?: string, page: number = 1, limit: number = 20) {
     const where: any = {};
 
-    if (role === 'USER') {
-      where.createdBy = userId;
+    // ADMIN sees all, other users only see projects they are members of
+    if (role !== 'ADMIN' && userId) {
+      where.members = { some: { userId } };
     }
 
     const skip = (page - 1) * limit;
@@ -33,6 +55,12 @@ export class ProjectService {
         where,
         include: {
           creator: { select: { id: true, name: true, email: true, role: true } },
+          members: {
+            include: {
+              user: { select: { id: true, name: true, email: true, role: true, department: true } },
+            },
+            orderBy: { createdAt: 'asc' },
+          },
           _count: {
             select: {
               documents: true,
@@ -60,6 +88,12 @@ export class ProjectService {
       where: { id },
       include: {
         creator: { select: { id: true, name: true, email: true, role: true } },
+        members: {
+          include: {
+            user: { select: { id: true, name: true, email: true, role: true, department: true } },
+          },
+          orderBy: { createdAt: 'asc' },
+        },
         documents: {
           include: {
             creator: { select: { id: true, name: true } },
@@ -339,5 +373,64 @@ export class ProjectService {
         data: data || {},
       },
     });
+  }
+
+  // ── Project Members ────────────────────────────────────────
+
+  async getMembers(projectId: string) {
+    return this.prisma.projectMember.findMany({
+      where: { projectId },
+      include: {
+        user: { select: { id: true, name: true, email: true, role: true, department: true, position: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async addMember(projectId: string, userId: string, addedBy: string) {
+    const project = await this.prisma.project.findUnique({ where: { id: projectId } });
+    if (!project) throw new NotFoundException('Không tìm thấy dự án');
+
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Không tìm thấy người dùng');
+
+    // Check if already a member
+    const existing = await this.prisma.projectMember.findUnique({
+      where: { projectId_userId: { projectId, userId } },
+    });
+    if (existing) throw new BadRequestException('Người dùng đã là thành viên của dự án');
+
+    const member = await this.prisma.projectMember.create({
+      data: { projectId, userId, role: 'MEMBER', addedBy },
+      include: {
+        user: { select: { id: true, name: true, email: true, role: true, department: true, position: true } },
+      },
+    });
+
+    return member;
+  }
+
+  async removeMember(projectId: string, userId: string, requesterId: string) {
+    const project = await this.prisma.project.findUnique({ where: { id: projectId } });
+    if (!project) throw new NotFoundException('Không tìm thấy dự án');
+
+    const member = await this.prisma.projectMember.findUnique({
+      where: { projectId_userId: { projectId, userId } },
+    });
+    if (!member) throw new NotFoundException('Người dùng không phải thành viên dự án');
+    if (member.role === 'OWNER') throw new BadRequestException('Không thể xóa chủ dự án');
+
+    await this.prisma.projectMember.delete({
+      where: { projectId_userId: { projectId, userId } },
+    });
+
+    return { success: true };
+  }
+
+  async isMember(projectId: string, userId: string): Promise<boolean> {
+    const member = await this.prisma.projectMember.findUnique({
+      where: { projectId_userId: { projectId, userId } },
+    });
+    return !!member;
   }
 }

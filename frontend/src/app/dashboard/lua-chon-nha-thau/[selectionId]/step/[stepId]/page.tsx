@@ -12,6 +12,7 @@ import { SmartFormField, FieldDef } from '@/components/SmartFormField';
 import { CDT_STEP_FIELDS, CHCT_STEP_FIELDS, ATTACHMENT_ONLY, getFieldsForStep } from '@/lib/lcnt-field-defs';
 import { LibraryPicker, SaveToLibraryModal } from '@/components/LibraryPicker';
 import { SavedValue } from '@/lib/document-library-types';
+import { ProjectChat } from '@/components/ProjectChat';
 
 const STEP_STATUS_LABELS: Record<string, string> = {
   NOT_STARTED: 'Chưa bắt đầu',
@@ -677,6 +678,14 @@ export default function LCNTStepDetailPage() {
         formFieldKeys={fields.map(f => f.key)}
         onSave={handleSaveToLibrarySuccess}
       />
+
+      {selection?.projectId && (
+        <ProjectChat
+          projectId={selection.projectId}
+          module="LCNT"
+          projectName={selection.tenGoiThau}
+        />
+      )}
     </div>
   );
 }

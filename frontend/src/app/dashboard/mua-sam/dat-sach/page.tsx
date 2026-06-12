@@ -22,7 +22,8 @@ export default function DatSachListPage() {
     (async () => {
       try {
         const all = await api.getDocumentsByType(['QD_DUTOAN']);
-        setApprovedDuToan(all.filter(d => d.status === 'APPROVED'));
+        const docsList = Array.isArray(all) ? all : ((all as any)?.documents || []);
+        setApprovedDuToan(docsList.filter((d: any) => d.status === 'APPROVED'));
       } catch (err: any) { toast.error(err.message); }
       finally { setLoading(false); }
     })();

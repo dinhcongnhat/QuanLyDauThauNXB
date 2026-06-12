@@ -31,10 +31,10 @@ export const api = {
   getProjectSummary: (id: string) => request<any>(`/projects/${encodeURIComponent(id)}/summary`),
   getProjectLogs: (id: string, stepKey?: string) =>
     request<any[]>(`/projects/${encodeURIComponent(id)}/logs${stepKey ? `?stepKey=${encodeURIComponent(stepKey)}` : ''}`),
-  createProject: (tenDuAn: string, procurementType: string) =>
+  createProject: (tenDuAn: string, procurementType: string, memberIds?: string[]) =>
     request<any>('/projects', {
       method: 'POST',
-      body: JSON.stringify({ tenDuAn, procurementType }),
+      body: JSON.stringify({ tenDuAn, procurementType, memberIds }),
     }),
   updateProject: (id: string, data: { status?: string; tenDuAn?: string }) =>
     request<any>(`/projects/${encodeURIComponent(id)}`, {
@@ -44,6 +44,49 @@ export const api = {
   deleteProject: (id: string) =>
     request<any>(`/projects/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   getProjectStats: () => request<any>('/projects/stats'),
+
+  // ── Project Members ─────────────────────────────────────────
+  getProjectMembers: (id: string) =>
+    request<any[]>(`/projects/${encodeURIComponent(id)}/members`),
+  addProjectMember: (id: string, userId: string) =>
+    request<any>(`/projects/${encodeURIComponent(id)}/members`, {
+      method: 'POST',
+      body: JSON.stringify({ userId }),
+    }),
+  removeProjectMember: (id: string, userId: string) =>
+    request<any>(`/projects/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`, {
+      method: 'DELETE',
+    }),
+
+  // ── Chat ────────────────────────────────────────────────────
+  getChatMessages: (projectId: string, module?: string, cursor?: string, limit?: number) => {
+    const params = new URLSearchParams();
+    if (module) params.set('module', module);
+    if (cursor) params.set('cursor', cursor);
+    if (limit) params.set('limit', String(limit));
+    const qs = params.toString();
+    return request<{ messages: any[]; hasMore: boolean; nextCursor: string | null }>(
+      `/chat/${encodeURIComponent(projectId)}/messages${qs ? `?${qs}` : ''}`,
+    );
+  },
+  sendChatMessage: (projectId: string, content: string, module?: string, type?: string, fileUrl?: string, fileName?: string, fileType?: string) =>
+    request<any>(`/chat/${encodeURIComponent(projectId)}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({ content, module, type, fileUrl, fileName, fileType }),
+    }),
+  uploadChatFile: async (projectId: string, file: File) => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const formData = new FormData();
+    formData.append('file', file);
+    const baseUrl = typeof window !== 'undefined' ? `${window.location.origin}/api` : '/api';
+    const res = await fetch(`${baseUrl}/chat/${encodeURIComponent(projectId)}/upload`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData,
+    });
+    if (!res.ok) throw new Error('Upload failed');
+    return res.json() as Promise<{ fileUrl: string; fileName: string; fileType: string; fileSize: number }>;
+  },
 
   // Auth
   login: (email: string, password: string) =>

@@ -11,6 +11,7 @@ import { GroupedFieldRenderer } from '@/components/GroupedFieldRenderer';
 import { HistoryModal } from '@/components/HistoryModal';
 import { LibraryPicker, SaveToLibraryModal } from '@/components/LibraryPicker';
 import { SavedValue } from '@/lib/document-library-types';
+import { ProjectChat } from '@/components/ProjectChat';
 
 // ====================== FIELD DEFINITIONS ======================
 // Mapped from template placeholders per step, per package type
@@ -1064,6 +1065,14 @@ export default function PaymentStepPage() {
         formFieldKeys={stepFields.map((f: any) => f.key)}
         onSave={() => toast.success('Đã lưu mẫu thanh toán vào thư viện')}
       />
+
+      {payment?.projectId && (
+        <ProjectChat
+          projectId={payment.projectId}
+          module="THANH_TOAN"
+          projectName={payment.contractorSelection?.tenGoiThau}
+        />
+      )}
     </div>
   );
 }

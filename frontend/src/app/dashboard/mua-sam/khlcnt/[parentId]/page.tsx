@@ -12,6 +12,7 @@ import { OnlyOfficePreview } from '@/components/OnlyOfficePreview';
 import { LibraryPicker, SaveToLibraryModal } from '@/components/LibraryPicker';
 import { SavedValue } from '@/lib/document-library-types';
 import { HistoryModal } from '@/components/HistoryModal';
+import { ProjectChat } from '@/components/ProjectChat';
 
 const statusLabels: Record<DocStatus, string> = {
   DRAFT: 'Bản nháp', PENDING_APPROVAL: 'Chờ phê duyệt',
@@ -123,7 +124,7 @@ function KHLCNTDetailPageInner() {
 
   useEffect(() => {
     fetchData();
-    api.getUsers().then(setUsers).catch(() => {});
+    api.getUsers().then((res: any) => setUsers(Array.isArray(res) ? res : (res?.users || []))).catch(() => {});
   }, [parentId]);
 
   const ttApproved = children.some(d => d.type === 'TT_KHLCNT' && d.status === 'APPROVED');
@@ -671,6 +672,14 @@ function KHLCNTDetailPageInner() {
         formFieldKeys={['tenDuAn', 'chuDauTu', 'nguonVon', 'diaDanh', 'donViTrinh', 'coQuanPheDuyet', 'soQuyetDinh', 'nguoiPheDuyet', 'donViThamDinh', 'donViGiamSat']}
         onSave={() => toast.success('Đã lưu mẫu Quyết định KHLCNT vào thư viện')}
       />
+
+      {(parent?.projectId || projectId) && (
+        <ProjectChat
+          projectId={parent?.projectId || projectId!}
+          module="KHLCNT"
+          projectName={parent?.data?.tenDuAn || (parent as any)?.tenDuAn}
+        />
+      )}
     </div>
   );
 }

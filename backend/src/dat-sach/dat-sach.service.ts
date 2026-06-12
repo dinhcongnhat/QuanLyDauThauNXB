@@ -844,7 +844,7 @@ export class DatSachService {
   }
 
   async getPendingReviews(userId: string) {
-    const [pendingGDNs, pendingPCDIs, pendingQDs] = await Promise.all([
+    const [pendingGDNs, pendingPCDIs, pendingQDs, pendingDocuments] = await Promise.all([
       this.prisma.gDNInSach.findMany({
         where: { reviewerId: userId, reviewStatus: 'PENDING' },
         include: {
@@ -871,7 +871,18 @@ export class DatSachService {
         },
         orderBy: { updatedAt: 'desc' },
       }),
+      this.prisma.document.findMany({
+        where: {
+          assignedTo: userId,
+          status: { in: ['PENDING_APPROVAL', 'PENDING_HEAD', 'PENDING_DIRECTOR'] },
+        },
+        include: {
+          creator: { select: { id: true, name: true, email: true } },
+          project: { select: { id: true, tenDuAn: true } },
+        },
+        orderBy: { updatedAt: 'desc' },
+      }),
     ]);
-    return { pendingGDNs, pendingPCDIs, pendingQDs };
+    return { pendingGDNs, pendingPCDIs, pendingQDs, pendingDocuments };
   }
 }

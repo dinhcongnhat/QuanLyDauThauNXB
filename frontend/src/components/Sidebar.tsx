@@ -231,6 +231,11 @@ export function Sidebar({ onOpenNotifications }: SidebarProps) {
           {Icon.dashboard}<span>Tổng quan</span>
         </Link>
 
+        {/* Phê duyệt */}
+        <Link href="/dashboard/phe-duyet" className={linkCls('/dashboard/phe-duyet')}>
+          {Icon.stamp}<span>Phê duyệt</span>
+        </Link>
+
         {/* ===== ADMIN NAV ===== */}
         {isAdmin && (
           <>
@@ -289,9 +294,6 @@ export function Sidebar({ onOpenNotifications }: SidebarProps) {
                 <div className="ml-6 mt-1 space-y-1 border-l-2 border-green-100 pl-3">
                   <Link href="/dashboard/mua-sam/sach/dat-sach" className={subLinkCls('/dashboard/mua-sam/sach/dat-sach')}>
                     {Icon.cart}<span>Đặt sách</span>
-                  </Link>
-                  <Link href="/dashboard/mua-sam/sach/dat-sach/pending-reviews" className={subLinkCls('/dashboard/mua-sam/sach/dat-sach/pending-reviews')}>
-                    {Icon.stamp}<span>Phê duyệt</span>
                   </Link>
                   <Link href="/dashboard/mua-sam/sach/du-toan" className={subLinkCls('/dashboard/mua-sam/sach/du-toan')}>
                     {Icon.docText}<span>Phê duyệt Dự toán</span>

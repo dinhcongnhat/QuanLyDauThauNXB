@@ -12,6 +12,7 @@ import { DatSachModule } from './dat-sach/dat-sach.module';
 import { ProjectModule } from './project/project.module';
 import { DocumentLibraryModule } from './document-library/document-library.module';
 import { RbacModule } from './rbac/rbac.module';
+import { ChatModule } from './chat/chat.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { RbacModule } from './rbac/rbac.module';
     ProjectModule,
     DocumentLibraryModule,
     RbacModule,
+    ChatModule,
   ],
 })
 export class AppModule implements NestModule {
