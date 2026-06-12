@@ -2,6 +2,84 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  @apply bg-gray-50 text-gray-900;
+@layer base {
+  body {
+    font-family: var(--font-inter), sans-serif;
+    @apply bg-slate-50/50 text-slate-800 antialiased text-[15px] leading-relaxed;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-outfit), sans-serif;
+    @apply font-bold text-slate-900 tracking-tight;
+  }
+}
+
+/* Custom styled inputs override globally */
+.inp, .input-field, input[type="text"], input[type="email"], input[type="password"], input[type="number"], input[type="date"], select, textarea {
+  border: 1px solid #cbd5e1 !important;
+  border-radius: 0.75rem !important;
+  padding: 0.65rem 1rem !important;
+  font-size: 0.925rem !important;
+  outline: none !important;
+  background-color: #ffffff !important;
+  transition: all 0.2s ease-in-out !important;
+  color: #1e293b !important;
+}
+
+.inp:focus, .input-field:focus, input:focus, select:focus, textarea:focus {
+  border-color: #dc2626 !important;
+  box-shadow: 0 0 0 4px rgba(220, 38, 38, 0.08) !important;
+}
+
+/* Scrollbar customizations */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Premium Card & Containers styles */
+.card-premium {
+  @apply bg-white rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-all duration-300 p-6 relative overflow-hidden;
+}
+
+/* Custom transitions and hover states for buttons */
+button, a {
+  @apply transition-all duration-200 ease-in-out;
+}
+
+/* Table styles overrides to look cleaner and spaced */
+table {
+  @apply min-w-full divide-y divide-slate-100;
+}
+
+th {
+  @apply px-6 py-4 bg-slate-50 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider !important;
+}
+
+td {
+  @apply px-6 py-4 text-sm text-slate-600 border-b border-slate-100 !important;
+}
+
+tr:hover {
+  @apply bg-slate-50/50 transition-colors;
+}
+
+/* Badge custom layout */
+.badge-custom {
+  @apply inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold tracking-wide uppercase transition-colors;
+}
+
+/* Page Layout Spacing fixes */
+.space-y-6 > * + * {
+  margin-top: 1.75rem !important;
 }

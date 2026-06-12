@@ -4,14 +4,16 @@ export type LibraryType = 'THONG_TIN_TO_CHUC' | 'THONG_TIN_NHA_THAU' | 'DIA_CHI'
   | 'DAT_SACH_GDN' | 'DAT_SACH_PCDI' | 'DAT_SACH_QD'
   | 'DUTOAN_TT' | 'DUTOAN_QD'
   | 'KHLCNT'
-  | 'LCNT_STEP';
+  | 'LCNT_STEP'
+  | 'THANH_TOAN';
 export type FieldType = 'TEXT' | 'TEXTAREA' | 'DATE' | 'MONEY' | 'NUMBER' | 'EMAIL' | 'PHONE';
 
 export type ModuleLibraryType =
   | 'DAT_SACH_GDN' | 'DAT_SACH_PCDI' | 'DAT_SACH_QD'
   | 'DUTOAN_TT' | 'DUTOAN_QD'
   | 'KHLCNT'
-  | 'LCNT_STEP';
+  | 'LCNT_STEP'
+  | 'THANH_TOAN';
 
 export const MODULE_LIBRARY_LABELS: Record<ModuleLibraryType, string> = {
   DAT_SACH_GDN: 'Mẫu GDN Đặt sách',
@@ -21,6 +23,7 @@ export const MODULE_LIBRARY_LABELS: Record<ModuleLibraryType, string> = {
   DUTOAN_QD: 'Mẫu QĐ Dự toán',
   KHLCNT: 'Mẫu KHLCNT',
   LCNT_STEP: 'Mẫu LCNT',
+  THANH_TOAN: 'Mẫu Thanh toán',
 };
 
 export const MODULE_LABELS: Record<string, string> = {
@@ -88,6 +91,7 @@ export const LIBRARY_TYPE_LABELS: Record<LibraryType, string> = {
   DUTOAN_QD: 'Mẫu QĐ Dự toán',
   KHLCNT: 'Mẫu KHLCNT',
   LCNT_STEP: 'Mẫu LCNT',
+  THANH_TOAN: 'Mẫu Thanh toán',
 };
 
 export const FIELD_TYPE_LABELS: Record<FieldType, string> = {

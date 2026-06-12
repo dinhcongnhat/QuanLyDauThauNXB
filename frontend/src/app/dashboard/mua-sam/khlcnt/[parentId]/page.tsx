@@ -9,7 +9,7 @@ import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import { OnlyOfficePreview } from '@/components/OnlyOfficePreview';
-import { LibraryPicker } from '@/components/LibraryPicker';
+import { LibraryPicker, SaveToLibraryModal } from '@/components/LibraryPicker';
 import { SavedValue } from '@/lib/document-library-types';
 import { HistoryModal } from '@/components/HistoryModal';
 
@@ -46,6 +46,8 @@ function KHLCNTDetailPageInner() {
   const [selectedTTRef, setSelectedTTRef] = useState('');
   const [editingDoc, setEditingDoc] = useState<Doc | null>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [showSaveTTLibrary, setShowSaveTTLibrary] = useState(false);
+  const [showSaveQDLibrary, setShowSaveQDLibrary] = useState(false);
 
   // TT KHLCNT form
   const [ttData, setTtData] = useState({
@@ -134,11 +136,17 @@ function KHLCNTDetailPageInner() {
   const approvedTTs = children.filter(d => d.type === 'TT_KHLCNT' && d.status === 'APPROVED');
 
   const handleLibraryTT = (val: SavedValue) => {
-    setTtData(prev => ({ ...prev, ...val.duLieu }));
+    const d = val.duLieu || {};
+    setTtData(prev => ({
+      ...prev,
+      ...d,
+      tongMucDauTu: d.tongMucDauTu ? Number(d.tongMucDauTu) : prev.tongMucDauTu,
+    }));
   };
 
   const handleLibraryQD = (val: SavedValue) => {
-    setQdData(prev => ({ ...prev, ...val.duLieu }));
+    const d = val.duLieu || {};
+    setQdData(prev => ({ ...prev, ...d }));
   };
 
   // When user selects approved TT to link into QD form
@@ -314,9 +322,11 @@ function KHLCNTDetailPageInner() {
         <div className="bg-white rounded-xl p-6 shadow-sm border">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold">Tạo Tờ trình phê duyệt KHLCNT (Mẫu 02A)</h3>
-            <LibraryPicker
-              libraryType="THONG_TIN_TO_CHUC" onSelect={handleLibraryTT} onSaveToLibrary={() => {}}
-            />
+            <div className="flex items-center gap-2">
+              <LibraryPicker
+                libraryType="KHLCNT" onSelect={handleLibraryTT} onSaveToLibrary={() => setShowSaveTTLibrary(true)}
+              />
+            </div>
           </div>
           <h4 className="text-sm font-medium text-gray-600 mb-2">Thông tin chung</h4>
           <div className="grid grid-cols-2 gap-4">
@@ -384,9 +394,11 @@ function KHLCNTDetailPageInner() {
         <div className="bg-white rounded-xl p-6 shadow-sm border">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold">Tạo Quyết định phê duyệt KHLCNT (Mẫu 02C)</h3>
-            <LibraryPicker
-              libraryType="THONG_TIN_TO_CHUC" onSelect={handleLibraryQD} onSaveToLibrary={() => {}}
-            />
+            <div className="flex items-center gap-2">
+              <LibraryPicker
+                libraryType="KHLCNT" onSelect={handleLibraryQD} onSaveToLibrary={() => setShowSaveQDLibrary(true)}
+              />
+            </div>
           </div>
 
           {/* Link from approved TT */}
@@ -636,6 +648,28 @@ function KHLCNTDetailPageInner() {
         projectId={activeProjectId}
         stepKey="khlcnt"
         title="Lịch sử Kế hoạch lựa chọn nhà thầu"
+      />
+
+      <SaveToLibraryModal
+        isOpen={showSaveTTLibrary}
+        onClose={() => setShowSaveTTLibrary(false)}
+        libraryType="KHLCNT"
+        formData={Object.fromEntries(
+          Object.entries(ttData).map(([k, v]) => [k, typeof v === 'object' ? JSON.stringify(v) : String(v ?? '')])
+        )}
+        formFieldKeys={['tenDuAn', 'chuDauTu', 'nguonVon', 'diaDanh', 'donViTrinh', 'thoiGianThucHien', 'diaDiem', 'quyMo']}
+        onSave={() => toast.success('Đã lưu mẫu Tờ trình KHLCNT vào thư viện')}
+      />
+
+      <SaveToLibraryModal
+        isOpen={showSaveQDLibrary}
+        onClose={() => setShowSaveQDLibrary(false)}
+        libraryType="KHLCNT"
+        formData={Object.fromEntries(
+          Object.entries(qdData).map(([k, v]) => [k, typeof v === 'object' ? JSON.stringify(v) : String(v ?? '')])
+        )}
+        formFieldKeys={['tenDuAn', 'chuDauTu', 'nguonVon', 'diaDanh', 'donViTrinh', 'coQuanPheDuyet', 'soQuyetDinh', 'nguoiPheDuyet', 'donViThamDinh', 'donViGiamSat']}
+        onSave={() => toast.success('Đã lưu mẫu Quyết định KHLCNT vào thư viện')}
       />
     </div>
   );

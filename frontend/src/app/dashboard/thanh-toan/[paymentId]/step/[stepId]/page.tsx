@@ -9,6 +9,8 @@ import { vi } from 'date-fns/locale';
 import { SmartFormField, FieldDef } from '@/components/SmartFormField';
 import { GroupedFieldRenderer } from '@/components/GroupedFieldRenderer';
 import { HistoryModal } from '@/components/HistoryModal';
+import { LibraryPicker, SaveToLibraryModal } from '@/components/LibraryPicker';
+import { SavedValue } from '@/lib/document-library-types';
 
 // ====================== FIELD DEFINITIONS ======================
 // Mapped from template placeholders per step, per package type
@@ -686,8 +688,28 @@ export default function PaymentStepPage() {
   const [generating, setGenerating] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadGhiChu, setUploadGhiChu] = useState('');
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [showSaveLibraryModal, setShowSaveLibraryModal] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleSelectLibraryValue = (savedValue: SavedValue) => {
+    const data = savedValue.duLieu || {};
+    const newFormData = { ...formData };
+    for (const [key, value] of Object.entries(data)) {
+      const valStr = String(value ?? '');
+      newFormData[key] = valStr;
+      if (key === 'MaSoHopDong') {
+        newFormData['MaSoHD'] = valStr;
+      } else if (key === 'ThoiGianKyHopDong') {
+        newFormData['ThoiGianKyHD'] = valStr;
+      } else if (key === 'DiaDanh') {
+        newFormData['Diadanh'] = valStr;
+        newFormData['diaDanh'] = valStr;
+      }
+    }
+    setFormData(newFormData);
+    toast.success('Đã điền thông tin từ thư viện văn bản');
+  };
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -896,19 +918,36 @@ export default function PaymentStepPage() {
               </span>
             </div>
           </div>
-          {payment.projectId && (
-            <button
-              onClick={() => setShowHistory(true)}
-              className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-sm font-semibold flex items-center gap-1.5 transition-colors border border-indigo-100"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              Lịch sử
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {payment.projectId && (
+              <button
+                onClick={() => setShowHistory(true)}
+                className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-sm font-semibold flex items-center gap-1.5 transition-colors border border-indigo-100"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Lịch sử
+              </button>
+            )}
+          </div>
         </div>
       </div>
+
+      {/* Document Library Integration */}
+      {stepFields.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border p-4 flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900">Thư viện văn bản thanh toán</h3>
+            <p className="text-xs text-gray-500">Sử dụng hoặc lưu lại mẫu điền thông tin đối tác/dự án cho thanh toán</p>
+          </div>
+          <LibraryPicker
+            libraryType="THANH_TOAN"
+            onSelect={handleSelectLibraryValue}
+            onSaveToLibrary={() => setShowSaveLibraryModal(true)}
+          />
+        </div>
+      )}
 
       {/* Auto-fill notice */}
       {Object.keys(autoFillData).length > 0 && step.status === 'NOT_STARTED' && (
@@ -1016,6 +1055,14 @@ export default function PaymentStepPage() {
         projectId={payment.projectId}
         stepKey="payment"
         title="Lịch sử Thanh toán"
+      />
+      <SaveToLibraryModal
+        isOpen={showSaveLibraryModal}
+        onClose={() => setShowSaveLibraryModal(false)}
+        libraryType="THANH_TOAN"
+        formData={formData}
+        formFieldKeys={stepFields.map((f: any) => f.key)}
+        onSave={() => toast.success('Đã lưu mẫu thanh toán vào thư viện')}
       />
     </div>
   );

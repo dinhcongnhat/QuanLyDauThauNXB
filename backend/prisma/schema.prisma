@@ -534,6 +534,7 @@ enum LibraryType {
   DUTOAN_QD         // Quyet dinh DuToan: tenDuAn, soQuyetDinh, chuDauTu, nguonVon, diaDiemThucHien, tongMucDauTu
   KHLCNT            // KHLCNT: tenDuAn, chuDauTu, nguonVon, diaDiemThucHien, giaTriHopDong, hinhThucLuaChon
   LCNT_STEP        // LCNT step: dynamic, maps to contractor info
+  THANH_TOAN
 }
 
 enum FieldType {

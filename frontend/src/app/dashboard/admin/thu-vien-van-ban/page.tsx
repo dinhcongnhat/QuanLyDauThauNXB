@@ -18,6 +18,7 @@ const LOAI_OPTIONS: LibraryType[] = [
   'DUTOAN_TT', 'DUTOAN_QD',
   'KHLCNT',
   'LCNT_STEP',
+  'THANH_TOAN',
 ];
 const FIELD_TYPE_OPTIONS: FieldType[] = ['TEXT', 'TEXTAREA', 'DATE', 'MONEY', 'NUMBER', 'EMAIL', 'PHONE'];
 
@@ -263,6 +264,7 @@ export default function ThuVienVanBanPage() {
       DUTOAN_QD: 'bg-teal-100 text-teal-700',
       KHLCNT: 'bg-orange-100 text-orange-700',
       LCNT_STEP: 'bg-pink-100 text-pink-700',
+      THANH_TOAN: 'bg-red-100 text-red-700',
     };
     return colors[loai] || 'bg-gray-100 text-gray-700';
   };

@@ -36,7 +36,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <div className="flex min-h-screen">
       <Sidebar onOpenNotifications={() => setNotifOpen(true)} />
-      <main className="flex-1 p-6 bg-gray-50 overflow-y-auto relative">
+      <main className="flex-1 p-8 md:p-10 bg-[#f8fafc] overflow-y-auto relative">
         {/* Brand watermark */}
         <div
           aria-hidden="true"

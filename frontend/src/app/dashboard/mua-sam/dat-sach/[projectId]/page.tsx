@@ -643,7 +643,7 @@ function DatSachDetailPageInner() {
                 {gdn && <button onClick={handleDownloadGDN} className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">📥 DOCX</button>}
                 {gdn && <button onClick={handlePreviewGDN} className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100">👁 Xem trước</button>}
                 <button onClick={() => { setSaveLibType('DAT_SACH_GDN'); setShowSaveToLibrary(true); }} className="text-xs px-2 py-1 bg-green-50 text-green-700 rounded hover:bg-green-100">💾 Lưu vào thư viện</button>
-                <LibraryPicker libraryType="THONG_TIN_TO_CHUC" module="DAT_SACH_GDN" onSelect={handleLibraryGDN} onSaveToLibrary={() => setSaveLibType('DAT_SACH_GDN')} />
+                <LibraryPicker libraryType="THONG_TIN_TO_CHUC" module="DAT_SACH_GDN" onSelect={handleLibraryGDN} onSaveToLibrary={() => { setSaveLibType('DAT_SACH_GDN'); setShowSaveToLibrary(true); }} />
               </div>
             </div>
 
@@ -894,7 +894,7 @@ function DatSachDetailPageInner() {
                 {pcdi && <button onClick={handleDownloadPCDI} className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">📥 DOCX</button>}
                 {pcdi && <button onClick={handlePreviewPCDI} className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100">👁 Xem trước</button>}
                 <button onClick={() => { setSaveLibType('DAT_SACH_PCDI'); setShowSaveToLibrary(true); }} className="text-xs px-2 py-1 bg-green-50 text-green-700 rounded hover:bg-green-100">💾 Lưu vào thư viện</button>
-                <LibraryPicker libraryType="THONG_TIN_NHA_THAU" module="DAT_SACH_PCDI" onSelect={handleLibraryPCDI} onSaveToLibrary={() => setSaveLibType('DAT_SACH_PCDI')} />
+                <LibraryPicker libraryType="THONG_TIN_NHA_THAU" module="DAT_SACH_PCDI" onSelect={handleLibraryPCDI} onSaveToLibrary={() => { setSaveLibType('DAT_SACH_PCDI'); setShowSaveToLibrary(true); }} />
               </div>
             </div>
 
@@ -1086,7 +1086,7 @@ function DatSachDetailPageInner() {
                 <button onClick={handleDownloadQD} className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">📥 DOCX</button>
                 <button onClick={handlePreviewQD} className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100">👁 Xem trước</button>
                 <button onClick={() => { setSaveLibType('DAT_SACH_QD'); setShowSaveToLibrary(true); }} className="text-xs px-2 py-1 bg-green-50 text-green-700 rounded hover:bg-green-100">💾 Lưu vào thư viện</button>
-                <LibraryPicker libraryType="THONG_TIN_TO_CHUC" module="DAT_SACH_QD" onSelect={handleLibraryQD} onSaveToLibrary={() => setSaveLibType('DAT_SACH_QD')} />
+                <LibraryPicker libraryType="THONG_TIN_TO_CHUC" module="DAT_SACH_QD" onSelect={handleLibraryQD} onSaveToLibrary={() => { setSaveLibType('DAT_SACH_QD'); setShowSaveToLibrary(true); }} />
               </div>
             </div>
 

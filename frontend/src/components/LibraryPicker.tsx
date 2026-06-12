@@ -87,7 +87,7 @@ export function LibraryPicker({ libraryType, onSelect, onSaveToLibrary, trigger,
         <div className="absolute right-0 top-full mt-1 z-50 bg-white rounded-xl border border-gray-200 shadow-lg w-80 max-h-96 overflow-y-auto">
           <div className="p-3 border-b border-gray-100">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-              Thư viện: {LIBRARY_TYPE_LABELS[libraryType]}
+              Thư viện: {selectedLib ? selectedLib.ten : (module ? MODULE_LIBRARY_LABELS[module] : LIBRARY_TYPE_LABELS[libraryType])}
             </p>
           </div>
 
@@ -147,11 +147,26 @@ export function LibraryPicker({ libraryType, onSelect, onSaveToLibrary, trigger,
             </>
           )}
 
-          <div className="p-2 border-t border-gray-100">
-            <p className="text-xs text-center text-gray-400">
-              Liên hệ Admin để thêm dữ liệu vào thư viện
-            </p>
-          </div>
+          {onSaveToLibrary ? (
+            <div className="p-2 border-t border-gray-100">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsOpen(false);
+                  onSaveToLibrary({} as SavedValue);
+                }}
+                className="w-full text-center px-3 py-1.5 text-xs font-semibold text-primary-600 bg-primary-50 hover:bg-primary-100 rounded-lg transition-colors"
+              >
+                💾 Lưu thông tin hiện tại vào thư viện
+              </button>
+            </div>
+          ) : (
+            <div className="p-2 border-t border-gray-100">
+              <p className="text-xs text-center text-gray-400">
+                Liên hệ Admin để thêm dữ liệu vào thư viện
+              </p>
+            </div>
+          )}
         </div>
       )}
     </div>

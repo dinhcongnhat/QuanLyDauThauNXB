@@ -9,7 +9,7 @@ import { vi } from 'date-fns/locale';
 import { AnimatePresence, motion } from 'framer-motion';
 import { SmartFormField, FieldDef } from '@/components/SmartFormField';
 import { ZipDownloadModal } from '@/components/ZipDownloadModal';
-import { LibraryPicker } from '@/components/LibraryPicker';
+import { LibraryPicker, SaveToLibraryModal } from '@/components/LibraryPicker';
 import { SavedValue, LibraryType } from '@/lib/document-library-types';
 
 const STEP_LABELS: Record<string, string> = {
@@ -200,6 +200,7 @@ export default function ThamDuDauThauPage() {
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showZipModal, setShowZipModal] = useState(false);
+  const [showSaveToLibraryModal, setShowSaveToLibraryModal] = useState(false);
 
   // Create form
   const [createData, setCreateData] = useState({
@@ -560,7 +561,7 @@ export default function ThamDuDauThauPage() {
                       <LibraryPicker
                         libraryType={getLibraryTypeForStep()}
                         onSelect={handleLibrarySelect}
-                        onSaveToLibrary={() => {}}
+                        onSaveToLibrary={() => setShowSaveToLibraryModal(true)}
                       />
                       <button onClick={handleSaveStepData} disabled={submitting}
                         className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm disabled:opacity-50">
@@ -648,6 +649,15 @@ export default function ThamDuDauThauPage() {
         onClose={() => setShowZipModal(false)}
         loadPreview={() => api.getBidZipPreview(selectedBid.id)}
         downloadZip={() => api.downloadBidZip(selectedBid.id)}
+      />
+
+      <SaveToLibraryModal
+        isOpen={showSaveToLibraryModal}
+        onClose={() => setShowSaveToLibraryModal(false)}
+        libraryType={getLibraryTypeForStep()}
+        formData={stepFormData}
+        formFieldKeys={Object.keys(stepFormData)}
+        onSave={() => setShowSaveToLibraryModal(false)}
       />
       </>
     );

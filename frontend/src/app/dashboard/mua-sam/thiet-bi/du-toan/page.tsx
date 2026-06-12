@@ -9,7 +9,7 @@ import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useSearchParams } from 'next/navigation';
-import { LibraryPicker } from '@/components/LibraryPicker';
+import { LibraryPicker, SaveToLibraryModal } from '@/components/LibraryPicker';
 import { LibraryType, SavedValue } from '@/lib/document-library-types';
 import { HistoryModal } from '@/components/HistoryModal';
 import { OnlyOfficePreview } from '@/components/OnlyOfficePreview';
@@ -54,6 +54,8 @@ function ThietBiDuToanPageInner() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTTId, setSelectedTTId] = useState('');
   const [showHistory, setShowHistory] = useState(false);
+  const [saveTTOpen, setSaveTTOpen] = useState(false);
+  const [saveQDOpen, setSaveQDOpen] = useState(false);
 
   const [ttData, setTtData] = useState({
     SoToTrinh: '', DiaDanh: '', Ngay: '', Thang: '', Nam: '',
@@ -300,12 +302,12 @@ function ThietBiDuToanPageInner() {
             <div className="flex gap-2">
               {showForm === 'TT_DUTOAN' && (
                 <LibraryPicker
-                  libraryType="THONG_TIN_TO_CHUC" onSelect={handleLibraryTT} onSaveToLibrary={() => {}}
+                  libraryType="DUTOAN_TT" onSelect={handleLibraryTT} onSaveToLibrary={() => setSaveTTOpen(true)}
                 />
               )}
               {showForm === 'QD_DUTOAN' && (
                 <LibraryPicker
-                  libraryType="THONG_TIN_TO_CHUC" onSelect={handleLibraryQD} onSaveToLibrary={() => {}}
+                  libraryType="DUTOAN_QD" onSelect={handleLibraryQD} onSaveToLibrary={() => setSaveQDOpen(true)}
                 />
               )}
             </div>
@@ -470,6 +472,22 @@ function ThietBiDuToanPageInner() {
         projectId={selectedProject}
         stepKey="phe_duyet_du_toan"
         title="Lịch sử Phê duyệt Dự toán"
+      />
+      <SaveToLibraryModal
+        isOpen={saveTTOpen}
+        onClose={() => setSaveTTOpen(false)}
+        libraryType="DUTOAN_TT"
+        formData={ttData}
+        formFieldKeys={['SoToTrinh', 'DiaDanh', 'Ngay', 'Thang', 'Nam', 'ChuDauTu', 'TenDuAn', 'TenGoiThau', 'DonViTrinh', 'DonViMuaSam', 'PhongBanThuocDonViTrinh', 'NguonVon', 'DiaDiemThucHien', 'ThoiGianThucHien', 'DuToanBangSo', 'DuToanBangChu']}
+        onSave={() => setSaveTTOpen(false)}
+      />
+      <SaveToLibraryModal
+        isOpen={saveQDOpen}
+        onClose={() => setSaveQDOpen(false)}
+        libraryType="DUTOAN_QD"
+        formData={qdData}
+        formFieldKeys={['SoQuyetDinh', 'DiaDanh', 'ChuDauTu', 'TenGoiThau', 'DonViMuaSam', 'PhongBanThuocDonViTrinh', 'NguonVon', 'DiaDiemThucHien', 'ThoiGianThucHien', 'DuToanBangSo', 'DuToanBangChu']}
+        onSave={() => setSaveQDOpen(false)}
       />
       {detailDoc && (
         <OnlyOfficePreview

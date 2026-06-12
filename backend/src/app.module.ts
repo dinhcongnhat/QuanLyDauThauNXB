@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
@@ -30,4 +30,22 @@ import { RbacModule } from './rbac/rbac.module';
     RbacModule,
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer
+      .apply((req: any, res: any, next: any) => {
+        const start = Date.now();
+        res.on('finish', () => {
+          const duration = Date.now() - start;
+          const msg = `[Request] ${req.method} ${req.originalUrl} - ${res.statusCode} (${duration}ms)`;
+          if (duration > 1000) {
+            console.warn(`\x1b[33m${msg}\x1b[0m`);
+          } else {
+            console.log(msg);
+          }
+        });
+        next();
+      })
+      .forRoutes('*');
+  }
+}

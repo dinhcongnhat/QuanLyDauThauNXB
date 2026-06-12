@@ -410,26 +410,12 @@ export default function LCNTStepDetailPage() {
       {/* Library Picker & Save to Library */}
       {fields.length > 0 && canEdit && (
         <div className="flex items-center gap-3 p-4 bg-blue-50 border border-blue-100 rounded-xl">
-          <span className="text-blue-600 text-sm font-medium">Thư viện văn bản:</span>
+          <span className="text-blue-600 text-sm font-medium">Thư viện văn bản LCNT:</span>
           <LibraryPicker
-            libraryType="THONG_TIN_TO_CHUC"
+            libraryType="LCNT_STEP"
             onSelect={handleSelectLibraryValue}
-            onSaveToLibrary={handleSaveToLibrarySuccess}
+            onSaveToLibrary={() => setShowSaveToLibraryModal(true)}
           />
-          <LibraryPicker
-            libraryType="THONG_TIN_NHA_THAU"
-            onSelect={handleSelectLibraryValue}
-            onSaveToLibrary={handleSaveToLibrarySuccess}
-          />
-          <button
-            onClick={() => setShowSaveToLibraryModal(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-50 text-green-700 rounded-lg hover:bg-green-100 transition-colors text-sm font-medium border border-green-200"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
-              <path d="M8 12a.5.5 0 0 0 .5-.5V5.707l2.146 2.147a.5.5 0 0 0 .708-.708l-3-3a.5.5 0 0 0-.708 0l-3 3a.5.5 0 1 0 .708.708L7.5 5.707V11.5a.5.5 0 0 0 .5.5Z" />
-            </svg>
-            Lưu vào thư viện
-          </button>
         </div>
       )}
 
@@ -686,7 +672,7 @@ export default function LCNTStepDetailPage() {
       <SaveToLibraryModal
         isOpen={showSaveToLibraryModal}
         onClose={() => setShowSaveToLibraryModal(false)}
-        libraryType="THONG_TIN_TO_CHUC"
+        libraryType="LCNT_STEP"
         formData={formData}
         formFieldKeys={fields.map(f => f.key)}
         onSave={handleSaveToLibrarySuccess}
