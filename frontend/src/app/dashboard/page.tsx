@@ -9,10 +9,8 @@ import { vi } from 'date-fns/locale';
 import Link from 'next/link';
 
 const roleLabels: Record<string, string> = {
-  ADMIN: 'Quản trị',
-  INVESTOR: 'Nhân viên',
-  HEAD_OF_DEPARTMENT: 'Trưởng phòng',
-  DIRECTOR: 'Giám đốc',
+  ADMIN: 'Quản trị viên',
+  USER: 'Người dùng',
 };
 
 const typeLabels: Record<string, string> = {
@@ -25,8 +23,7 @@ const typeLabels: Record<string, string> = {
 
 const statusLabels: Record<string, string> = {
   DRAFT: 'Bản nháp',
-  PENDING_HEAD: 'Chờ Trưởng phòng',
-  PENDING_DIRECTOR: 'Chờ Giám đốc',
+  PENDING_APPROVAL: 'Chờ duyệt',
   APPROVED: 'Đã duyệt',
   REJECTED: 'Từ chối',
 };
@@ -34,7 +31,6 @@ const statusLabels: Record<string, string> = {
 const actionLabels: Record<string, string> = {
   SUBMIT: 'Gửi duyệt',
   APPROVE: 'Phê duyệt',
-  APPROVE_HEAD: 'TP duyệt',
   REJECT: 'Từ chối',
   RESUBMIT: 'Gửi lại',
   DELEGATE: 'Ủy quyền',
@@ -54,7 +50,8 @@ export default function DashboardPage() {
           api.getProjects(),
         ]);
         setProjectStats(statsData);
-        setRecentProjects(projectsData.slice(0, 5));
+        const projectsList = projectsData.projects || projectsData || [];
+        setRecentProjects(Array.isArray(projectsList) ? projectsList.slice(0, 5) : []);
       } catch (err: any) { toast.error(err.message); }
       finally { setLoading(false); }
     })();

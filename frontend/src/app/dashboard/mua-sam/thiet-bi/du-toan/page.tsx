@@ -16,16 +16,14 @@ import { OnlyOfficePreview } from '@/components/OnlyOfficePreview';
 
 const statusLabels: Record<DocStatus, string> = {
   DRAFT: 'Bản nháp',
-  PENDING_HEAD: 'Chờ Trưởng phòng',
-  PENDING_DIRECTOR: 'Chờ Giám đốc duyệt',
+  PENDING_APPROVAL: 'Chờ phê duyệt',
   APPROVED: 'Đã phê duyệt',
   REJECTED: 'Cần làm lại',
 };
 
 const statusColors: Record<DocStatus, string> = {
   DRAFT: 'bg-gray-100 text-gray-700',
-  PENDING_HEAD: 'bg-yellow-100 text-yellow-700',
-  PENDING_DIRECTOR: 'bg-blue-100 text-blue-700',
+  PENDING_APPROVAL: 'bg-yellow-100 text-yellow-700',
   APPROVED: 'bg-green-100 text-green-700',
   REJECTED: 'bg-red-100 text-red-700',
 };
@@ -52,8 +50,6 @@ function ThietBiDuToanPageInner() {
   const [editingDoc, setEditingDoc] = useState<Doc | null>(null);
   const [detailDoc, setDetailDoc] = useState<Doc | null>(null);
   const [previewDocId, setPreviewDocId] = useState<string | null>(null);
-  const [directors, setDirectors] = useState<User[]>([]);
-  const [selectedDirector, setSelectedDirector] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTTId, setSelectedTTId] = useState('');
@@ -90,14 +86,13 @@ function ThietBiDuToanPageInner() {
         api.getProjects(),
       ]);
       setDocs(data);
-      setProjects(projectList.filter((p: any) => p.procurementType === PROJ_TYPE));
+      setProjects((projectList.projects || []).filter((p: any) => p.procurementType === PROJ_TYPE));
     } catch (err: any) { toast.error(err.message); }
     finally { setLoading(false); }
   }, [selectedProject]);
 
   useEffect(() => {
     fetchData();
-    api.getUsersByRole('DIRECTOR').then(setDirectors).catch(() => {});
   }, [fetchData]);
 
   const approvedTTs = docs.filter(d => d.type === 'TT_DUTOAN' && d.status === 'APPROVED');
@@ -148,7 +143,6 @@ function ThietBiDuToanPageInner() {
 
   const resetForm = () => {
     setShowForm(null);
-    setSelectedDirector('');
     setSelectedTTId('');
     setTtData({
       SoToTrinh: '', DiaDanh: '', Ngay: '', Thang: '', Nam: '',
@@ -174,11 +168,10 @@ function ThietBiDuToanPageInner() {
   };
 
   const handleCreateTT = async () => {
-    if (!selectedDirector) { toast.error('Vui lòng chọn người duyệt'); return; }
     if (!ttData.TenGoiThau.trim()) { toast.error('Vui lòng nhập tên gói thầu'); return; }
     setSubmitting(true);
     try {
-      await api.createDocument('TT_DUTOAN', ttData, undefined, selectedDirector, selectedProject || undefined);
+      await api.createDocument('TT_DUTOAN', ttData, undefined, undefined, selectedProject || undefined);
       toast.success('Đã tạo Tờ trình dự toán');
       resetForm();
       fetchData();
@@ -187,11 +180,10 @@ function ThietBiDuToanPageInner() {
   };
 
   const handleCreateQD = async () => {
-    if (!selectedDirector) { toast.error('Vui lòng chọn người duyệt'); return; }
     if (!selectedTTId) { toast.error('Vui lòng chọn Tờ trình dự toán'); return; }
     setSubmitting(true);
     try {
-      await api.createDocument('QD_DUTOAN', qdData, undefined, selectedDirector, selectedProject || undefined);
+      await api.createDocument('QD_DUTOAN', qdData, undefined, undefined, selectedProject || undefined);
       toast.success('Đã tạo Quyết định dự toán');
       resetForm();
       fetchData();
@@ -228,8 +220,8 @@ function ThietBiDuToanPageInner() {
     } catch (err: any) { toast.error(err.message); }
   };
 
-  const canApprove = user?.role === 'DIRECTOR' || user?.role === 'ADMIN';
-  const canCreate = user?.role === 'INVESTOR' || user?.role === 'ADMIN';
+  const canApprove = user?.role === 'ADMIN' || user?.canApprove === true;
+  const canCreate = user?.role === 'ADMIN' || user?.role === 'USER';
 
   const filteredDocs = docs.filter(doc => {
     if (!searchQuery.trim()) return true;
@@ -341,13 +333,6 @@ function ThietBiDuToanPageInner() {
                   <input className="inp" placeholder="Dự toán bằng chữ" value={ttData.DuToanBangChu} onChange={e => setTtData({...ttData, DuToanBangChu: e.target.value})} />
                   <textarea className="inp col-span-2 min-h-[60px]" placeholder="Văn bản pháp lý liên quan" value={ttData.TenCacVanBanPhapLyLienQuan} onChange={e => setTtData({...ttData, TenCacVanBanPhapLyLienQuan: e.target.value})} />
                 </div>
-                <div className="pt-4 border-t">
-                  <label className="block text-sm font-medium mb-2">Chọn người duyệt</label>
-                  <select className="inp w-full max-w-xs" value={selectedDirector} onChange={e => setSelectedDirector(e.target.value)}>
-                    <option value="">-- Chọn --</option>
-                    {directors.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                  </select>
-                </div>
                 <div className="flex gap-2 justify-end">
                   <button onClick={resetForm} className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300 text-sm">Hủy</button>
                   <button onClick={handleCreateTT} disabled={submitting} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium">
@@ -373,13 +358,6 @@ function ThietBiDuToanPageInner() {
                   <input className="inp" placeholder="Đơn vị mua sắm" value={qdData.DonViMuaSam} onChange={e => setQdData({...qdData, DonViMuaSam: e.target.value})} />
                   <input className="inp" placeholder="Dự toán bằng số" value={qdData.DuToanBangSo} onChange={e => setQdData({...qdData, DuToanBangSo: e.target.value})} />
                   <input className="inp" placeholder="Dự toán bằng chữ" value={qdData.DuToanBangChu} onChange={e => setQdData({...qdData, DuToanBangChu: e.target.value})} />
-                </div>
-                <div className="pt-4 border-t">
-                  <label className="block text-sm font-medium mb-2">Chọn người duyệt</label>
-                  <select className="inp w-full max-w-xs" value={selectedDirector} onChange={e => setSelectedDirector(e.target.value)}>
-                    <option value="">-- Chọn --</option>
-                    {directors.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                  </select>
                 </div>
                 <div className="flex gap-2 justify-end">
                   <button onClick={resetForm} className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300 text-sm">Hủy</button>
@@ -448,7 +426,7 @@ function ThietBiDuToanPageInner() {
                     <div className="flex gap-1 flex-wrap">
                       <button onClick={() => setDetailDoc(doc)} className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100">👁</button>
                       <button onClick={() => handleDownload(doc.id)} className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">📥</button>
-                      {canApprove && doc.status === 'PENDING_DIRECTOR' && (
+                      {canApprove && doc.status === 'PENDING_APPROVAL' && (
                         <>
                           <button onClick={() => handleApprove(doc.id)} className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200">✅</button>
                           {rejectingId === doc.id ? (

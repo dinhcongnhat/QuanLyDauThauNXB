@@ -17,16 +17,14 @@ const PROJ_TYPE = 'THAU_SACH';
 
 const statusLabels: Record<DocStatus, string> = {
   DRAFT: 'Bản nháp',
-  PENDING_HEAD: 'Chờ Trưởng phòng',
-  PENDING_DIRECTOR: 'Chờ Giám đốc duyệt',
+  PENDING_APPROVAL: 'Chờ phê duyệt',
   APPROVED: 'Đã phê duyệt',
   REJECTED: 'Cần làm lại',
 };
 
 const statusColors: Record<DocStatus, string> = {
   DRAFT: 'bg-gray-100 text-gray-700',
-  PENDING_HEAD: 'bg-yellow-100 text-yellow-700',
-  PENDING_DIRECTOR: 'bg-blue-100 text-blue-700',
+  PENDING_APPROVAL: 'bg-yellow-100 text-yellow-700',
   APPROVED: 'bg-green-100 text-green-700',
   REJECTED: 'bg-red-100 text-red-700',
 };
@@ -42,8 +40,6 @@ function SachDuToanPageInner() {
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectComment, setRejectComment] = useState('');
   const [detailDoc, setDetailDoc] = useState<Doc | null>(null);
-  const [directors, setDirectors] = useState<User[]>([]);
-  const [selectedDirector, setSelectedDirector] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [autoFilling, setAutoFilling] = useState(false);
@@ -87,14 +83,13 @@ function SachDuToanPageInner() {
         api.getProjects(),
       ]);
       setDocs(data);
-      setProjects(projectList.filter((p: any) => p.procurementType === PROJ_TYPE));
+      setProjects((projectList.projects || []).filter((p: any) => p.procurementType === PROJ_TYPE));
     } catch (err: any) { toast.error(err.message); }
     finally { setLoading(false); }
   }, [selectedProject]);
 
   useEffect(() => {
     fetchData();
-    api.getUsersByRole('DIRECTOR').then(setDirectors).catch(() => {});
     checkDatSachStatus(selectedProject);
   }, [fetchData, checkDatSachStatus, selectedProject]);
 
@@ -171,11 +166,10 @@ function SachDuToanPageInner() {
   const hasQD = docs.some(d => d.type === 'QD_DUTOAN');
 
   const handleCreateTT = async () => {
-    if (!selectedDirector) { toast.error('Chọn người duyệt'); return; }
     if (!selectedProject) { toast.error('Chọn dự án'); return; }
     setSubmitting(true);
     try {
-      await api.createDocument('TT_DUTOAN', ttData, undefined, selectedDirector, selectedProject);
+      await api.createDocument('TT_DUTOAN', ttData, undefined, undefined, selectedProject);
       toast.success('Đã tạo Tờ trình dự toán');
       setShowForm(false);
       fetchData();
@@ -184,11 +178,10 @@ function SachDuToanPageInner() {
   };
 
   const handleCreateQD = async () => {
-    if (!selectedDirector) { toast.error('Chọn người duyệt'); return; }
     if (!selectedProject) { toast.error('Chọn dự án'); return; }
     setSubmitting(true);
     try {
-      await api.createDocument('QD_DUTOAN', qdData, undefined, selectedDirector, selectedProject);
+      await api.createDocument('QD_DUTOAN', qdData, undefined, undefined, selectedProject);
       toast.success('Đã tạo Quyết định dự toán');
       setShowForm(false);
       fetchData();
@@ -223,8 +216,8 @@ function SachDuToanPageInner() {
     catch (err: any) { toast.error(err.message); }
   };
 
-  const canCreate = user?.role === 'INVESTOR' || user?.role === 'ADMIN';
-  const canApprove = user?.role === 'DIRECTOR' || user?.role === 'ADMIN';
+  const canCreate = user?.role === 'ADMIN' || user?.role === 'USER';
+  const canApprove = user?.role === 'ADMIN' || user?.canApprove === true;
 
   const filteredDocs = docs.filter((doc: Doc) => {
     if (!searchQuery.trim()) return true;
@@ -367,13 +360,6 @@ function SachDuToanPageInner() {
               <input className="inp" placeholder="Dự toán bằng số (auto-fill)" value={hasApprovedTT ? qdData.DuToanBangSo : ttData.DuToanBangSo} onChange={e => hasApprovedTT ? setQdData({...qdData, DuToanBangSo: e.target.value}) : setTtData({...ttData, DuToanBangSo: e.target.value})} style={{backgroundColor: (hasApprovedTT ? qdData.DuToanBangSo : ttData.DuToanBangSo) ? '#f0fdf4' : undefined}} />
               <input className="inp" placeholder="Dự toán bằng chữ" value={hasApprovedTT ? qdData.DuToanBangChu : ttData.DuToanBangChu} onChange={e => hasApprovedTT ? setQdData({...qdData, DuToanBangChu: e.target.value}) : setTtData({...ttData, DuToanBangChu: e.target.value})} />
             </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Người duyệt</label>
-              <select className="inp w-full max-w-xs" value={selectedDirector} onChange={e => setSelectedDirector(e.target.value)}>
-                <option value="">-- Chọn --</option>
-                {directors.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-              </select>
-            </div>
             <div className="flex gap-2 justify-end">
               <button onClick={() => setShowForm(false)} className="px-4 py-2 bg-gray-200 rounded-lg text-sm">Hủy</button>
               <button onClick={() => hasApprovedTT ? setSaveQDOpen(true) : setSaveTTOpen(true)}
@@ -439,7 +425,7 @@ function SachDuToanPageInner() {
                     <div className="flex items-center gap-1.5">
                       <button onClick={() => setDetailDoc(doc)} className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100">👁 Xem</button>
                       <button onClick={() => handleDownloadDocx(doc.id)} className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">📥 Tải</button>
-                      {canApprove && doc.status === 'PENDING_DIRECTOR' && (
+                      {canApprove && doc.status === 'PENDING_APPROVAL' && (
                         <>
                           <button onClick={() => handleApprove(doc.id)} className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200">✅</button>
                           <button onClick={() => setRejectingId(doc.id)} className="text-xs px-2 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200">🔄</button>

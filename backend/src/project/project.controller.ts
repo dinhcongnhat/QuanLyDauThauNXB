@@ -1,7 +1,7 @@
 import {
   Controller, Get, Post, Put, Delete, Param, Body, Query, UseGuards, Request,
 } from '@nestjs/common';
-import { IsString, IsEnum, IsOptional } from 'class-validator';
+import { IsString, IsEnum, IsOptional, IsInt, Min } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ProjectService } from './project.service';
 import { ProjectStatus, ProcurementType } from '@prisma/client';
@@ -16,6 +16,11 @@ class UpdateProjectDto {
   @IsOptional() @IsString() tenDuAn?: string;
 }
 
+class PaginationDto {
+  @IsOptional() @IsInt() @Min(1) page?: number = 1;
+  @IsOptional() @IsInt() @Min(1) limit?: number = 20;
+}
+
 @Controller('projects')
 @UseGuards(JwtAuthGuard)
 export class ProjectController {
@@ -27,8 +32,12 @@ export class ProjectController {
   }
 
   @Get()
-  async findAll(@Request() req: any, @Query('type') type?: string) {
-    return this.svc.findAll(req.user.sub, req.user.role);
+  async findAll(
+    @Request() req: any,
+    @Query() pagination: PaginationDto,
+  ) {
+    const { page = 1, limit = 20 } = pagination;
+    return this.svc.findAll(req.user.sub, req.user.role, page, limit);
   }
 
   @Get(':id')

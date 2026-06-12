@@ -43,7 +43,7 @@ function SachDatSachPageInner() {
     setLoading(true);
     try {
       const projectList = await api.getProjects();
-      setProjects(projectList.filter((p: any) => p.procurementType === PROJ_TYPE));
+      setProjects((projectList.projects || []).filter((p: any) => p.procurementType === PROJ_TYPE));
       if (selectedProject) {
         const summary = await api.getProjectSummary(selectedProject);
         setDatSachProjects(summary.datSachProjects || []);

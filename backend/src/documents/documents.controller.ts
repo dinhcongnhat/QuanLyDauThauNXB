@@ -49,7 +49,6 @@ export class DocumentsController {
   async create(@Body() dto: CreateDocumentDto, @Request() req: any) {
     return this.svc.create(
       req.user.sub,
-      req.user.role,
       dto.type,
       dto.data,
       dto.parentId,
@@ -62,7 +61,6 @@ export class DocumentsController {
   async createDuToanBatch(@Body() dto: CreateDuToanBatchDto, @Request() req: any) {
     return this.svc.createDuToanBatch(
       req.user.sub,
-      req.user.role,
       dto.ttData,
       dto.qdData,
       dto.assignedTo,
@@ -84,10 +82,14 @@ export class DocumentsController {
   async findByType(
     @Query('types') types: string,
     @Query('projectId') projectId: string,
+    @Query('page') page: string,
+    @Query('limit') limit: string,
     @Request() req: any,
   ) {
     const typeList = types.split(',') as DocType[];
-    return this.svc.findByType(typeList, req.user.sub, req.user.role, projectId);
+    const pageNum = page ? parseInt(page, 10) : 1;
+    const limitNum = limit ? parseInt(limit, 10) : 20;
+    return this.svc.findByType(typeList, req.user.sub, req.user.role, projectId, pageNum, limitNum);
   }
 
   @Get('by-project/:projectId')
@@ -157,21 +159,21 @@ export class DocumentsController {
 
   @Post(':id/approve')
   async approve(@Param('id') id: string, @Body() dto: ApproveDto, @Request() req: any) {
-    return this.svc.approve(id, req.user.sub, req.user.role, dto.comment);
+    return this.svc.approve(id, req.user.sub, dto.comment);
   }
 
   @Post(':id/reject')
   async reject(@Param('id') id: string, @Body() dto: RejectDto, @Request() req: any) {
-    return this.svc.reject(id, req.user.sub, req.user.role, dto.comment);
+    return this.svc.reject(id, req.user.sub, dto.comment);
   }
 
   @Post(':id/resubmit')
   async resubmit(@Param('id') id: string, @Body() dto: ResubmitDto, @Request() req: any) {
-    return this.svc.resubmit(id, req.user.sub, req.user.role, dto.data);
+    return this.svc.resubmit(id, req.user.sub, dto.data);
   }
 
   @Post('delegate/:parentId')
   async delegate(@Param('parentId') parentId: string, @Body() dto: DelegateDto, @Request() req: any) {
-    return this.svc.delegate(parentId, req.user.sub, req.user.role, dto.employeeId);
+    return this.svc.delegate(parentId, req.user.sub, dto.employeeId);
   }
 }

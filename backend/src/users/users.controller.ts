@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
@@ -12,8 +12,10 @@ class CreateUserDto {
   @IsString() @MinLength(6) password: string;
   @IsEnum(Role) role: Role;
   @IsOptional() @IsString() department?: string;
+  @IsOptional() @IsString() position?: string;
   @IsOptional() @IsBoolean() isInvestor?: boolean;
   @IsOptional() @IsBoolean() isContractor?: boolean;
+  @IsOptional() @IsBoolean() canApprove?: boolean;
 }
 
 class UpdateRoleDto {
@@ -24,8 +26,10 @@ class UpdateUserDto {
   @IsOptional() @IsString() name?: string;
   @IsOptional() @IsEmail() email?: string;
   @IsOptional() @IsString() department?: string;
+  @IsOptional() @IsString() position?: string;
   @IsOptional() @IsBoolean() isInvestor?: boolean;
   @IsOptional() @IsBoolean() isContractor?: boolean;
+  @IsOptional() @IsBoolean() canApprove?: boolean;
 }
 
 class ChangePasswordDto {
@@ -48,8 +52,10 @@ export class UsersController {
   constructor(private usersService: UsersService) {}
 
   @Get()
-  findAll() {
-    return this.usersService.findAll();
+  findAll(@Query('page') page: string, @Query('limit') limit: string) {
+    const pageNum = page ? parseInt(page, 10) : 1;
+    const limitNum = limit ? parseInt(limit, 10) : 50;
+    return this.usersService.findAll(pageNum, limitNum);
   }
 
   @Get('by-role/:role')

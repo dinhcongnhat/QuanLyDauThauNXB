@@ -501,7 +501,7 @@ function LuaChonNhaThauPageInner() {
         api.getProjects(),
       ]);
       setQdList(qdData);
-      setProjects(projectList);
+      setProjects(projectList.projects || []);
     } catch (err: any) { toast.error(err.message); }
     finally { setLoading(false); }
   }, [selectedProject]);

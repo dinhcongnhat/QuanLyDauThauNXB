@@ -46,7 +46,7 @@ function ThanhToanPageInner() {
       const data = await api.getAllPayments(selectedProject || undefined);
       setPayments(data);
       const projectList = await api.getProjects();
-      setProjects(projectList);
+      setProjects(projectList.projects || []);
     } catch (err: any) { toast.error(err.message); }
     finally { setLoading(false); }
   };

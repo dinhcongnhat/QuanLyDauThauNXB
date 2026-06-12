@@ -8,10 +8,8 @@ generator client {
 }
 
 enum Role {
-  ADMIN
-  INVESTOR
-  HEAD_OF_DEPARTMENT
-  DIRECTOR
+  ADMIN   // Quản trị viên - Super admin, cấp mọi quyền
+  USER    // Người dùng thường
 }
 
 enum DocType {
@@ -26,6 +24,7 @@ enum DocType {
 
 enum DocStatus {
   DRAFT
+  PENDING_APPROVAL
   PENDING_HEAD
   PENDING_DIRECTOR
   APPROVED
@@ -121,6 +120,9 @@ model DatSachProject {
   gdnDocuments   GDNInSach[] @relation("DatSachProjectGdn")
   pcdiDocuments  PCDICoSoIn[] @relation("DatSachProjectPcdi")
 
+  @@index([projectId])
+  @@index([parentId])
+  @@index([createdBy])
   @@map("dat_sach_projects")
 }
 
@@ -321,10 +323,12 @@ model User {
   name            String
   email           String   @unique
   password        String
-  role            Role     @default(INVESTOR)
+  role            Role     @default(USER)
+  canApprove     Boolean  @default(false) @map("can_approve")   // User có quyền phê duyệt (do Super Admin cấp)
   isInvestor      Boolean  @default(false) @map("is_investor")
   isContractor    Boolean  @default(false) @map("is_contractor")
   department      String?
+  position        String?  @map("position")  // Chức vụ (VD: "Kế toán trưởng", "Trưởng phòng kinh doanh")
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
@@ -386,6 +390,10 @@ model Document {
   reviews         Review[]
   contractorSelections ContractorSelection[] @relation("ContractorSelectionDoc")
 
+  @@index([projectId])
+  @@index([createdBy])
+  @@index([type, status])
+  @@index([assignedTo])
   @@map("documents")
 }
 
@@ -400,6 +408,8 @@ model Review {
   document    Document @relation(fields: [documentId], references: [id])
   user        User     @relation(fields: [userId], references: [id])
 
+  @@index([documentId])
+  @@index([userId])
   @@map("reviews")
 }
 
@@ -424,6 +434,8 @@ model ContractorSelection {
   payments            Payment[]
 
   @@unique([qdKhlcntId, goiThauIndex])
+  @@index([projectId])
+  @@index([qdKhlcntId])
   @@map("contractor_selections")
 }
 
@@ -452,6 +464,8 @@ model ProcurementStep {
   approvalRequests      StepApprovalRequest[]
 
   @@unique([contractorSelectionId, stepKey])
+  @@index([contractorSelectionId, stepKey])
+  @@index([approvalStatus])
   @@map("procurement_steps")
 }
 
@@ -471,6 +485,8 @@ model Payment {
   creator             User                  @relation("PaymentCreator", fields: [createdBy], references: [id])
   steps              PaymentStep[]
 
+  @@index([projectId])
+  @@index([contractorSelectionId])
   @@map("payments")
 }
 
@@ -490,6 +506,7 @@ model PaymentStep {
   payment       Payment  @relation(fields: [paymentId], references: [id])
 
   @@unique([paymentId, stepKey])
+  @@index([paymentId, stepKey])
   @@map("payment_steps")
 }
 
@@ -633,5 +650,7 @@ model ProjectLog {
   project         Project     @relation("ProjectLogs", fields: [projectId], references: [id], onDelete: Cascade)
   user            User        @relation("UserProjectLogs", fields: [userId], references: [id])
 
+  @@index([projectId, stepKey])
+  @@index([createdAt])
   @@map("project_logs")
 }

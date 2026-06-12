@@ -13,9 +13,7 @@ import NotificationBell from './NotificationBell';
 
 const roleLabels: Record<Role, string> = {
   ADMIN: 'Quản trị viên',
-  INVESTOR: 'Nhân viên',
-  HEAD_OF_DEPARTMENT: 'Trưởng phòng',
-  DIRECTOR: 'Giám đốc',
+  USER: 'Người dùng',
 };
 
 /* ── SVG Icons ── */
@@ -133,7 +131,7 @@ export function Sidebar({ onOpenNotifications }: SidebarProps) {
 
   useEffect(() => {
     if (!user || user.role === 'ADMIN') return;
-    const canCDT = !!user.isInvestor || user.role === 'HEAD_OF_DEPARTMENT' || user.role === 'DIRECTOR';
+    const canCDT = !!user.isInvestor || !!user.isContractor;
     const canNT = !!user.isContractor;
     if (activeView === 'chu-dau-tu' && !canCDT && canNT) {
       setActiveView('nha-thau');
@@ -169,7 +167,7 @@ export function Sidebar({ onOpenNotifications }: SidebarProps) {
   };
 
   const isAdmin = user.role === 'ADMIN';
-  const canCDT = !!user.isInvestor || user.role === 'HEAD_OF_DEPARTMENT' || user.role === 'DIRECTOR';
+  const canCDT = !!user.isInvestor || !!user.isContractor;
   const canNT = !!user.isContractor;
   const canSwitch = !isAdmin && canCDT && canNT;
   const isCDT = !isAdmin && canCDT && activeView === 'chu-dau-tu';

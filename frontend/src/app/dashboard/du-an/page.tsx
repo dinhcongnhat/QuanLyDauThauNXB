@@ -28,7 +28,7 @@ export default function DuAnPage() {
         api.getProjects(),
         api.getProjectStats(),
       ]);
-      setProjects(data);
+      setProjects(data.projects || []);
       setStats(statsData);
     } catch (err: any) { toast.error(err.message); }
     finally { setLoading(false); }

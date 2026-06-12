@@ -7,25 +7,21 @@ import toast from 'react-hot-toast';
 
 const roleLabels: Record<Role, string> = {
   ADMIN: 'Quản trị viên',
-  INVESTOR: 'Chủ đầu tư',
-  HEAD_OF_DEPARTMENT: 'Trưởng phòng',
-  DIRECTOR: 'Giám đốc',
+  USER: 'Người dùng',
 };
 
 const roleColors: Record<Role, string> = {
-  ADMIN: 'bg-purple-100 text-purple-700',
-  INVESTOR: 'bg-blue-100 text-blue-700',
-  HEAD_OF_DEPARTMENT: 'bg-yellow-100 text-yellow-700',
-  DIRECTOR: 'bg-green-100 text-green-700',
+  ADMIN: 'bg-red-100 text-red-700',
+  USER: 'bg-blue-100 text-blue-700',
 };
 
-const roles: Role[] = ['ADMIN', 'INVESTOR', 'HEAD_OF_DEPARTMENT', 'DIRECTOR'];
+const roles: Role[] = ['ADMIN', 'USER'];
 
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
-  const [form, setForm] = useState({ name: '', email: '', password: '', role: 'INVESTOR' as Role, department: '' });
+  const [form, setForm] = useState({ name: '', email: '', password: '', role: 'USER' as Role, department: '' });
   const [creating, setCreating] = useState(false);
 
   const fetchUsers = async () => {
@@ -47,7 +43,7 @@ export default function UsersPage() {
     try {
       await api.createUser(form);
       toast.success('Tạo người dùng thành công');
-      setForm({ name: '', email: '', password: '', role: 'INVESTOR', department: '' });
+      setForm({ name: '', email: '', password: '', role: 'USER', department: '' });
       setShowCreate(false);
       fetchUsers();
     } catch (err: any) {

@@ -7,17 +7,27 @@ import * as bcrypt from 'bcrypt';
 export class UsersService {
   constructor(private prisma: PrismaService) {}
 
-  async findAll() {
-    return this.prisma.user.findMany({
-      select: { id: true, name: true, email: true, role: true, isInvestor: true, isContractor: true, department: true, createdAt: true },
-      orderBy: { createdAt: 'desc' },
-    });
+  async findAll(page: number = 1, limit: number = 50) {
+    const skip = (page - 1) * limit;
+    const [users, total] = await Promise.all([
+      this.prisma.user.findMany({
+        select: { id: true, name: true, email: true, role: true, isInvestor: true, isContractor: true, department: true, position: true, createdAt: true, canApprove: true },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        skip,
+      }),
+      this.prisma.user.count(),
+    ]);
+    return {
+      users,
+      pagination: { total, page, limit, totalPages: Math.ceil(total / limit) },
+    };
   }
 
   async findByRole(role: Role) {
     return this.prisma.user.findMany({
       where: { role },
-      select: { id: true, name: true, email: true, role: true, isInvestor: true, isContractor: true, department: true },
+      select: { id: true, name: true, email: true, role: true, isInvestor: true, isContractor: true, department: true, position: true },
       orderBy: { name: 'asc' },
     });
   }
@@ -25,20 +35,20 @@ export class UsersService {
   async findById(id: string) {
     const user = await this.prisma.user.findUnique({
       where: { id },
-      select: { id: true, name: true, email: true, role: true, isInvestor: true, isContractor: true, department: true, createdAt: true },
+      select: { id: true, name: true, email: true, role: true, isInvestor: true, isContractor: true, department: true, position: true, createdAt: true, canApprove: true },
     });
     if (!user) throw new NotFoundException('User not found');
     return user;
   }
 
-  async create(data: { name: string; email: string; password: string; role: Role; department?: string; isInvestor?: boolean; isContractor?: boolean }) {
+  async create(data: { name: string; email: string; password: string; role: Role; department?: string; position?: string; isInvestor?: boolean; isContractor?: boolean; canApprove?: boolean }) {
     const exists = await this.prisma.user.findUnique({ where: { email: data.email } });
     if (exists) throw new BadRequestException('Email already exists');
 
     const hash = await bcrypt.hash(data.password, 12);
     const user = await this.prisma.user.create({
       data: { ...data, password: hash },
-      select: { id: true, name: true, email: true, role: true, isInvestor: true, isContractor: true, department: true, createdAt: true },
+      select: { id: true, name: true, email: true, role: true, isInvestor: true, isContractor: true, canApprove: true, department: true, position: true, createdAt: true },
     });
     return user;
   }
@@ -50,11 +60,11 @@ export class UsersService {
     return this.prisma.user.update({
       where: { id },
       data: { role },
-      select: { id: true, name: true, email: true, role: true, isInvestor: true, isContractor: true, department: true },
+      select: { id: true, name: true, email: true, role: true, isInvestor: true, isContractor: true, department: true, position: true },
     });
   }
 
-  async updateUser(id: string, data: { name?: string; email?: string; department?: string; isInvestor?: boolean; isContractor?: boolean }) {
+  async updateUser(id: string, data: { name?: string; email?: string; department?: string; position?: string; isInvestor?: boolean; isContractor?: boolean; canApprove?: boolean }) {
     const user = await this.prisma.user.findUnique({ where: { id } });
     if (!user) throw new NotFoundException('User not found');
     if (data.email && data.email !== user.email) {
@@ -64,7 +74,7 @@ export class UsersService {
     return this.prisma.user.update({
       where: { id },
       data,
-      select: { id: true, name: true, email: true, role: true, isInvestor: true, isContractor: true, department: true, createdAt: true },
+      select: { id: true, name: true, email: true, role: true, isInvestor: true, isContractor: true, department: true, position: true, createdAt: true, canApprove: true },
     });
   }
 

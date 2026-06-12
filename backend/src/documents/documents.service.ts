@@ -17,15 +17,12 @@ export class DocumentsService {
     private jwtService: JwtService,
   ) {}
 
-  private getInitialStatus(type: DocType, createdByRole: Role): DocStatus {
-    if (type === DocType.TT_DUTOAN || type === DocType.QD_DUTOAN) {
-      return DocStatus.PENDING_DIRECTOR;
-    }
-    if (type === DocType.TT_KHLCNT || type === DocType.BC_KHLCNT) {
-      return DocStatus.PENDING_HEAD;
-    }
-    if (type === DocType.QD_KHLCNT) {
-      return DocStatus.PENDING_DIRECTOR;
+  private getInitialStatus(type: DocType): DocStatus {
+    // All documents requiring approval go to PENDING_APPROVAL
+    // Approver is determined by canApprove flag, not by document type
+    const approvalTypes: DocType[] = [DocType.TT_DUTOAN, DocType.QD_DUTOAN, DocType.TT_KHLCNT, DocType.BC_KHLCNT, DocType.QD_KHLCNT];
+    if (approvalTypes.includes(type)) {
+      return DocStatus.PENDING_APPROVAL;
     }
     return DocStatus.DRAFT;
   }
@@ -56,7 +53,6 @@ export class DocumentsService {
 
   async create(
     userId: string,
-    userRole: Role,
     type: DocType,
     data: any,
     parentId?: string,
@@ -88,26 +84,7 @@ export class DocumentsService {
       }
     }
 
-    // QD_KHLCNT: only creatable after TT approved
-    if (type === DocType.QD_KHLCNT) {
-      const approved = await this.prisma.document.findMany({
-        where: { parentId, type: DocType.TT_KHLCNT, status: DocStatus.APPROVED },
-      });
-      if (approved.length === 0) {
-        throw new BadRequestException('Tờ trình KHLCNT phải được duyệt trước');
-      }
-      if (userRole === Role.INVESTOR) {
-        const delegation = await this.prisma.review.findFirst({
-          where: { document: { parentId, type: DocType.TT_KHLCNT }, action: 'DELEGATE' },
-          orderBy: { createdAt: 'desc' },
-        });
-        if (!delegation || delegation.comment !== userId) {
-          throw new ForbiddenException('Bạn chưa được ủy quyền tạo Quyết định KHLCNT');
-        }
-      }
-    }
-
-    const status = this.getInitialStatus(type, userRole);
+    const status = this.getInitialStatus(type);
     const doc = await this.prisma.document.create({
       data: {
         type,
@@ -118,7 +95,6 @@ export class DocumentsService {
         projectId,
         procurementType: projectType,
         ...(assignedTo ? { assignedTo } : {}),
-        ...(type === DocType.QD_KHLCNT && userRole === Role.INVESTOR ? { delegatedTo: userId } : {}),
       },
       include: {
         creator: { select: { id: true, name: true, email: true, role: true } },
@@ -130,7 +106,7 @@ export class DocumentsService {
       data: { documentId: doc.id, userId, action: 'SUBMIT' },
     });
 
-    // Notify approver if document needs approval
+    // Notify approvers if document needs approval
     if (status !== DocStatus.DRAFT) {
       const docTypeLabels: Record<string, string> = {
         [DocType.TT_DUTOAN]: 'Tờ trình dự toán',
@@ -139,15 +115,22 @@ export class DocumentsService {
         [DocType.BC_KHLCNT]: 'Báo cáo KHLCNT',
         [DocType.QD_KHLCNT]: 'Quyết định KHLCNT',
       };
-      const approverRole = status === DocStatus.PENDING_DIRECTOR ? Role.DIRECTOR : Role.HEAD_OF_DEPARTMENT;
-      const approvers = await this.prisma.user.findMany({ where: { role: approverRole } });
+      // Find users with canApprove=true or ADMIN role
+      const approvers = await this.prisma.user.findMany({
+        where: {
+          OR: [
+            { role: 'ADMIN' },
+            { canApprove: true },
+          ],
+        },
+      });
       if (approvers.length > 0) {
         await Promise.all(
           approvers.map((u) =>
             this.notificationService.create(u.id, {
               type: NotificationType.DOC_SUBMITTED,
               title: 'Có tài liệu mới cần duyệt',
-              message: `${doc.creator.name} đã gửi ${docTypeLabels[type] || 'tài liệu'} "${(doc.data as any)?.TenDuAn || (doc.data as any)?.tenDuAn || ''}" chờ bạn phê duyệt.`,
+              message: `${doc.creator.name} đã gửi ${docTypeLabels[type] || 'tài liệu'} "${(doc.data as any)?.tenDuAn || ''}" chờ bạn phê duyệt.`,
               link: '/dashboard',
             }),
           ),
@@ -161,7 +144,6 @@ export class DocumentsService {
 
   async createDuToanBatch(
     userId: string,
-    userRole: Role,
     ttData: any,
     qdData: any,
     assignedTo: string,
@@ -219,8 +201,10 @@ export class DocumentsService {
   async findByType(
     types: DocType[],
     userId?: string,
-    role?: Role,
+    role?: string,
     projectId?: string,
+    page: number = 1,
+    limit: number = 20,
   ) {
     const where: any = { type: { in: types } };
 
@@ -229,38 +213,37 @@ export class DocumentsService {
       where.projectId = projectId;
     }
 
-    if (role === Role.INVESTOR) {
+    if (role === 'USER') {
       where.createdBy = userId;
-    } else if (role === Role.DIRECTOR) {
-      where.OR = [
-        { assignedTo: userId },
-        { assignedTo: null },
-        { createdBy: userId },
-        { status: DocStatus.APPROVED },
-      ];
-    } else if (role === Role.HEAD_OF_DEPARTMENT) {
-      where.OR = [
-        { assignedTo: userId },
-        { assignedTo: null },
-        { createdBy: userId },
-        { status: DocStatus.APPROVED },
-      ];
     }
-    return this.prisma.document.findMany({
-      where,
-      include: {
-        creator: { select: { id: true, name: true, email: true, role: true } },
-        assignee: { select: { id: true, name: true, role: true } },
-        parent: { select: { id: true, type: true, data: true, status: true } },
-        project: { select: { id: true, tenDuAn: true, procurementType: true } },
-        reviews: {
-          include: { user: { select: { id: true, name: true, role: true } } },
-          orderBy: { createdAt: 'desc' },
-          take: 1,
+
+    const skip = (page - 1) * limit;
+
+    const [documents, total] = await Promise.all([
+      this.prisma.document.findMany({
+        where,
+        include: {
+          creator: { select: { id: true, name: true, email: true, role: true } },
+          assignee: { select: { id: true, name: true, role: true } },
+          parent: { select: { id: true, type: true, data: true, status: true } },
+          project: { select: { id: true, tenDuAn: true, procurementType: true } },
+          reviews: {
+            include: { user: { select: { id: true, name: true, role: true } } },
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+          },
         },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        skip,
+      }),
+      this.prisma.document.count({ where }),
+    ]);
+
+    return {
+      documents,
+      pagination: { total, page, limit, totalPages: Math.ceil(total / limit) },
+    };
   }
 
   async findByProject(projectId: string) {
@@ -322,43 +305,20 @@ export class DocumentsService {
     });
   }
 
-  async approve(id: string, userId: string, role: Role, comment?: string) {
+  async approve(id: string, userId: string, comment?: string) {
     const doc = await this.prisma.document.findUnique({ where: { id } });
     if (!doc) throw new NotFoundException('Không tìm thấy tài liệu');
 
-    if (doc.status === DocStatus.PENDING_DIRECTOR) {
-      if (role !== Role.DIRECTOR && role !== Role.ADMIN) {
-        throw new ForbiddenException('Chỉ Giám đốc mới có thể phê duyệt');
-      }
-    } else if (doc.status === DocStatus.PENDING_HEAD) {
-      if (role !== Role.HEAD_OF_DEPARTMENT && role !== Role.ADMIN) {
-        throw new ForbiddenException('Chỉ Trưởng phòng mới có thể phê duyệt');
-      }
-      if (doc.type === DocType.QD_KHLCNT) {
-        const updated = await this.prisma.document.update({
-          where: { id },
-          data: { status: DocStatus.PENDING_DIRECTOR },
-          include: { creator: { select: { id: true, name: true, email: true, role: true } } },
-        });
-        await this.prisma.review.create({
-          data: { documentId: id, userId, action: 'APPROVE_HEAD', comment },
-        });
-        // Notify director that QD_KHLCNT is waiting for director approval
-        const directors = await this.prisma.user.findMany({ where: { role: Role.DIRECTOR } });
-        await Promise.all(
-          directors.map((u) =>
-            this.notificationService.create(u.id, {
-              type: NotificationType.DOC_SUBMITTED,
-              title: 'Có Quyết định KHLCNT chờ duyệt',
-              message: `${updated.creator.name} đã gửi QĐ KHLCNT "${(updated.data as any)?.TenDuAn || (updated.data as any)?.tenDuAn || ''}" chờ bạn phê duyệt.`,
-              link: '/dashboard',
-            }),
-          ),
-        );
-        this.notifications.notifyDocumentUpdate(updated);
-        return updated;
-      }
-    } else {
+    // Check if user has permission to approve
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true, canApprove: true },
+    });
+    if (!user || (user.role !== 'ADMIN' && user.canApprove !== true)) {
+      throw new ForbiddenException('Bạn không có quyền phê duyệt tài liệu. Vui lòng liên hệ Admin để được cấp quyền.');
+    }
+
+    if (doc.status !== DocStatus.PENDING_APPROVAL) {
       throw new BadRequestException('Tài liệu không ở trạng thái chờ duyệt');
     }
 
@@ -375,7 +335,7 @@ export class DocumentsService {
     await this.notificationService.create(doc.createdBy, {
       type: NotificationType.DOC_APPROVED,
       title: 'Tài liệu đã được phê duyệt',
-      message: `Tài liệu "${(updated.data as any)?.TenDuAn || (updated.data as any)?.tenDuAn || ''}" của bạn đã được phê duyệt.`,
+      message: `Tài liệu "${(updated.data as any)?.tenDuAn || ''}" của bạn đã được phê duyệt.`,
       link: '/dashboard',
     });
 
@@ -383,17 +343,20 @@ export class DocumentsService {
     return updated;
   }
 
-  async reject(id: string, userId: string, role: Role, comment: string) {
+  async reject(id: string, userId: string, comment: string) {
     const doc = await this.prisma.document.findUnique({ where: { id } });
     if (!doc) throw new NotFoundException('Không tìm thấy tài liệu');
 
-    if (doc.status === DocStatus.PENDING_DIRECTOR && role !== Role.DIRECTOR && role !== Role.ADMIN) {
-      throw new ForbiddenException('Chỉ Giám đốc mới có thể từ chối');
+    // Check if user has permission to reject
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true, canApprove: true },
+    });
+    if (!user || (user.role !== 'ADMIN' && user.canApprove !== true)) {
+      throw new ForbiddenException('Bạn không có quyền từ chối tài liệu. Vui lòng liên hệ Admin để được cấp quyền.');
     }
-    if (doc.status === DocStatus.PENDING_HEAD && role !== Role.HEAD_OF_DEPARTMENT && role !== Role.ADMIN) {
-      throw new ForbiddenException('Chỉ Trưởng phòng mới có thể từ chối');
-    }
-    if (doc.status !== DocStatus.PENDING_DIRECTOR && doc.status !== DocStatus.PENDING_HEAD) {
+
+    if (doc.status !== DocStatus.PENDING_APPROVAL) {
       throw new BadRequestException('Tài liệu không ở trạng thái chờ duyệt');
     }
 
@@ -409,7 +372,7 @@ export class DocumentsService {
     await this.notificationService.create(doc.createdBy, {
       type: NotificationType.DOC_REJECTED,
       title: 'Tài liệu bị từ chối',
-      message: `Tài liệu "${(updated.data as any)?.TenDuAn || (updated.data as any)?.tenDuAn || ''}" của bạn đã bị từ chối. Lý do: ${comment || 'Không có'}`.slice(0, 500),
+      message: `Tài liệu "${(updated.data as any)?.tenDuAn || ''}" của bạn đã bị từ chối. Lý do: ${comment || 'Không có'}`.slice(0, 500),
       link: '/dashboard',
     });
 
@@ -417,15 +380,14 @@ export class DocumentsService {
     return updated;
   }
 
-  async resubmit(id: string, userId: string, role: Role, data?: any) {
+  async resubmit(id: string, userId: string, data?: any) {
     const doc = await this.prisma.document.findUnique({ where: { id } });
     if (!doc) throw new NotFoundException('Không tìm thấy tài liệu');
     if (doc.status !== DocStatus.REJECTED) throw new BadRequestException('Chỉ tài liệu bị từ chối mới được gửi lại');
     if (doc.createdBy !== userId) throw new ForbiddenException('Chỉ người tạo mới được gửi lại');
 
-    // Get original creator's role for correct routing
-    const originalCreator = await this.prisma.user.findUnique({ where: { id: doc.createdBy } });
-    const newStatus = this.getInitialStatus(doc.type, originalCreator?.role || role);
+    // Get original status based on document type
+    const newStatus = this.getInitialStatus(doc.type);
     const updated = await this.prisma.document.update({
       where: { id },
       data: { status: newStatus, ...(data ? { data } : {}) },
@@ -436,15 +398,21 @@ export class DocumentsService {
     });
 
     // Notify approvers about resubmission
-    const approverRole = newStatus === DocStatus.PENDING_DIRECTOR ? Role.DIRECTOR : Role.HEAD_OF_DEPARTMENT;
-    const approvers = await this.prisma.user.findMany({ where: { role: approverRole } });
+    const approvers = await this.prisma.user.findMany({
+      where: {
+        OR: [
+          { role: 'ADMIN' },
+          { canApprove: true },
+        ],
+      },
+    });
     if (approvers.length > 0) {
       await Promise.all(
         approvers.map((u) =>
           this.notificationService.create(u.id, {
             type: NotificationType.DOC_SUBMITTED,
             title: 'Có tài liệu gửi lại duyệt',
-            message: `${updated.creator.name} đã gửi lại tài liệu "${(updated.data as any)?.TenDuAn || (updated.data as any)?.tenDuAn || ''}" cần bạn duyệt.`,
+            message: `${updated.creator.name} đã gửi lại tài liệu "${(updated.data as any)?.tenDuAn || ''}" cần bạn duyệt.`,
             link: '/dashboard',
           }),
         ),
@@ -455,9 +423,14 @@ export class DocumentsService {
     return updated;
   }
 
-  async delegate(parentId: string, userId: string, role: Role, employeeId: string) {
-    if (role !== Role.HEAD_OF_DEPARTMENT && role !== Role.ADMIN) {
-      throw new ForbiddenException('Chỉ Trưởng phòng mới có thể ủy quyền');
+  async delegate(parentId: string, userId: string, employeeId: string) {
+    // Delegation check - any ADMIN can delegate
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+    if (user?.role !== 'ADMIN') {
+      throw new ForbiddenException('Chỉ Admin mới có thể ủy quyền');
     }
     const approved = await this.prisma.document.findMany({
       where: { parentId, type: DocType.TT_KHLCNT, status: DocStatus.APPROVED },

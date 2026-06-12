@@ -56,9 +56,8 @@ export class ContractorSelectionController {
     return this.svc.getCompletedContracts(projectId);
   }
 
-  /** Steps pending approval (for director/head dashboard) */
+  /** Steps pending approval - requires canApprove=true or ADMIN */
   @Get('pending-approvals')
-  @Roles(Role.ADMIN, Role.HEAD_OF_DEPARTMENT, Role.DIRECTOR)
   async getPendingApprovals() {
     return this.svc.getPendingApprovals();
   }
@@ -66,7 +65,7 @@ export class ContractorSelectionController {
   // ====================== CRUD ======================
 
   @Post()
-  @Roles(Role.ADMIN, Role.INVESTOR)
+  @Roles(Role.ADMIN)
   async create(@Body() dto: CreateSelectionDto, @Request() req: any) {
     return this.svc.createSelection(req.user.sub, dto.qdKhlcntId, dto.goiThauIndex, dto.projectId);
   }
@@ -102,43 +101,40 @@ export class ContractorSelectionController {
 
   // ====================== APPROVAL WORKFLOW ======================
 
-  /** Request approval for a step (trình lên giám đốc/trưởng phòng) */
+  /** Request approval for a step - anyone can submit for approval */
   @Post('step/:stepId/request-approval')
-  @Roles(Role.ADMIN, Role.INVESTOR, Role.HEAD_OF_DEPARTMENT, Role.DIRECTOR)
   async requestApproval(
     @Param('stepId') stepId: string,
     @Body() dto: ApprovalDto,
     @Request() req: any,
   ) {
-    return this.svc.requestApproval(stepId, req.user.sub, req.user.role, dto.comment);
+    return this.svc.requestApproval(stepId, req.user.sub, dto.comment);
   }
 
-  /** Approve a step */
+  /** Approve a step - requires canApprove=true or ADMIN role */
   @Post('step/:stepId/approve')
-  @Roles(Role.ADMIN, Role.HEAD_OF_DEPARTMENT, Role.DIRECTOR)
   async approveStep(
     @Param('stepId') stepId: string,
     @Body() dto: ApprovalDto,
     @Request() req: any,
   ) {
-    return this.svc.approveStep(stepId, req.user.sub, req.user.role, dto.comment);
+    return this.svc.approveStep(stepId, req.user.sub, dto.comment);
   }
 
-  /** Reject a step */
+  /** Reject a step - requires canApprove=true or ADMIN role */
   @Post('step/:stepId/reject')
-  @Roles(Role.ADMIN, Role.HEAD_OF_DEPARTMENT, Role.DIRECTOR)
   async rejectStep(
     @Param('stepId') stepId: string,
     @Body() dto: ApprovalDto,
     @Request() req: any,
   ) {
-    return this.svc.rejectStep(stepId, req.user.sub, req.user.role, dto.comment || '');
+    return this.svc.rejectStep(stepId, req.user.sub, dto.comment || '');
   }
 
   // ====================== STEP COMPLETION ======================
 
   @Post(':id/set-package-type')
-  @Roles(Role.ADMIN, Role.INVESTOR)
+  @Roles(Role.ADMIN)
   async setPackageType(
     @Param('id') id: string,
     @Body() body: { contractPackageType: string },
@@ -147,13 +143,13 @@ export class ContractorSelectionController {
   }
 
   @Post('step/:stepId/complete')
-  @Roles(Role.ADMIN, Role.INVESTOR, Role.HEAD_OF_DEPARTMENT, Role.DIRECTOR)
+  @Roles(Role.ADMIN)
   async completeStep(@Param('stepId') stepId: string, @Request() req: any) {
     return this.svc.completeStep(stepId, req.user.sub);
   }
 
   @Post('step/:stepId/reopen')
-  @Roles(Role.ADMIN, Role.INVESTOR, Role.HEAD_OF_DEPARTMENT, Role.DIRECTOR)
+  @Roles(Role.ADMIN)
   async reopenStep(@Param('stepId') stepId: string, @Request() req: any) {
     return this.svc.reopenStep(stepId, req.user.sub);
   }
@@ -233,7 +229,7 @@ export class ContractorSelectionController {
   // ====================== FILE UPLOAD ======================
 
   @Post('step/:stepId/upload')
-  @Roles(Role.ADMIN, Role.INVESTOR)
+  @Roles(Role.ADMIN)
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 50 * 1024 * 1024 } }))
   async uploadAttachment(
     @Param('stepId') stepId: string,
@@ -254,7 +250,7 @@ export class ContractorSelectionController {
   }
 
   @Post('step/:stepId/delete-attachment')
-  @Roles(Role.ADMIN, Role.INVESTOR)
+  @Roles(Role.ADMIN)
   async deleteAttachment(
     @Param('stepId') stepId: string,
     @Body() body: { path: string },

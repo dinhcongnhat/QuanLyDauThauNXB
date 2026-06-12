@@ -37,60 +37,74 @@ const permissionData = [
   { key: 'payment:approve', displayName: 'Duyệt thanh toán', description: 'Duyệt thanh toán', category: 'payment' },
   // Admin
   { key: 'admin:full', displayName: 'Toàn quyền admin', description: 'Toàn quyền quản trị hệ thống', category: 'admin' },
+  // LCNT / Contractor Selection
+  { key: 'lcnt:create', displayName: 'Tạo LCNT', description: 'Tạo quy trình lựa chọn nhà thầu', category: 'lcnt' },
+  { key: 'lcnt:read', displayName: 'Xem LCNT', description: 'Xem quy trình lựa chọn nhà thầu', category: 'lcnt' },
+  { key: 'lcnt:approve', displayName: 'Duyệt LCNT', description: 'Duyệt các bước LCNT', category: 'lcnt' },
+  { key: 'lcnt:reject', displayName: 'Từ chối LCNT', description: 'Từ chối các bước LCNT', category: 'lcnt' },
 ];
 
 const roleData = [
-  { name: 'giam_doc', displayName: 'Giám đốc', description: 'Giám đốc công ty', priority: 90 },
+  // Dynamic roles - Super Admin được cấp quyền tự do
+  { name: 'admin', displayName: 'Quản trị viên', description: 'Quản trị hệ thống - toàn quyền', priority: 100 },
   { name: 'ke_toan', displayName: 'Kế toán', description: 'Nhân viên kế toán', priority: 50 },
-  { name: 'chu_dau_tu', displayName: 'Chủ đầu tư', description: 'Chủ đầu tư', priority: 40 },
-  { name: 'truong_phong', displayName: 'Trưởng phòng', description: 'Trưởng các phòng ban', priority: 70 },
-  { name: 'pho_phong', displayName: 'Phó phòng', description: 'Phó phòng ban', priority: 60 },
+  { name: 'du_toan', displayName: 'Dự toán', description: 'Phụ trách dự toán', priority: 50 },
   { name: 'nhan_vien', displayName: 'Nhân viên', description: 'Nhân viên thường', priority: 20 },
   { name: 'quan_ly_du_an', displayName: 'Quản lý dự án', description: 'Quản lý dự án mua sắm', priority: 30 },
-  { name: 'tham_dinh_vien', displayName: 'Thẩm định viên', description: 'Thẩm định viên', priority: 35 },
+  { name: 'thau_thiet_bi', displayName: 'Thầu thiết bị', description: 'Phụ trách thầu thiết bị', priority: 40 },
+  { name: 'thau_sach', displayName: 'Thầu sách', description: 'Phụ trách thầu sách', priority: 40 },
 ];
 
 const rolePermissions: Record<string, string[]> = {
-  giam_doc: [
-    'doc:read', 'doc:approve', 'doc:reject',
-    'budget:read', 'budget:approve', 'budget:reject',
-    'plan:read', 'plan:approve', 'plan:reject',
-    'datsach:read', 'datsach:approve',
-    'payment:read', 'payment:approve',
-  ],
-  truong_phong: [
-    'doc:read', 'doc:create', 'doc:approve', 'doc:reject', 'doc:delegate',
-    'budget:read', 'budget:approve', 'budget:reject',
-    'plan:read', 'plan:review', 'plan:approve', 'plan:reject',
-    'datsach:read', 'datsach:approve',
-    'payment:read', 'payment:approve',
-  ],
-  pho_phong: [
-    'doc:read', 'doc:create', 'doc:edit', 'doc:approve', 'doc:reject',
-    'budget:read', 'budget:create', 'budget:approve', 'budget:reject',
-    'plan:read', 'plan:create', 'plan:review', 'plan:approve', 'plan:reject',
-    'datsach:read', 'datsach:approve',
-    'payment:read', 'payment:approve',
+  admin: [
+    'admin:full',
+    'doc:create', 'doc:read', 'doc:edit', 'doc:delete', 'doc:approve', 'doc:reject', 'doc:delegate',
+    'budget:create', 'budget:read', 'budget:approve', 'budget:reject',
+    'plan:create', 'plan:read', 'plan:review', 'plan:approve', 'plan:reject',
+    'user:create', 'user:read', 'user:edit', 'user:delete',
+    'role:manage',
+    'datsach:create', 'datsach:read', 'datsach:approve',
+    'payment:create', 'payment:read', 'payment:approve',
+    'lcnt:create', 'lcnt:read', 'lcnt:approve', 'lcnt:reject',
   ],
   ke_toan: [
     'doc:read', 'budget:read', 'budget:create', 'payment:read', 'payment:create', 'payment:approve',
+    'datsach:read',
   ],
-  chu_dau_tu: [
-    'doc:read', 'doc:create', 'doc:edit', 'budget:read', 'budget:create',
-    'plan:read', 'plan:create', 'datsach:read', 'datsach:create',
-    'payment:read', 'payment:create',
+  du_toan: [
+    'doc:read', 'doc:create', 'doc:edit',
+    'budget:read', 'budget:create', 'budget:approve', 'budget:reject',
+    'plan:read', 'plan:create',
+    'datsach:read', 'datsach:create',
+    'lcnt:read', 'lcnt:create',
   ],
   nhan_vien: [
     'doc:read', 'budget:read', 'plan:read', 'datsach:read',
+    'payment:read',
   ],
   quan_ly_du_an: [
-    'doc:read', 'doc:create', 'budget:read', 'budget:create',
-    'plan:read', 'plan:create', 'datsach:read', 'datsach:create',
+    'doc:read', 'doc:create', 'doc:edit',
+    'budget:read', 'budget:create',
+    'plan:read', 'plan:create',
+    'datsach:read', 'datsach:create',
     'payment:read', 'payment:create',
+    'lcnt:read', 'lcnt:create',
   ],
-  tham_dinh_vien: [
-    'doc:read', 'budget:read', 'plan:read', 'plan:review',
-    'datsach:read', 'payment:read',
+  thau_thiet_bi: [
+    'doc:read', 'doc:create', 'doc:edit',
+    'budget:read', 'budget:create',
+    'plan:read', 'plan:create',
+    'datsach:read',
+    'payment:read', 'payment:create',
+    'lcnt:read', 'lcnt:create',
+  ],
+  thau_sach: [
+    'doc:read', 'doc:create', 'doc:edit',
+    'budget:read', 'budget:create',
+    'plan:read', 'plan:create',
+    'datsach:read', 'datsach:create',
+    'payment:read', 'payment:create',
+    'lcnt:read', 'lcnt:create',
   ],
 };
 
@@ -142,7 +156,7 @@ export async function seedRbac(prisma: PrismaClient, adminId?: string) {
 
   if (adminId) {
     console.log('[RBAC] Assigning dynamic roles to admin...');
-    const adminRoleIds = [createdRoles['giam_doc'], createdRoles['ke_toan'], createdRoles['nhan_vien']].filter(Boolean);
+    const adminRoleIds = [createdRoles['admin'], createdRoles['ke_toan'], createdRoles['nhan_vien']].filter(Boolean);
     for (const roleId of adminRoleIds) {
       await prisma.userDynamicRole.upsert({
         where: { userId_roleId: { userId: adminId, roleId } },
@@ -150,7 +164,7 @@ export async function seedRbac(prisma: PrismaClient, adminId?: string) {
         create: { userId: adminId, roleId },
       });
     }
-    console.log('[RBAC] Admin assigned to giam_doc + ke_toan + nhan_vien');
+    console.log('[RBAC] Admin assigned to admin + ke_toan + nhan_vien');
   }
 
   console.log('[RBAC] Seed completed!');

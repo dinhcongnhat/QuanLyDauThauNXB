@@ -100,16 +100,14 @@ const QD_TONGHOP: FieldDef[] = [
 
 const statusLabels: Record<DocStatus, string> = {
   DRAFT: 'Bản nháp',
-  PENDING_HEAD: 'Chờ Trưởng phòng',
-  PENDING_DIRECTOR: 'Chờ Giám đốc duyệt',
+  PENDING_APPROVAL: 'Chờ phê duyệt',
   APPROVED: 'Đã phê duyệt',
   REJECTED: 'Cần làm lại',
 };
 
 const statusColors: Record<DocStatus, string> = {
   DRAFT: 'bg-gray-100 text-gray-700',
-  PENDING_HEAD: 'bg-yellow-100 text-yellow-700',
-  PENDING_DIRECTOR: 'bg-blue-100 text-blue-700',
+  PENDING_APPROVAL: 'bg-yellow-100 text-yellow-700',
   APPROVED: 'bg-green-100 text-green-700',
   REJECTED: 'bg-red-100 text-red-700',
 };
@@ -131,8 +129,6 @@ export default function DuToanPage() {
   const [editingDoc, setEditingDoc] = useState<Doc | null>(null);
   const [detailDoc, setDetailDoc] = useState<Doc | null>(null);
   const [previewDocId, setPreviewDocId] = useState<string | null>(null);
-  const [directors, setDirectors] = useState<User[]>([]);
-  const [selectedDirector, setSelectedDirector] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -174,7 +170,6 @@ export default function DuToanPage() {
 
   useEffect(() => {
     fetchDocs();
-    api.getUsersByRole('DIRECTOR').then(setDirectors).catch(() => {});
   }, []);
 
   // Approved TT docs available for QD linking
@@ -219,7 +214,6 @@ export default function DuToanPage() {
 
   const resetForm = () => {
     setShowForm(null);
-    setSelectedDirector('');
     setSelectedTTId('');
     setTtData({
       SoToTrinh: '', DiaDanh: '', Ngay: '', Thang: '', Nam: '',
@@ -245,11 +239,10 @@ export default function DuToanPage() {
   };
 
   const handleCreateTT = async () => {
-    if (!selectedDirector) { toast.error('Vui lòng chọn người duyệt'); return; }
     if (!ttData.TenGoiThau.trim()) { toast.error('Vui lòng nhập tên gói thầu'); return; }
     setSubmitting(true);
     try {
-      await api.createDocument('TT_DUTOAN', ttData, undefined, selectedDirector);
+      await api.createDocument('TT_DUTOAN', ttData, undefined, undefined);
       toast.success('Đã tạo Tờ trình dự toán và gửi duyệt');
       resetForm();
       fetchDocs();
@@ -258,11 +251,10 @@ export default function DuToanPage() {
   };
 
   const handleCreateQD = async () => {
-    if (!selectedDirector) { toast.error('Vui lòng chọn người duyệt'); return; }
     if (!selectedTTId) { toast.error('Vui lòng chọn Tờ trình dự toán để liên kết'); return; }
     setSubmitting(true);
     try {
-      await api.createDocument('QD_DUTOAN', qdData, undefined, selectedDirector);
+      await api.createDocument('QD_DUTOAN', qdData, undefined, undefined);
       toast.success('Đã tạo Quyết định dự toán và gửi duyệt');
       resetForm();
       fetchDocs();
@@ -317,8 +309,8 @@ export default function DuToanPage() {
     } catch (err: any) { toast.error(err.message); }
   };
 
-  const canApprove = user?.role === 'DIRECTOR' || user?.role === 'ADMIN';
-  const canCreate = user?.role === 'INVESTOR' || user?.role === 'ADMIN';
+  const canApprove = user?.role === 'ADMIN' || user?.canApprove === true;
+  const canCreate = user?.role === 'ADMIN' || user?.role === 'USER';
 
   if (loading) return <div className="flex items-center justify-center h-64"><div className="animate-spin h-8 w-8 border-4 border-primary-500 border-t-transparent rounded-full" /></div>;
 
@@ -409,14 +401,6 @@ export default function DuToanPage() {
             </div>
 
             {/* Director selection */}
-            <div className="mt-6 pt-4 border-t">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Chọn người duyệt</label>
-              <select className="inp w-full max-w-md" value={selectedDirector} onChange={e => setSelectedDirector(e.target.value)}>
-                <option value="">-- Chọn người duyệt --</option>
-                {directors.map(d => <option key={d.id} value={d.id}>{d.name} ({d.email})</option>)}
-              </select>
-            </div>
-
             <div className="flex gap-2 mt-6 justify-end">
               <button onClick={resetForm} className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">Hủy</button>
               <button onClick={handleCreateTT} disabled={submitting}
@@ -494,15 +478,6 @@ export default function DuToanPage() {
             <div className="grid grid-cols-2 gap-4">
               <input className="inp" placeholder="Dự toán bằng số" value={qdData.DuToanBangSo} onChange={e => setQdData({...qdData, DuToanBangSo: e.target.value})} />
               <input className="inp" placeholder="Dự toán bằng chữ" value={qdData.DuToanBangChu} onChange={e => setQdData({...qdData, DuToanBangChu: e.target.value})} />
-            </div>
-
-            {/* Director selection */}
-            <div className="mt-6 pt-4 border-t">
-              <label className="block text-sm font-medium text-gray-700 mb-2">Chọn người duyệt</label>
-              <select className="inp w-full max-w-md" value={selectedDirector} onChange={e => setSelectedDirector(e.target.value)}>
-                <option value="">-- Chọn người duyệt --</option>
-                {directors.map(d => <option key={d.id} value={d.id}>{d.name} ({d.email})</option>)}
-              </select>
             </div>
 
             <div className="flex gap-2 mt-6 justify-end">
@@ -591,7 +566,7 @@ export default function DuToanPage() {
                   <div className="flex gap-1 flex-wrap">
                     <button onClick={() => handleDownload(doc.id)} className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">📥 DOCX</button>
                     <button onClick={() => setPreviewDocId(doc.id)} className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100">👁 Xem</button>
-                    {canApprove && doc.status === 'PENDING_DIRECTOR' && (
+                    {canApprove && doc.status === 'PENDING_APPROVAL' && (
                       <>
                         <button onClick={() => handleApprove(doc.id)} className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200">✅ Duyệt</button>
                         {rejectingId === doc.id ? (

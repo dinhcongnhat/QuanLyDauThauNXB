@@ -182,8 +182,31 @@ function getSteps(method: ProcurementMethod) {
   }
 }
 
-function canApprove(role: string): boolean {
-  return role === 'HEAD_OF_DEPARTMENT' || role === 'DIRECTOR' || role === 'ADMIN';
+/**
+ * Check if user can approve based on canApprove flag or ADMIN role
+ */
+async function userCanApprove(prisma: PrismaService, userId: string): Promise<boolean> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { role: true, canApprove: true },
+  });
+  return user?.role === 'ADMIN' || user?.canApprove === true;
+}
+
+/**
+ * Get all users who can approve (for notification purposes)
+ */
+async function getApprovers(prisma: PrismaService): Promise<string[]> {
+  const users = await prisma.user.findMany({
+    where: {
+      OR: [
+        { role: 'ADMIN' },
+        { canApprove: true },
+      ],
+    },
+    select: { id: true },
+  });
+  return users.map(u => u.id);
 }
 
 /**
@@ -316,11 +339,9 @@ function buildLcntDocxPayload(
 }
 
 function getRequiredApproverRole(stepKey: string): string {
-  // For contract and final decision steps, require DIRECTOR
-  if (stepKey === 'hop_dong' || stepKey === 'quyet_dinh_kqlcnt' || stepKey === 'quyet_dinh_lcnt') {
-    return 'DIRECTOR';
-  }
-  return 'HEAD_OF_DEPARTMENT';
+  // NOTE: Role-based restrictions removed - now uses canApprove flag
+  // All steps require approval from anyone with canApprove=true or ADMIN
+  return 'CAN_APPROVE';
 }
 
 @Injectable()
@@ -670,11 +691,9 @@ export class ContractorSelectionService {
 
   // ====================== APPROVAL WORKFLOW ======================
 
-  /** Request approval for a step (trình lên giám đốc/trưởng phòng) */
-  async requestApproval(stepId: string, userId: string, userRole: string, comment?: string) {
-    if (!canApprove(userRole)) {
-      throw new ForbiddenException('Bạn không có quyền yêu cầu phê duyệt bước này');
-    }
+  /** Request approval for a step (trình duyệt) */
+  async requestApproval(stepId: string, userId: string, comment?: string) {
+    // NOTE: Anyone can request approval - no role restriction
     const step = await this.prisma.procurementStep.findUnique({ where: { id: stepId } });
     if (!step) throw new NotFoundException('Không tìm thấy bước');
 
@@ -708,23 +727,23 @@ export class ContractorSelectionService {
       },
     });
 
-    // Notify directors about the pending approval (skip those who already approved)
+    // Notify approvers about the pending approval
     const existingApprovers = await this.prisma.stepApprovalRequest.findMany({
       where: { stepId, action: 'APPROVED' },
       select: { userId: true },
     });
     const existingApproverIds = new Set(existingApprovers.map(a => a.userId));
 
-    const directors = await this.prisma.user.findMany({ where: { role: 'DIRECTOR' } });
-    const newDirectors = directors.filter(d => !existingApproverIds.has(d.id));
+    const approverIds = await getApprovers(this.prisma);
+    const newApproverIds = approverIds.filter(id => !existingApproverIds.has(id));
 
     const stepData = await this.getStep(stepId);
     const selectionData = stepData.contractorSelection;
     const projectName = (selectionData.data as any)?.tenGoiThau || (selectionData.data as any)?.tenDuAn || '';
 
     await Promise.all(
-      newDirectors.map((u) =>
-        this.notificationService.create(u.id, {
+      newApproverIds.map((uid) =>
+        this.notificationService.create(uid, {
           type: NotificationType.STEP_PENDING_APPROVAL,
           title: 'Có bước LCNT chờ duyệt',
           message: `Bước "${stepData.title}" của "${projectName}" cần được phê duyệt.`,
@@ -737,9 +756,11 @@ export class ContractorSelectionService {
   }
 
   /** Approve a step */
-  async approveStep(stepId: string, userId: string, userRole: string, comment?: string) {
-    if (!canApprove(userRole)) {
-      throw new ForbiddenException('Bạn không có quyền phê duyệt bước này');
+  async approveStep(stepId: string, userId: string, comment?: string) {
+    // Check if user can approve (has canApprove flag or is ADMIN)
+    const canApprove = await userCanApprove(this.prisma, userId);
+    if (!canApprove) {
+      throw new ForbiddenException('Bạn không có quyền phê duyệt bước này. Vui lòng liên hệ Admin để được cấp quyền phê duyệt.');
     }
 
     const step = await this.prisma.procurementStep.findUnique({ where: { id: stepId } });
@@ -749,10 +770,7 @@ export class ContractorSelectionService {
       throw new BadRequestException('Bước không ở trạng thái chờ phê duyệt');
     }
 
-    const requiredRole = getRequiredApproverRole(step.stepKey);
-    if (requiredRole === 'DIRECTOR' && userRole !== 'DIRECTOR' && userRole !== 'ADMIN') {
-      throw new ForbiddenException(`Bước này yêu cầu Giám đốc phê duyệt. Bạn là ${userRole === 'HEAD_OF_DEPARTMENT' ? 'Trưởng phòng' : userRole}`);
-    }
+    // NOTE: No role restriction - anyone with canApprove=true or ADMIN can approve any step
 
     await this.prisma.$transaction(async (tx) => {
       // Update step
@@ -762,7 +780,6 @@ export class ContractorSelectionService {
           approvalStatus: 'APPROVED',
           approvedBy: userId,
           approvedAt: new Date(),
-          approverRole: userRole,
           approvalComment: comment || null,
         },
       });
@@ -802,9 +819,11 @@ export class ContractorSelectionService {
   }
 
   /** Reject a step */
-  async rejectStep(stepId: string, userId: string, userRole: string, comment: string) {
-    if (!canApprove(userRole)) {
-      throw new ForbiddenException('Bạn không có quyền từ chối bước này');
+  async rejectStep(stepId: string, userId: string, comment: string) {
+    // Check if user can reject (has canApprove flag or is ADMIN)
+    const canApprove = await userCanApprove(this.prisma, userId);
+    if (!canApprove) {
+      throw new ForbiddenException('Bạn không có quyền từ chối bước này. Vui lòng liên hệ Admin để được cấp quyền phê duyệt.');
     }
 
     const step = await this.prisma.procurementStep.findUnique({ where: { id: stepId } });

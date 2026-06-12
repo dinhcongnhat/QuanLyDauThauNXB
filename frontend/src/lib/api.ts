@@ -26,7 +26,7 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
 
 export const api = {
   // ── Project ────────────────────────────────────────────────
-  getProjects: () => request<any[]>('/projects'),
+  getProjects: () => request<{ projects: any[]; pagination?: any }>('/projects'),
   getProject: (id: string) => request<any>(`/projects/${encodeURIComponent(id)}`),
   getProjectSummary: (id: string) => request<any>(`/projects/${encodeURIComponent(id)}/summary`),
   getProjectLogs: (id: string, stepKey?: string) =>
@@ -54,11 +54,13 @@ export const api = {
   getProfile: () => request<any>('/auth/profile'),
 
   // Users
-  getUsers: () => request<any[]>('/users'),
-  createUser: (data: { name: string; email: string; password: string; role: string; department?: string; isInvestor?: boolean; isContractor?: boolean }) =>
+  getUsers: (page?: number, limit?: number) => request<any>(`/users${page ? `?page=${page}&limit=${limit || 50}` : ''}`),
+  createUser: (data: { name: string; email: string; password: string; role: string; department?: string; position?: string; isInvestor?: boolean; isContractor?: boolean; canApprove?: boolean }) =>
     request<any>('/users', { method: 'POST', body: JSON.stringify(data) }),
-  updateUser: (id: string, data: { name?: string; email?: string; department?: string; isInvestor?: boolean; isContractor?: boolean }) =>
+  updateUser: (id: string, data: { name?: string; email?: string; department?: string; position?: string; isInvestor?: boolean; isContractor?: boolean; canApprove?: boolean }) =>
     request<any>(`/users/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  updateUserCanApprove: (id: string, canApprove: boolean) =>
+    request<any>(`/users/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ canApprove }) }),
   deleteUser: (id: string) =>
     request<any>(`/users/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   updateUserRole: (id: string, role: string) =>

@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 interface ActionButtonsProps {
   status: string;
   role: string;
+  canApprove: boolean;
   entityType: 'budget' | 'plan';
   isOwner: boolean;
   onSubmit?: () => Promise<void>;
@@ -16,7 +17,7 @@ interface ActionButtonsProps {
 }
 
 export function ActionButtons({
-  status, role, entityType, isOwner,
+  status, role, canApprove, entityType, isOwner,
   onSubmit, onApprove, onReject, onReview, onResubmit,
 }: ActionButtonsProps) {
   const [comment, setComment] = useState('');
@@ -53,7 +54,7 @@ export function ActionButtons({
 
   const buttons: React.ReactNode[] = [];
 
-  // Submit button for INVESTOR on DRAFT items
+  // Submit button for owners on DRAFT items
   if (status === 'DRAFT' && isOwner && onSubmit) {
     buttons.push(
       <button key="submit" onClick={() => handleSimpleAction('submit', onSubmit)} disabled={loading === 'submit'}
@@ -73,8 +74,8 @@ export function ActionButtons({
     );
   }
 
-  // Review button for HEAD_OF_DEPARTMENT on SUBMITTED plans
-  if (entityType === 'plan' && status === 'SUBMITTED' && (role === 'HEAD_OF_DEPARTMENT' || role === 'ADMIN') && onReview) {
+  // Review button for approvers on SUBMITTED plans
+  if (entityType === 'plan' && status === 'SUBMITTED' && (role === 'ADMIN' || canApprove) && onReview) {
     buttons.push(
       <button key="review" onClick={() => showComment === 'review' ? handleAction('review', onReview) : setShowComment('review')}
         disabled={loading === 'review'}
@@ -84,30 +85,32 @@ export function ActionButtons({
     );
   }
 
-  // Approve button
-  const canApproveBudget = entityType === 'budget' && status === 'SUBMITTED' && (role === 'DIRECTOR' || role === 'ADMIN');
-  const canApprovePlan = entityType === 'plan' && status === 'REVIEWING' && (role === 'DIRECTOR' || role === 'ADMIN');
-  if ((canApproveBudget || canApprovePlan) && onApprove) {
-    buttons.push(
-      <button key="approve" onClick={() => showComment === 'approve' ? handleAction('approve', onApprove) : setShowComment('approve')}
-        disabled={loading === 'approve'}
-        className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm font-medium">
-        {loading === 'approve' ? '...' : 'Phê duyệt'}
-      </button>
-    );
+  // Approve button - ADMIN or canApprove users
+  if ((role === 'ADMIN' || canApprove) && onApprove) {
+    const showApprove = (status === 'SUBMITTED' || status === 'PENDING_APPROVAL' || status === 'REVIEWING');
+    if (showApprove) {
+      buttons.push(
+        <button key="approve" onClick={() => showComment === 'approve' ? handleAction('approve', onApprove) : setShowComment('approve')}
+          disabled={loading === 'approve'}
+          className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm font-medium">
+          {loading === 'approve' ? '...' : 'Phê duyệt'}
+        </button>
+      );
+    }
   }
 
-  // Reject button
-  const canRejectBudget = entityType === 'budget' && status === 'SUBMITTED' && (role === 'DIRECTOR' || role === 'ADMIN');
-  const canRejectPlan = entityType === 'plan' && ['SUBMITTED', 'REVIEWING'].includes(status) && ['HEAD_OF_DEPARTMENT', 'DIRECTOR', 'ADMIN'].includes(role);
-  if ((canRejectBudget || canRejectPlan) && onReject) {
-    buttons.push(
-      <button key="reject" onClick={() => showComment === 'reject' ? handleAction('reject', onReject) : setShowComment('reject')}
-        disabled={loading === 'reject'}
-        className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 text-sm font-medium">
-        {loading === 'reject' ? '...' : 'Từ chối'}
-      </button>
-    );
+  // Reject button - ADMIN or canApprove users
+  if ((role === 'ADMIN' || canApprove) && onReject) {
+    const showReject = (status === 'SUBMITTED' || status === 'PENDING_APPROVAL' || status === 'REVIEWING');
+    if (showReject) {
+      buttons.push(
+        <button key="reject" onClick={() => showComment === 'reject' ? handleAction('reject', onReject) : setShowComment('reject')}
+          disabled={loading === 'reject'}
+          className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 text-sm font-medium">
+          {loading === 'reject' ? '...' : 'Từ chối'}
+        </button>
+      );
+    }
   }
 
   if (buttons.length === 0) return null;

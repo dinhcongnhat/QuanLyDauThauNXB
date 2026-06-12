@@ -56,7 +56,7 @@ export class PaymentController {
   // ====================== CREATE ======================
 
   @Post()
-  @Roles(Role.ADMIN, Role.INVESTOR)
+  @Roles(Role.ADMIN)
   async create(@Body() dto: CreatePaymentDto, @Request() req: any) {
     return this.svc.createPayment(req.user.sub, dto.contractorSelectionId, dto.projectId);
   }
@@ -69,7 +69,7 @@ export class PaymentController {
   }
 
   @Post('step/:stepId/update')
-  @Roles(Role.ADMIN, Role.INVESTOR, Role.HEAD_OF_DEPARTMENT, Role.DIRECTOR)
+  @Roles(Role.ADMIN)
   async updateStep(@Param('stepId') stepId: string, @Body() dto: UpdateStepDto, @Request() req: any) {
     return this.svc.updateStepData(stepId, dto.data, req.user.sub);
   }
@@ -77,13 +77,13 @@ export class PaymentController {
   // ====================== STEP COMPLETION ======================
 
   @Post('step/:stepId/complete')
-  @Roles(Role.ADMIN, Role.INVESTOR, Role.HEAD_OF_DEPARTMENT, Role.DIRECTOR)
+  @Roles(Role.ADMIN)
   async completeStep(@Param('stepId') stepId: string, @Request() req: any) {
     return this.svc.completeStep(stepId, req.user.sub);
   }
 
   @Post('step/:stepId/reopen')
-  @Roles(Role.ADMIN, Role.INVESTOR, Role.HEAD_OF_DEPARTMENT, Role.DIRECTOR)
+  @Roles(Role.ADMIN)
   async reopenStep(@Param('stepId') stepId: string, @Request() req: any) {
     return this.svc.reopenStep(stepId, req.user.sub);
   }
@@ -148,7 +148,7 @@ export class PaymentController {
 
   @Post('step/:stepId/upload')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 50 * 1024 * 1024 } }))
-  @Roles(Role.ADMIN, Role.INVESTOR)
+  @Roles(Role.ADMIN)
   async uploadAttachment(
     @Param('stepId') stepId: string,
     @UploadedFile() file: Express.Multer.File,
@@ -166,7 +166,7 @@ export class PaymentController {
   }
 
   @Post('step/:stepId/delete-attachment')
-  @Roles(Role.ADMIN, Role.INVESTOR)
+  @Roles(Role.ADMIN)
   async deleteAttachment(
     @Param('stepId') stepId: string,
     @Body() body: { path: string },

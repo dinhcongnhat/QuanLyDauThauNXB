@@ -14,12 +14,12 @@ import { SavedValue } from '@/lib/document-library-types';
 import { HistoryModal } from '@/components/HistoryModal';
 
 const statusLabels: Record<DocStatus, string> = {
-  DRAFT: 'Bản nháp', PENDING_HEAD: 'Chờ Trưởng phòng', PENDING_DIRECTOR: 'Chờ Giám đốc',
+  DRAFT: 'Bản nháp', PENDING_APPROVAL: 'Chờ phê duyệt',
   APPROVED: 'Đã phê duyệt', REJECTED: 'Cần làm lại',
 };
 const statusColors: Record<DocStatus, string> = {
-  DRAFT: 'bg-gray-100 text-gray-700', PENDING_HEAD: 'bg-yellow-100 text-yellow-700',
-  PENDING_DIRECTOR: 'bg-blue-100 text-blue-700', APPROVED: 'bg-green-100 text-green-700',
+  DRAFT: 'bg-gray-100 text-gray-700', PENDING_APPROVAL: 'bg-yellow-100 text-yellow-700',
+  APPROVED: 'bg-green-100 text-green-700',
   REJECTED: 'bg-red-100 text-red-700',
 };
 const typeLabels: Record<string, string> = {
@@ -43,9 +43,6 @@ function KHLCNTDetailPageInner() {
   const [users, setUsers] = useState<User[]>([]);
   const [delegateUserId, setDelegateUserId] = useState('');
   const [previewDocId, setPreviewDocId] = useState<string | null>(null);
-  const [heads, setHeads] = useState<User[]>([]);
-  const [directorsList, setDirectorsList] = useState<User[]>([]);
-  const [selectedApprover, setSelectedApprover] = useState('');
   const [selectedTTRef, setSelectedTTRef] = useState('');
   const [editingDoc, setEditingDoc] = useState<Doc | null>(null);
   const [showHistory, setShowHistory] = useState(false);
@@ -125,17 +122,13 @@ function KHLCNTDetailPageInner() {
   useEffect(() => {
     fetchData();
     api.getUsers().then(setUsers).catch(() => {});
-    api.getUsersByRole('HEAD_OF_DEPARTMENT').then(setHeads).catch(() => {});
-    api.getUsersByRole('DIRECTOR').then(setDirectorsList).catch(() => {});
   }, [parentId]);
 
   const ttApproved = children.some(d => d.type === 'TT_KHLCNT' && d.status === 'APPROVED');
   const canCreateQD = ttApproved;
   const hasTT = children.some(d => d.type === 'TT_KHLCNT' && d.status !== 'REJECTED');
   const hasQD = children.some(d => d.type === 'QD_KHLCNT');
-  const isHead = user?.role === 'HEAD_OF_DEPARTMENT' || user?.role === 'ADMIN';
-  const isDirector = user?.role === 'DIRECTOR' || user?.role === 'ADMIN';
-  const isInvestor = user?.role === 'INVESTOR';
+  const canApprove = user?.role === 'ADMIN' || user?.canApprove === true;
 
   // Approved children for linking
   const approvedTTs = children.filter(d => d.type === 'TT_KHLCNT' && d.status === 'APPROVED');
@@ -173,13 +166,11 @@ function KHLCNTDetailPageInner() {
   const delegationReview = children.flatMap(d => d.reviews || []).find(r => r.action === 'DELEGATE');
 
   const handleCreate = async (type: FormType) => {
-    if (!selectedApprover) { toast.error('Vui lòng chọn người duyệt'); return; }
     const dataMap = { TT_KHLCNT: ttData, QD_KHLCNT: qdData };
     try {
-      await api.createDocument(type, dataMap[type], parentId, selectedApprover, projectId);
+      await api.createDocument(type, dataMap[type], parentId, undefined, projectId);
       toast.success(`Tạo ${typeLabels[type]} thành công`);
       setShowForm(null);
-      setSelectedApprover('');
       fetchData();
     } catch (err: any) { toast.error(err.message); }
   };
@@ -247,7 +238,6 @@ function KHLCNTDetailPageInner() {
 
   if (loading) return <div className="flex items-center justify-center h-64"><div className="animate-spin h-8 w-8 border-4 border-primary-500 border-t-transparent rounded-full" /></div>;
 
-  const investors = users.filter(u => u.role === 'INVESTOR');
   const activeProjectId = projectId || parent?.projectId;
 
   return (
@@ -280,12 +270,12 @@ function KHLCNTDetailPageInner() {
 
       {/* Action buttons */}
       <div className="flex gap-2 flex-wrap">
-        {(isInvestor || user?.role === 'ADMIN') && !hasTT && (
+        {!hasTT && (
           <button onClick={() => setShowForm('TT_KHLCNT')} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">
             + Tờ trình KHLCNT
           </button>
         )}
-        {canCreateQD && !hasQD && (isHead || (isInvestor && delegationReview)) && (
+        {canCreateQD && !hasQD && canApprove && (
           <button onClick={() => setShowForm('QD_KHLCNT')} className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm">
             + Quyết định KHLCNT
           </button>
@@ -298,14 +288,14 @@ function KHLCNTDetailPageInner() {
       </div>
 
       {/* Delegate section */}
-      {isHead && canCreateQD && !hasQD && (
+      {canApprove && canCreateQD && !hasQD && (
         <div className="bg-yellow-50 rounded-xl p-4 border border-yellow-200">
           <p className="text-sm font-medium text-yellow-800 mb-2">Ủy quyền tạo QĐ KHLCNT cho nhân viên</p>
           <div className="flex gap-2 items-center">
             <select value={delegateUserId} onChange={e => setDelegateUserId(e.target.value)}
               className="border rounded-lg px-3 py-2 text-sm flex-1">
               <option value="">-- Chọn nhân viên --</option>
-              {investors.map(u => <option key={u.id} value={u.id}>{u.name} ({u.email})</option>)}
+              {users.map(u => <option key={u.id} value={u.id}>{u.name} ({u.email})</option>)}
             </select>
             <button onClick={handleDelegate} className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 text-sm">
               Ủy quyền
@@ -381,18 +371,9 @@ function KHLCNTDetailPageInner() {
             <label className="text-sm font-medium text-gray-600">Giải trình nội dung KHLCNT</label>
             <textarea className="inp w-full mt-1" rows={3} placeholder="Giải trình cơ sở phân chia gói thầu, giá, nguồn vốn, hình thức, thời gian..." value={ttData.giaiTrinh} onChange={e => setTtData({...ttData, giaiTrinh: e.target.value})} />
           </div>
-          <div className="flex gap-2 mt-6">
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-600 mb-1">Chọn người duyệt</label>
-              <select className="inp w-full" value={selectedApprover} onChange={e => setSelectedApprover(e.target.value)}>
-                <option value="">-- Chọn người duyệt --</option>
-                {heads.map(h => <option key={h.id} value={h.id}>{h.name} ({h.email})</option>)}
-              </select>
-            </div>
-            <div className="flex gap-2 items-end">
-              <button onClick={() => handleCreate('TT_KHLCNT')} className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Tạo & Gửi</button>
-              <button onClick={() => setShowForm(null)} className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg">Hủy</button>
-            </div>
+          <div className="flex gap-2 mt-6 justify-end">
+            <button onClick={() => handleCreate('TT_KHLCNT')} className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Tạo & Gửi</button>
+            <button onClick={() => setShowForm(null)} className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg">Hủy</button>
           </div>
         </div>
       )}
@@ -478,18 +459,9 @@ function KHLCNTDetailPageInner() {
           ))}
           <button onClick={() => setQdData({...qdData, goiThau: [...qdData.goiThau, { tenGoiThau: '', tomTatCongViec: '', giaGoiThau: 0, nguonVon: '', hinhThucLuaChon: '', phuongThucLuaChon: '', loaiHopDong: '', thoiGianToChuc: '', thoiGianBatDau: '', thoiGianThucHien: '', tuyChonMuaThem: '', giamSatDauThau: '', tenChuDauTu: '' }]})} className="text-sm text-primary-600 mt-1">+ Thêm gói thầu</button>
 
-          <div className="flex gap-2 mt-6">
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-600 mb-1">Chọn người duyệt (Giám đốc)</label>
-              <select className="inp w-full" value={selectedApprover} onChange={e => setSelectedApprover(e.target.value)}>
-                <option value="">-- Chọn Giám đốc duyệt --</option>
-                {directorsList.map(u => <option key={u.id} value={u.id}>{u.name} ({u.email})</option>)}
-              </select>
-            </div>
-            <div className="flex gap-2 items-end">
-              <button onClick={() => handleCreate('QD_KHLCNT')} className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700">Tạo & Gửi</button>
-              <button onClick={() => setShowForm(null)} className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg">Hủy</button>
-            </div>
+          <div className="flex gap-2 mt-6 justify-end">
+            <button onClick={() => handleCreate('QD_KHLCNT')} className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700">Tạo & Gửi</button>
+            <button onClick={() => setShowForm(null)} className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg">Hủy</button>
           </div>
         </div>
       )}
@@ -514,10 +486,7 @@ function KHLCNTDetailPageInner() {
               <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400">Chưa có hồ sơ nào</td></tr>
             )}
             {children.map(doc => {
-              const canApproveThis = (
-                (doc.status === 'PENDING_HEAD' && isHead) ||
-                (doc.status === 'PENDING_DIRECTOR' && isDirector)
-              );
+              const canApproveThis = doc.status === 'PENDING_APPROVAL' && canApprove;
               return (
                 <tr key={doc.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3">

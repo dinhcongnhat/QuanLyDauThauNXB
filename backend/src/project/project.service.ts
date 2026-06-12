@@ -19,30 +19,40 @@ export class ProjectService {
     });
   }
 
-  async findAll(userId?: string, role?: string) {
+  async findAll(userId?: string, role?: string, page: number = 1, limit: number = 20) {
     const where: any = {};
 
-    if (role === 'ADMIN' || !role) {
-      // Admin sees all
-    } else if (role === 'INVESTOR') {
+    if (role === 'USER') {
       where.createdBy = userId;
     }
 
-    return this.prisma.project.findMany({
-      where,
-      include: {
-        creator: { select: { id: true, name: true, email: true, role: true } },
-        _count: {
-          select: {
-            documents: true,
-            contractorSelections: true,
-            payments: true,
-            datSachProjects: true,
+    const skip = (page - 1) * limit;
+
+    const [projects, total] = await Promise.all([
+      this.prisma.project.findMany({
+        where,
+        include: {
+          creator: { select: { id: true, name: true, email: true, role: true } },
+          _count: {
+            select: {
+              documents: true,
+              contractorSelections: true,
+              payments: true,
+              datSachProjects: true,
+            },
           },
         },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        skip,
+      }),
+      this.prisma.project.count({ where }),
+    ]);
+
+    return {
+      projects,
+      pagination: { total, page, limit, totalPages: Math.ceil(total / limit) },
+    };
   }
 
   async findOne(id: string) {
@@ -262,12 +272,24 @@ export class ProjectService {
   }
 
   async getStats() {
-    const [total, inProgress, completed, cancelled] = await Promise.all([
-      this.prisma.project.count(),
-      this.prisma.project.count({ where: { status: 'IN_PROGRESS' } }),
-      this.prisma.project.count({ where: { status: 'COMPLETED' } }),
-      this.prisma.project.count({ where: { status: 'CANCELLED' } }),
-    ]);
+    // Use groupBy for a single query instead of 4 separate count queries
+    const stats = await this.prisma.project.groupBy({
+      by: ['status'],
+      _count: { id: true },
+    });
+
+    let total = 0;
+    let inProgress = 0;
+    let completed = 0;
+    let cancelled = 0;
+
+    for (const s of stats) {
+      total += s._count.id;
+      if (s.status === 'IN_PROGRESS') inProgress = s._count.id;
+      else if (s.status === 'COMPLETED') completed = s._count.id;
+      else if (s.status === 'CANCELLED') cancelled = s._count.id;
+    }
+
     return { total, inProgress, completed, cancelled };
   }
 

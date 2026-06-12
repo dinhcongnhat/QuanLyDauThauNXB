@@ -7,9 +7,7 @@ import toast from 'react-hot-toast';
 
 const roleLabels: Record<Role, string> = {
   ADMIN: 'Quản trị viên',
-  INVESTOR: 'Chủ đầu tư',
-  HEAD_OF_DEPARTMENT: 'Trưởng phòng',
-  DIRECTOR: 'Giám đốc',
+  USER: 'Người dùng',
 };
 
 const allPermissions = [
@@ -30,10 +28,10 @@ const allPermissions = [
   { key: 'admin:full', label: 'Toàn quyền admin' },
 ];
 
-const roles: Role[] = ['INVESTOR', 'HEAD_OF_DEPARTMENT', 'DIRECTOR', 'ADMIN'];
+const roles: Role[] = ['ADMIN', 'USER'];
 
 export default function PermissionsPage() {
-  const [selectedRole, setSelectedRole] = useState<Role>('INVESTOR');
+  const [selectedRole, setSelectedRole] = useState<Role>('ADMIN');
   const [permissions, setPermissions] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);

@@ -87,19 +87,19 @@ export class BidParticipationController {
   }
 
   @Post('step/:stepId/update')
-  @Roles(Role.ADMIN, Role.HEAD_OF_DEPARTMENT, Role.DIRECTOR)
+  @Roles(Role.ADMIN)
   updateStep(@Param('stepId') stepId: string, @Body() body: { data: any }) {
     return this.service.updateStep(stepId, body.data);
   }
 
   @Post('step/:stepId/complete')
-  @Roles(Role.ADMIN, Role.HEAD_OF_DEPARTMENT, Role.DIRECTOR)
+  @Roles(Role.ADMIN)
   completeStep(@Param('stepId') stepId: string) {
     return this.service.completeStep(stepId);
   }
 
   @Post('step/:stepId/reopen')
-  @Roles(Role.ADMIN, Role.HEAD_OF_DEPARTMENT, Role.DIRECTOR)
+  @Roles(Role.ADMIN)
   reopenStep(@Param('stepId') stepId: string) {
     return this.service.reopenStep(stepId);
   }

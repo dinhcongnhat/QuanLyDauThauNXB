@@ -1,18 +1,20 @@
-export type Role = 'ADMIN' | 'INVESTOR' | 'HEAD_OF_DEPARTMENT' | 'DIRECTOR';
+export type Role = 'ADMIN' | 'USER';
 export type DocType = 'TT_DUTOAN' | 'QD_DUTOAN' | 'TT_KHLCNT' | 'BC_KHLCNT' | 'QD_KHLCNT';
-export type DocStatus = 'DRAFT' | 'PENDING_HEAD' | 'PENDING_DIRECTOR' | 'APPROVED' | 'REJECTED';
+export type DocStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
 
 export interface User {
   id: string;
   name: string;
   email: string;
   role: Role;
+  canApprove?: boolean;
   isInvestor?: boolean;
   isContractor?: boolean;
   department?: string;
+  position?: string;  // NEW: Chức vụ
   createdAt?: string;
   permissions?: string[];
-  dynamicRoles?: DynamicRole[];  // NEW
+  dynamicRoles?: DynamicRole[];
 }
 
 export interface Review {
