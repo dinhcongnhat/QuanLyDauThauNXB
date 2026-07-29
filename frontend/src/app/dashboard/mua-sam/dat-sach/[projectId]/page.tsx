@@ -9,8 +9,6 @@ import { User } from '@/lib/types';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
-import { LibraryPicker, SaveToLibraryModal } from '@/components/LibraryPicker';
-import { LibraryType, SavedValue } from '@/lib/document-library-types';
 import { OnlyOfficePreview } from '@/components/OnlyOfficePreview';
 import type { PreviewType } from '@/components/OnlyOfficePreview';
 import { ProjectChat } from '@/components/ProjectChat';
@@ -84,8 +82,6 @@ function DatSachDetailPageInner() {
   const [fetching, setFetching] = useState(false);
   const [previewDocId, setPreviewDocId] = useState<string | null>(null);
   const [previewType, setPreviewType] = useState<PreviewType>('gdn');
-  const [showSaveToLibrary, setShowSaveToLibrary] = useState(false);
-  const [saveLibType, setSaveLibType] = useState<LibraryType>('THONG_TIN_TO_CHUC');
   const [showReviewerModal, setShowReviewerModal] = useState(false);
   const [reviewerModalType, setReviewerModalType] = useState<'gdn' | 'pcdi' | 'gdn_pcdi' | 'qd'>('gdn');
   const [selectedReviewer, setSelectedReviewer] = useState('');
@@ -223,69 +219,6 @@ function DatSachDetailPageInner() {
       })
       .finally(() => setLoadingUsers(false));
   }, [fetchProject]);
-
-  // ─── Library ───────────────────────────────────────────────────────
-  const handleLibraryGDN = (val: SavedValue) => {
-    if (!val.duLieu) return;
-    setGdnData(prev => ({
-      ...prev,
-      tenSach: val.duLieu.tenSach || val.duLieu.TenSach || val.duLieu.ten_sach || prev.tenSach,
-      tacGia: val.duLieu.tacGia || val.duLieu.TacGia || val.duLieu.tac_gia || prev.tacGia,
-      bbt: val.duLieu.bbt || val.duLieu.BBT || val.duLieu.nhaXuatBan || prev.bbt,
-      namXB: val.duLieu.namXB || val.duLieu.NamXB || val.duLieu.nam_xb || prev.namXB,
-      soTrang: val.duLieu.soTrang || val.duLieu.SoTrang || prev.soTrang,
-      khoSach: val.duLieu.khoSach || val.duLieu.KhoSach || prev.khoSach,
-      giaBia: val.duLieu.giaBia || val.duLieu.GiaBia || val.duLieu.gia_bia || prev.giaBia,
-      soLuongTon: val.duLieu.soLuongTon || val.duLieu.SoLuongTon || prev.soLuongTon,
-      slDeNghiIn: val.duLieu.slDeNghiIn || val.duLieu.SLDeNghiIn || prev.slDeNghiIn,
-      thoiGianCanSach: val.duLieu.thoiGianCanSach || val.duLieu.ThoiGianCanSach || prev.thoiGianCanSach,
-      deNghiNoiIn: val.duLieu.deNghiNoiIn || val.duLieu.DeNghiNoiIn || prev.deNghiNoiIn,
-      vuKHTKBT: val.duLieu.vuKHTKBT || val.duLieu.VuKHTKBT || prev.vuKHTKBT,
-      banBienTap: val.duLieu.banBienTap || val.duLieu.BanBienTap || prev.banBienTap,
-    }));
-    toast.success('Đã điền từ thư viện văn bản');
-  };
-
-  const handleLibraryPCDI = (val: SavedValue) => {
-    if (!val.duLieu) return;
-    setPcdiData(prev => ({
-      ...prev,
-      bbt: val.duLieu.bbt || val.duLieu.BBT || prev.bbt,
-      phuongThuc: val.duLieu.phuongThucIn || val.duLieu.phuongThuc || prev.phuongThuc,
-      tenSach: val.duLieu.tenSach || val.duLieu.TenSach || prev.tenSach,
-      tacGia: val.duLieu.tacGia || val.duLieu.TacGia || prev.tacGia,
-      soTrang: val.duLieu.soTrang || val.duLieu.SoTrang || prev.soTrang,
-      khoSach: val.duLieu.khoSach || val.duLieu.KhoSach || prev.khoSach,
-      soLuongIn: val.duLieu.soLuongIn || val.duLieu.SoLuongIn || prev.soLuongIn,
-      giaTriHopDong: val.duLieu.giaTriHD || val.duLieu.giaTriHopDong || prev.giaTriHopDong,
-      coSoIn: val.duLieu.coSoIn || val.duLieu.CoSoIn || prev.coSoIn,
-      thongSoKyThuat: val.duLieu.thongSoKyThuat || val.duLieu.ThongSoKyThuat || prev.thongSoKyThuat,
-      ghiChu: val.duLieu.ghiChu || prev.ghiChu,
-    }));
-    toast.success('Đã điền từ thư viện văn bản');
-  };
-
-  const handleLibraryQD = (val: SavedValue) => {
-    if (!val.duLieu) return;
-    setQdData(prev => ({
-      ...prev,
-      tacGia: val.duLieu.tacGia || val.duLieu.TacGia || prev.tacGia,
-      ngonNgu: val.duLieu.ngonNgu || val.duLieu.NgonNgu || prev.ngonNgu,
-      khuonKho: val.duLieu.khuonKho || val.duLieu.KhuonKho || prev.khuonKho,
-      soTrangCuaXuatBanPhamIn: val.duLieu.soTrang || val.duLieu.SoTrang || prev.soTrangCuaXuatBanPhamIn,
-      doiTacLienKet: val.duLieu.doiTac || val.duLieu.doiTacLienKet || prev.doiTacLienKet,
-      tenBienTapVien: val.duLieu.bienTapVien || val.duLieu.TenBienTapVien || prev.tenBienTapVien,
-      maSoISBN: val.duLieu.isbn || val.duLieu.ISBN || prev.maSoISBN,
-      isbn: val.duLieu.isbn || val.duLieu.ISBN || prev.isbn,
-      coSoIn: val.duLieu.coSoIn || val.duLieu.CoSoIn || prev.coSoIn,
-      soLuongIn: val.duLieu.soLuongIn || val.duLieu.SoLuongIn || prev.soLuongIn,
-      coQuanPheDuyet: val.duLieu.coQuanPheDuyet || val.duLieu.CoQuanPheDuyet || prev.coQuanPheDuyet,
-      nguonVon: val.duLieu.nguonVon || val.duLieu.NgonNguonVon || prev.nguonVon,
-      diaDiem: val.duLieu.diaDiem || val.duLieu.DiaDiem || val.duLieu.diaChi || prev.diaDiem,
-      ghiChu: val.duLieu.ghiChu || prev.ghiChu,
-    }));
-    toast.success('Đã điền từ thư viện văn bản');
-  };
 
   // ─── Auto-fill PCDI ────────────────────────────────────────────────
   const handleAutoFillPCDI = async () => {
@@ -643,8 +576,6 @@ function DatSachDetailPageInner() {
                 </span>
                 {gdn && <button onClick={handleDownloadGDN} className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">📥 DOCX</button>}
                 {gdn && <button onClick={handlePreviewGDN} className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100">👁 Xem trước</button>}
-                <button onClick={() => { setSaveLibType('DAT_SACH_GDN'); setShowSaveToLibrary(true); }} className="text-xs px-2 py-1 bg-green-50 text-green-700 rounded hover:bg-green-100">💾 Lưu vào thư viện</button>
-                <LibraryPicker libraryType="THONG_TIN_TO_CHUC" module="DAT_SACH_GDN" onSelect={handleLibraryGDN} onSaveToLibrary={() => { setSaveLibType('DAT_SACH_GDN'); setShowSaveToLibrary(true); }} />
               </div>
             </div>
 
@@ -894,8 +825,6 @@ function DatSachDetailPageInner() {
                 </span>
                 {pcdi && <button onClick={handleDownloadPCDI} className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">📥 DOCX</button>}
                 {pcdi && <button onClick={handlePreviewPCDI} className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100">👁 Xem trước</button>}
-                <button onClick={() => { setSaveLibType('DAT_SACH_PCDI'); setShowSaveToLibrary(true); }} className="text-xs px-2 py-1 bg-green-50 text-green-700 rounded hover:bg-green-100">💾 Lưu vào thư viện</button>
-                <LibraryPicker libraryType="THONG_TIN_NHA_THAU" module="DAT_SACH_PCDI" onSelect={handleLibraryPCDI} onSaveToLibrary={() => { setSaveLibType('DAT_SACH_PCDI'); setShowSaveToLibrary(true); }} />
               </div>
             </div>
 
@@ -1086,8 +1015,6 @@ function DatSachDetailPageInner() {
               <div className="flex gap-2 items-center">
                 <button onClick={handleDownloadQD} className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">📥 DOCX</button>
                 <button onClick={handlePreviewQD} className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100">👁 Xem trước</button>
-                <button onClick={() => { setSaveLibType('DAT_SACH_QD'); setShowSaveToLibrary(true); }} className="text-xs px-2 py-1 bg-green-50 text-green-700 rounded hover:bg-green-100">💾 Lưu vào thư viện</button>
-                <LibraryPicker libraryType="THONG_TIN_TO_CHUC" module="DAT_SACH_QD" onSelect={handleLibraryQD} onSaveToLibrary={() => { setSaveLibType('DAT_SACH_QD'); setShowSaveToLibrary(true); }} />
               </div>
             </div>
 
@@ -1413,24 +1340,6 @@ function DatSachDetailPageInner() {
         />
       )}
 
-      {/* Save to Library Modal */}
-      <SaveToLibraryModal
-        isOpen={showSaveToLibrary}
-        onClose={() => setShowSaveToLibrary(false)}
-        libraryType={saveLibType}
-        formData={
-          saveLibType === 'DAT_SACH_GDN' ? { ...gdnData } :
-          saveLibType === 'DAT_SACH_PCDI' ? { ...pcdiData } :
-          { ...qdData }
-        }
-        formFieldKeys={
-          saveLibType === 'DAT_SACH_GDN' ? Object.keys(gdnData) :
-          saveLibType === 'DAT_SACH_PCDI' ? Object.keys(pcdiData) :
-          Object.keys(qdData)
-        }
-        onSave={() => {}}
-      />
-
       {/* ─── Lich su quy trinh ─── */}
       <div className="bg-white rounded-xl p-5 border">
         <h3 className="font-semibold text-gray-800 mb-4">Lịch sử quy trình</h3>
@@ -1574,4 +1483,3 @@ export default function DatSachDetailPage() {
     </Suspense>
   );
 }
-

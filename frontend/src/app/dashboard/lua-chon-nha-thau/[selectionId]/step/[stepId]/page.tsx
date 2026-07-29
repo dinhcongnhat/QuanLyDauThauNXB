@@ -7,12 +7,21 @@ import { ProcurementStep, ContractorSelection } from '@/lib/types';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
-import { motion } from 'framer-motion';
-import { SmartFormField, FieldDef } from '@/components/SmartFormField';
-import { CDT_STEP_FIELDS, CHCT_STEP_FIELDS, ATTACHMENT_ONLY, getFieldsForStep } from '@/lib/lcnt-field-defs';
-import { LibraryPicker, SaveToLibraryModal } from '@/components/LibraryPicker';
-import { SavedValue } from '@/lib/document-library-types';
+import { SmartFormField } from '@/components/SmartFormField';
+import { LegalBasisField } from '@/components/LegalBasisField';
+import {
+  WorkflowFormSection,
+} from '@/components/WorkflowDocumentUI';
+import { WorkflowDocxPreview } from '@/components/WorkflowDocxPreview';
+import { ATTACHMENT_ONLY, getFieldsForStep } from '@/lib/lcnt-field-defs';
 import { ProjectChat } from '@/components/ProjectChat';
+import {
+  getLCNTTemplateFieldKeys,
+  isBlankWorkflowValue,
+  mergeTemplateFields,
+  normalizeLegalBasisValue,
+  normalizeWorkflowData,
+} from '@/lib/workflow-template-api';
 
 const STEP_STATUS_LABELS: Record<string, string> = {
   NOT_STARTED: 'Chưa bắt đầu',
@@ -51,8 +60,9 @@ export default function LCNTStepDetailPage() {
   const [selection, setSelection] = useState<ContractorSelection | null>(null);
   const [step, setStep] = useState<ProcurementStep | null>(null);
   const [loading, setLoading] = useState(true);
-  const [formData, setFormData] = useState<Record<string, string>>({});
+  const [formData, setFormData] = useState<Record<string, any>>({});
   const [autoFillData, setAutoFillData] = useState<Record<string, any>>({});
+  const [templateFieldKeys, setTemplateFieldKeys] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -65,28 +75,26 @@ export default function LCNTStepDetailPage() {
   const [contractPackageType, setContractPackageType] = useState<string>('');
   const [approvers, setApprovers] = useState<any[]>([]);
   const [selectedApproverId, setSelectedApproverId] = useState<string>('');
-  const [showLibraryPicker, setShowLibraryPicker] = useState(false);
-  const [showSaveToLibraryModal, setShowSaveToLibraryModal] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [selData, stepData] = await Promise.all([
+      const [selData, stepData, dynamicFields] = await Promise.all([
         api.getContractorSelection(selectionId),
         api.getLCNTStep(stepId),
+        getLCNTTemplateFieldKeys(stepId).catch(() => []),
       ]);
       setSelection(selData);
       setStep(stepData);
+      setTemplateFieldKeys(dynamicFields);
       if (selData.contractPackageType) {
         setContractPackageType(selData.contractPackageType);
       }
 
       const rawData = (stepData.data || {}) as Record<string, any>;
-      const stringData: Record<string, string> = {};
-      for (const [k, v] of Object.entries(rawData)) {
-        if (k !== '_attachments') stringData[k] = String(v ?? '');
-      }
-      setFormData(stringData);
+      const normalizedData = normalizeWorkflowData(rawData);
+      delete normalizedData._attachments;
+      setFormData(normalizedData);
     } catch (err: any) { toast.error(err.message); }
     finally { setLoading(false); }
   }, [selectionId, stepId]);
@@ -108,25 +116,27 @@ export default function LCNTStepDetailPage() {
     if (!step || step.status === 'COMPLETED') return;
     api.getLCNTAutoFill(stepId).then(async (data) => {
       if (!data || Object.keys(data).length === 0) return;
-      setAutoFillData(data);
+      const normalizedAutoFill = normalizeWorkflowData(data);
+      setAutoFillData(normalizedAutoFill);
       // Merge auto-fill into formData for non-completed steps
       setFormData(prev => {
         const merged = { ...prev };
-        for (const [key, val] of Object.entries(data)) {
-          if (!merged[key] || merged[key].trim() === '') {
-            merged[key] = String(val ?? '');
+        for (const [key, val] of Object.entries(normalizedAutoFill)) {
+          if (isBlankWorkflowValue(merged[key])) {
+            merged[key] = val;
           }
         }
         return merged;
       });
       // Persist auto-fill data to DB immediately
       try {
-        const keysToUpdate: Record<string, string> = {};
-        for (const [key, val] of Object.entries(data)) {
-          const rawData = (step.data || {}) as Record<string, any>;
-          const rawVal = String(rawData[key] ?? '');
-          if (!rawVal || rawVal.trim() === '') {
-            keysToUpdate[key] = String(val ?? '');
+        const keysToUpdate: Record<string, any> = {};
+        const currentData = normalizeWorkflowData(
+          (step.data || {}) as Record<string, any>,
+        );
+        for (const [key, val] of Object.entries(normalizedAutoFill)) {
+          if (isBlankWorkflowValue(currentData[key])) {
+            keysToUpdate[key] = val;
           }
         }
         if (Object.keys(keysToUpdate).length > 0) {
@@ -137,18 +147,25 @@ export default function LCNTStepDetailPage() {
   }, [stepId, step]);
 
   const fields = step && selection
-    ? (selection.procurementMethod === 'CHI_DINH_THAU'
-      ? CDT_STEP_FIELDS[step.stepKey] || []
-      : CHCT_STEP_FIELDS[step.stepKey] || [])
+    ? mergeTemplateFields(
+        getFieldsForStep(step.stepKey, selection.procurementMethod),
+        templateFieldKeys,
+      )
     : [];
 
   const isAttachment = step ? ATTACHMENT_ONLY.has(step.stepKey) : false;
   const attachmentsRaw: any[] = (step?.data as any)?._attachments || [];
   const attachments = attachmentsRaw.map((att: any) => typeof att === 'string' ? { path: att, fileName: displayFilename(att), ghiChu: '' } : att);
-  const canEdit = step && step.status !== 'COMPLETED';
+  const canEdit =
+    step &&
+    step.status !== 'COMPLETED' &&
+    step.approvalStatus !== 'APPROVED';
   const canRequestApproval = step && step.requiresApproval && step.approvalStatus === 'NO_APPROVAL_REQUIRED';
   const canApprove = step && step.approvalStatus === 'PENDING_APPROVAL';
-  const canComplete = step && step.status !== 'COMPLETED';
+  const canComplete =
+    step &&
+    step.status !== 'COMPLETED' &&
+    (!step.requiresApproval || step.approvalStatus === 'APPROVED');
 
   const handleSave = async () => {
     setSaving(true);
@@ -220,20 +237,6 @@ export default function LCNTStepDetailPage() {
       toast.success('Đã mở lại bước để chỉnh sửa');
       await loadData();
     } catch (err: any) { toast.error(err.message); }
-  };
-
-  const handleSelectLibraryValue = (savedValue: SavedValue) => {
-    const data = savedValue.duLieu as Record<string, any>;
-    const newFormData = { ...formData };
-    for (const [key, value] of Object.entries(data)) {
-      newFormData[key] = String(value ?? '');
-    }
-    setFormData(newFormData);
-    toast.success('Đã điền thông tin từ thư viện văn bản');
-  };
-
-  const handleSaveToLibrarySuccess = () => {
-    toast.success('Đã lưu vào thư viện văn bản');
   };
 
   const handleGenerateDocx = async () => {
@@ -314,7 +317,7 @@ export default function LCNTStepDetailPage() {
   const dataEntries = Object.entries(stepData).filter(([k]) => !k.startsWith('_'));
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto max-w-[1800px] space-y-4 2xl:space-y-6">
       <input ref={fileInputRef} type="file" className="hidden" onChange={onFileSelected}
         accept=".doc,.docx,.pdf,.xlsx,.xls,.jpg,.jpeg,.png,.zip,.rar" />
 
@@ -408,68 +411,101 @@ export default function LCNTStepDetailPage() {
         </div>
       )}
 
-      {/* Library Picker & Save to Library */}
-      {fields.length > 0 && canEdit && (
-        <div className="flex items-center gap-3 p-4 bg-blue-50 border border-blue-100 rounded-xl">
-          <span className="text-blue-600 text-sm font-medium">Thư viện văn bản LCNT:</span>
-          <LibraryPicker
-            libraryType="LCNT_STEP"
-            onSelect={handleSelectLibraryValue}
-            onSaveToLibrary={() => setShowSaveToLibraryModal(true)}
-          />
-        </div>
-      )}
-
       {/* Form fields or attachment upload */}
       {fields.length > 0 && (() => {
-        const hasGroups = fields.some(f => f.group);
-        const chungFields = hasGroups ? fields.filter(f => !f.group || f.group === 'chung') : fields;
-        const cdtFields = hasGroups ? fields.filter(f => f.group === 'cdt') : [];
-        const ntFields = hasGroups ? fields.filter(f => f.group === 'nt') : [];
+        const legalFields = fields.filter(f => f.key === 'CanCu');
+        const nonLegalFields = fields.filter(f => f.key !== 'CanCu');
+        const hasGroups = nonLegalFields.some(f => f.group);
+        const chungFields = hasGroups
+          ? nonLegalFields.filter(f => !f.group || f.group === 'chung')
+          : nonLegalFields;
+        const cdtFields = hasGroups
+          ? nonLegalFields.filter(f => f.group === 'cdt')
+          : [];
+        const ntFields = hasGroups
+          ? nonLegalFields.filter(f => f.group === 'nt')
+          : [];
+        let sectionNumber = 1;
+        const roman = ['I', 'II', 'III', 'IV', 'V', 'VI'];
+        const nextTitle = (title: string) =>
+          `${roman[sectionNumber++ - 1]}. ${title}`;
+        const chungTitle = nextTitle(
+          hasGroups ? 'Thông tin chung' : 'Thông tin văn bản',
+        );
+        const legalTitle =
+          legalFields.length > 0 ? nextTitle('Căn cứ pháp lý') : '';
+        const cdtTitle =
+          cdtFields.length > 0 ? nextTitle('Thông tin Chủ đầu tư') : '';
+        const ntTitle =
+          ntFields.length > 0 ? nextTitle('Thông tin Nhà thầu') : '';
         const renderFields = (flds: typeof fields) => (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {flds.map(field => {
               const isAutoFilled = !!autoFillData[field.key];
+              if (field.key === 'CanCu') {
+                return (
+                  <div key={field.key} className="md:col-span-2">
+                    <LegalBasisField
+                      value={normalizeLegalBasisValue(formData.CanCu)}
+                      onChange={(value) =>
+                        setFormData({ ...formData, CanCu: value })
+                      }
+                      disabled={!canEdit}
+                    />
+                  </div>
+                );
+              }
               return (
                 <SmartFormField
                   key={field.key}
                   field={field}
-                  value={formData[field.key] || ''}
+                  value={String(formData[field.key] ?? '')}
                   onChange={(key, val) => setFormData({ ...formData, [key]: val })}
                   disabled={!canEdit}
                   isAutoFilled={isAutoFilled}
-                  formData={formData}
-                  onFormDataChange={setFormData}
+                  formData={formData as Record<string, string>}
+                  onFormDataChange={(data) => setFormData(data)}
                 />
               );
             })}
           </div>
         );
         return (
-          <div className="space-y-4">
-            {/* Thông tin chung */}
-            {chungFields.length > 0 && (
-              <div className="bg-white rounded-xl shadow-sm border p-6">
-                <h2 className="text-lg font-semibold text-gray-900 mb-4">
-                  {hasGroups ? '📋 Thông tin chung' : 'Thông tin bước'}
-                </h2>
-                {renderFields(chungFields)}
-              </div>
-            )}
-            {/* Thông tin Chủ đầu tư */}
-            {cdtFields.length > 0 && (
-              <div className="bg-white rounded-xl shadow-sm border p-6 border-l-4 border-l-blue-500">
-                <h2 className="text-lg font-semibold text-blue-700 mb-4">🏛 Thông tin Chủ đầu tư</h2>
-                {renderFields(cdtFields)}
-              </div>
-            )}
-            {/* Thông tin Nhà thầu */}
-            {ntFields.length > 0 && (
-              <div className="bg-white rounded-xl shadow-sm border p-6 border-l-4 border-l-amber-500">
-                <h2 className="text-lg font-semibold text-amber-700 mb-4">🏢 Thông tin Nhà thầu</h2>
-                {renderFields(ntFields)}
-              </div>
-            )}
+          <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(420px,0.9fr)] 2xl:gap-6 2xl:grid-cols-[minmax(0,1.2fr)_minmax(520px,0.8fr)]">
+            <div className="space-y-4">
+              {chungFields.length > 0 && (
+                <WorkflowFormSection title={chungTitle}>
+                  {renderFields(chungFields)}
+                </WorkflowFormSection>
+              )}
+              {legalFields.length > 0 && (
+                <WorkflowFormSection
+                  title={legalTitle}
+                  description="Mục này chỉ xuất hiện vì file mẫu của bước có biến {{CanCu}}."
+                >
+                  {renderFields(legalFields)}
+                </WorkflowFormSection>
+              )}
+              {cdtFields.length > 0 && (
+                <WorkflowFormSection title={cdtTitle}>
+                  {renderFields(cdtFields)}
+                </WorkflowFormSection>
+              )}
+              {ntFields.length > 0 && (
+                <WorkflowFormSection title={ntTitle}>
+                  {renderFields(ntFields)}
+                </WorkflowFormSection>
+              )}
+            </div>
+            <WorkflowDocxPreview
+              documents={[
+                {
+                  id: step.stepKey,
+                  label: step.title,
+                  loadPreview: () => api.previewLCNTStepPdf(stepId, formData),
+                },
+              ]}
+            />
           </div>
         );
       })()}
@@ -553,19 +589,23 @@ export default function LCNTStepDetailPage() {
       )}
 
       {/* Action buttons */}
-      <div className="flex items-center gap-3 flex-wrap">
+      <div className="sticky bottom-3 z-20 flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-lg backdrop-blur sm:flex-row sm:flex-wrap sm:items-center">
         {/* Save */}
         {canEdit && fields.length > 0 && (
           <button onClick={handleSave} disabled={saving}
-            className="px-5 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 font-medium text-sm">
-            {saving ? '⏳ Đang lưu...' : '💾 Lưu thông tin'}
+            className="min-h-10 w-full rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50 sm:w-auto">
+            {saving
+              ? '⏳ Đang lưu...'
+              : step.approvalStatus === 'PENDING_APPROVAL'
+                ? '💾 Lưu chỉnh sửa'
+                : '💾 Lưu thông tin'}
           </button>
         )}
 
         {/* Request approval */}
         {canRequestApproval && fields.length > 0 && (
           <button onClick={() => { setApprovalMode('request'); setShowApprovalModal(true); }}
-            className="px-5 py-2.5 bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-medium text-sm">
+            className="min-h-10 w-full rounded-xl bg-orange-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 sm:w-auto">
             📤 Trình lên Giám đốc/Trưởng phòng
           </button>
         )}
@@ -574,11 +614,11 @@ export default function LCNTStepDetailPage() {
         {canApprove && (
           <>
             <button onClick={() => { setApprovalMode('approve'); setApprovalComment(''); setShowApprovalModal(true); }}
-              className="px-5 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium text-sm">
+              className="min-h-10 w-full rounded-xl bg-green-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-green-700 sm:w-auto">
               ✅ Phê duyệt
             </button>
             <button onClick={() => { setApprovalMode('reject'); setApprovalComment(''); setShowApprovalModal(true); }}
-              className="px-5 py-2.5 bg-red-500 text-white rounded-lg hover:bg-red-600 font-medium text-sm">
+              className="min-h-10 w-full rounded-xl bg-red-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-red-600 sm:w-auto">
               ❌ Từ chối
             </button>
           </>
@@ -587,7 +627,7 @@ export default function LCNTStepDetailPage() {
         {/* Download DOCX (auto-generated on save) */}
         {!isAttachment && dataEntries.length > 0 && (
           <button onClick={handleDownloadDocx}
-            className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-sm">
+            className="min-h-10 w-full rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 sm:w-auto">
             📥 Tải DOCX
           </button>
         )}
@@ -595,7 +635,7 @@ export default function LCNTStepDetailPage() {
         {/* Complete */}
         {canComplete && !canRequestApproval && (
           <button onClick={handleComplete}
-            className="px-5 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium text-sm">
+            className="min-h-10 w-full rounded-xl bg-green-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-green-700 sm:w-auto">
             ✅ Hoàn thành bước
           </button>
         )}
@@ -603,7 +643,7 @@ export default function LCNTStepDetailPage() {
         {/* Reopen */}
         {step.status === 'COMPLETED' && (
           <button onClick={handleReopen}
-            className="px-5 py-2.5 bg-amber-500 text-white rounded-lg hover:bg-amber-600 font-medium text-sm">
+            className="min-h-10 w-full rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 sm:w-auto">
             🔄 Mở lại để chỉnh sửa
           </button>
         )}
@@ -668,16 +708,6 @@ export default function LCNTStepDetailPage() {
           </div>
         </div>
       )}
-
-      {/* Save to Library Modal */}
-      <SaveToLibraryModal
-        isOpen={showSaveToLibraryModal}
-        onClose={() => setShowSaveToLibraryModal(false)}
-        libraryType="LCNT_STEP"
-        formData={formData}
-        formFieldKeys={fields.map(f => f.key)}
-        onSave={handleSaveToLibrarySuccess}
-      />
 
       {selection?.projectId && (
         <ProjectChat

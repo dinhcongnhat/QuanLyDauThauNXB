@@ -2,17 +2,12 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { Toaster } from 'react-hot-toast';
 import ServiceWorkerRegistration from '@/components/ServiceWorkerRegistration';
-import { Inter, Outfit } from 'next/font/google';
+import { Be_Vietnam_Pro } from 'next/font/google';
 
-const inter = Inter({
-  subsets: ['latin'],
-  variable: '--font-inter',
-  display: 'swap',
-});
-
-const outfit = Outfit({
-  subsets: ['latin'],
-  variable: '--font-outfit',
+const vietnameseFont = Be_Vietnam_Pro({
+  subsets: ['latin', 'vietnamese'],
+  weight: ['400', '500', '600', '700', '800'],
+  variable: '--font-vietnamese',
   display: 'swap',
 });
 
@@ -30,7 +25,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="vi" className={`${inter.variable} ${outfit.variable}`}>
+    <html lang="vi" className={vietnameseFont.variable}>
       <body className="font-sans antialiased text-slate-800 bg-[#f8fafc]">
         <Toaster position="top-right" />
         <ServiceWorkerRegistration />

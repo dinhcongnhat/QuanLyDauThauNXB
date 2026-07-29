@@ -418,6 +418,7 @@ model Document {
   status          DocStatus  @default(DRAFT)
   data            Json       @default("{}")
   parentId        String?    @map("parent_id")
+  sourceDocumentId String?   @map("source_document_id")
   createdBy       String     @map("created_by")
   delegatedTo     String?    @map("delegated_to")
   assignedTo      String?    @map("assigned_to")
@@ -430,10 +431,13 @@ model Document {
   assignee        User?      @relation("DocAssignee", fields: [assignedTo], references: [id])
   parent          Document?  @relation("DocParent", fields: [parentId], references: [id])
   children        Document[] @relation("DocParent")
+  sourceDocument  Document?  @relation("DocumentSource", fields: [sourceDocumentId], references: [id], onDelete: SetNull)
+  derivedDocuments Document[] @relation("DocumentSource")
   reviews         Review[]
   contractorSelections ContractorSelection[] @relation("ContractorSelectionDoc")
 
   @@index([projectId])
+  @@index([sourceDocumentId])
   @@index([createdBy])
   @@index([type, status])
   @@index([assignedTo])
@@ -461,6 +465,7 @@ model ContractorSelection {
   projectId           String?             @map("project_id")
   qdKhlcntId          String              @map("qd_khlcnt_id")
   goiThauIndex        Int                 @map("goi_thau_index")
+  packageId           String?             @map("package_id")
   tenGoiThau          String              @map("ten_goi_thau")
   procurementMethod   ProcurementMethod   @map("procurement_method")
   data                Json                @default("{}")
@@ -469,6 +474,8 @@ model ContractorSelection {
   updatedAt           DateTime            @updatedAt @map("updated_at")
 
   contractPackageType  ContractPackageType? @map("contract_package_type")
+  soHopDong            String?              @map("so_hop_dong")
+  ngayKyHopDong        DateTime?            @map("ngay_ky_hop_dong")
 
   project             Project?             @relation("ProjectContractorSelections", fields: [projectId], references: [id])
   qdKhlcnt            Document            @relation("ContractorSelectionDoc", fields: [qdKhlcntId], references: [id])
@@ -479,6 +486,8 @@ model ContractorSelection {
   @@unique([qdKhlcntId, goiThauIndex])
   @@index([projectId])
   @@index([qdKhlcntId])
+  @@index([packageId])
+  @@index([soHopDong])
   @@map("contractor_selections")
 }
 
@@ -561,90 +570,6 @@ enum BidResult {
   LOST
 }
 
-// ====================== Document Library ======================
-
-enum LibraryType {
-  THONG_TIN_TO_CHUC
-  THONG_TIN_NHA_THAU
-  DIA_CHI
-  KY_TUONG
-  CUSTOM
-  // Module-based libraries
-  DAT_SACH_GDN      // GDN: tenSach, tacGia, bbt, namXB, soTrang, khoSach, giaBia, soLuongTon, thoiGianCanSach, deNghiNoiIn
-  DAT_SACH_PCDI     // PCDI: bbt, phuongThuc, tenSach, tacGia, soTrang, khoSach, soLuongIn, giaTriHopDong, coSoIn, thongSoKyThuat
-  DAT_SACH_QD       // QĐ: tacGia, ngonNgu, khuonKho, soTrangCuaXuatBanPhamIn, soLuongIn, doiTacLienKetXuatBan, tenBienTapVien, coSoIn, isbn
-  DUTOAN_TT         // ToTrinh DuToan: tenDuAn, chuDauTu, diaDanh, donViTrinh, nguonVon, diaDiemThucHien, thoiGianThucHien, tongMucDauTu
-  DUTOAN_QD         // Quyet dinh DuToan: tenDuAn, soQuyetDinh, chuDauTu, nguonVon, diaDiemThucHien, tongMucDauTu
-  KHLCNT            // KHLCNT: tenDuAn, chuDauTu, nguonVon, diaDiemThucHien, giaTriHopDong, hinhThucLuaChon
-  LCNT_STEP        // LCNT step: dynamic, maps to contractor info
-  THANH_TOAN
-}
-
-enum FieldType {
-  TEXT
-  TEXTAREA
-  DATE
-  MONEY
-  NUMBER
-  EMAIL
-  PHONE
-}
-
-model Organization {
-  id        String      @id @default(cuid())
-  ten       String
-  moTa      String?
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
-  libraries Library[]
-
-  @@map("organizations")
-}
-
-model Library {
-  id             String       @id @default(cuid())
-  ten            String
-  loai           LibraryType
-  organizationId String       @map("organization_id")
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  fields         LibraryField[]
-  savedValues    SavedValue[]
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-
-  @@map("libraries")
-}
-
-model LibraryField {
-  id            String     @id @default(cuid())
-  libraryId     String     @map("library_id")
-  library       Library    @relation(fields: [libraryId], references: [id], onDelete: Cascade)
-  tenTruong     String     @map("ten_truong")
-  khoa          String     @map("khoa")
-  kieuDuLieu    FieldType  @map("kieu_du_lieu")
-  giaTriMacDinh String?    @map("gia_tri_mac_dinh")
-  batBuoc       Boolean    @default(false) @map("bat_buoc")
-  thuTu         Int        @default(0) @map("thu_tu")
-  nhom          String?
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
-
-  @@unique([libraryId, khoa])
-  @@map("library_fields")
-}
-
-model SavedValue {
-  id        String   @id @default(cuid())
-  libraryId String   @map("library_id")
-  library   Library  @relation(fields: [libraryId], references: [id], onDelete: Cascade)
-  tenGiaTri String   @map("ten_gia_tri")
-  duLieu    Json     @map("du_lieu")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("saved_values")
-}
-
 model BidParticipation {
   id                String      @id @default(uuid())
   maThongBaoMoiThau String      @map("ma_thong_bao_moi_thau")
@@ -697,4 +622,27 @@ model ProjectLog {
   @@index([projectId, stepKey])
   @@index([createdAt])
   @@map("project_logs")
+}
+
+// ====================== Legal Document Library ======================
+
+model LegalDocument {
+  id                String   @id @default(uuid())
+  tenCanCu          String?  @map("ten_can_cu")
+  soHieu            String   @map("so_hieu")
+  coQuanBanHanh     String   @map("co_quan_ban_hanh")
+  hinhThucVanBan    String   @map("hinh_thuc_van_ban")
+  linhVuc           String   @map("linh_vuc")
+  trichYeuNoiDung   String   @map("trich_yeu_noi_dung")
+  ngayBanHanh       DateTime @db.Date @map("ngay_ban_hanh")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@index([tenCanCu])
+  @@index([soHieu])
+  @@index([coQuanBanHanh])
+  @@index([hinhThucVanBan])
+  @@index([linhVuc])
+  @@index([ngayBanHanh])
+  @@map("legal_documents")
 }

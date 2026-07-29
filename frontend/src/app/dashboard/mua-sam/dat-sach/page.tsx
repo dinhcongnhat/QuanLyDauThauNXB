@@ -21,7 +21,13 @@ export default function DatSachListPage() {
   useEffect(() => {
     (async () => {
       try {
-        const all = await api.getDocumentsByType(['QD_DUTOAN']);
+        const all = await api.getDocumentsByType(
+          ['QD_DUTOAN'],
+          undefined,
+          1,
+          100,
+          'THAU_SACH',
+        );
         const docsList = Array.isArray(all) ? all : ((all as any)?.documents || []);
         setApprovedDuToan(docsList.filter((d: any) => d.status === 'APPROVED'));
       } catch (err: any) { toast.error(err.message); }

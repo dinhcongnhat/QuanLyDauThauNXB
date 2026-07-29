@@ -9,6 +9,7 @@ import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSearchParams } from 'next/navigation';
+import { getCompletedPaymentContracts } from '@/lib/workflow-template-api';
 
 const PACKAGE_TYPE_LABELS: Record<string, string> = {
   GOI_THAU_TU_VAN: 'Gói thầu tư vấn',
@@ -28,6 +29,36 @@ const STEP_STATUS_COLORS: Record<string, string> = {
   COMPLETED: 'bg-green-100 text-green-700',
 };
 
+function getContractSummary(contract: any) {
+  const contractStep =
+    contract.steps?.find((step: any) => step.stepKey === 'hop_dong') ||
+    contract.steps?.[0];
+  const data = contractStep?.data || {};
+
+  return {
+    soHopDong:
+      data.SoHopDong ||
+      data.MaSoHD ||
+      data.MaSoHopDong ||
+      contract.soHopDong ||
+      contract.maSoHD ||
+      '',
+    tenGoiThau: data.TenGoiThau || contract.tenGoiThau || '',
+    tenNhaThau:
+      data.TenNhaThau ||
+      data.NhaThau ||
+      contract.tenNhaThau ||
+      contract.contractor?.name ||
+      '',
+    tenDuAn:
+      data.TenDuAn ||
+      contract.project?.tenDuAn ||
+      contract.qdKhlcnt?.data?.tenDuAn ||
+      contract.qdKhlcnt?.data?.TenDuAn ||
+      '',
+  };
+}
+
 function ThanhToanPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -39,6 +70,8 @@ function ThanhToanPageInner() {
   const [search, setSearch] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [contractSearch, setContractSearch] = useState('');
+  const [contractsLoading, setContractsLoading] = useState(false);
 
   const loadPayments = async () => {
     setLoading(true);
@@ -63,12 +96,38 @@ function ThanhToanPageInner() {
     } catch (err: any) { toast.error(err.message); }
   };
 
-  const openCreateDialog = async () => {
-    try {
-      const data = await api.getPaymentContracts(selectedProject || undefined);
-      setContracts(data);
-      setShowCreate(true);
-    } catch (err: any) { toast.error(err.message); }
+  useEffect(() => {
+    if (!showCreate) return;
+
+    let cancelled = false;
+    const timeout = window.setTimeout(async () => {
+      setContractsLoading(true);
+      try {
+        const data = await getCompletedPaymentContracts(
+          contractSearch,
+          selectedProject || undefined,
+        );
+        if (!cancelled) setContracts(data);
+      } catch (err: any) {
+        if (!cancelled) {
+          setContracts([]);
+          toast.error(err.message);
+        }
+      } finally {
+        if (!cancelled) setContractsLoading(false);
+      }
+    }, contractSearch ? 300 : 0);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [contractSearch, selectedProject, showCreate]);
+
+  const openCreateDialog = () => {
+    setContractSearch('');
+    setContracts([]);
+    setShowCreate(true);
   };
 
   const handleCreate = async (contractorSelectionId: string) => {
@@ -124,7 +183,7 @@ function ThanhToanPageInner() {
         <input
           type="text"
           className="flex-1 border border-gray-300 rounded-lg px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary-500"
-          placeholder="Tìm theo mã số hợp đồng..."
+          placeholder="Tìm theo số hợp đồng..."
           value={search}
           onChange={e => setSearch(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && handleSearch()}
@@ -163,8 +222,10 @@ function ThanhToanPageInner() {
                           {PACKAGE_TYPE_LABELS[payment.contractPackageType] || payment.contractPackageType}
                         </span>
                       </div>
-                      {payment.maSoHD && (
-                        <p className="text-sm text-gray-500">Mã HĐ: {payment.maSoHD}</p>
+                      {(payment.soHopDong || payment.maSoHD) && (
+                        <p className="text-sm text-gray-500">
+                          Số HĐ: {payment.soHopDong || payment.maSoHD}
+                        </p>
                       )}
                       <div className="flex items-center gap-4 mt-2 text-xs text-gray-400">
                         <span>Tạo: {format(new Date(payment.createdAt), 'dd/MM/yyyy', { locale: vi })}</span>
@@ -212,19 +273,44 @@ function ThanhToanPageInner() {
               className="bg-white rounded-2xl shadow-xl w-full max-w-lg mx-4 p-6"
             >
               <h3 className="text-lg font-semibold mb-2">Tạo hồ sơ thanh toán</h3>
-              <p className="text-sm text-gray-500 mb-4">Chọn hợp đồng đã hoàn thành để tạo quy trình thanh toán.</p>
+              <p className="text-sm text-gray-500 mb-4">
+                Tìm theo số hợp đồng và chọn hợp đồng đã hoàn thành.
+              </p>
 
-              {contracts.length === 0 ? (
+              <div className="relative mb-4">
+                <span className="pointer-events-none absolute left-3 top-2.5 text-gray-400">
+                  🔍
+                </span>
+                <input
+                  type="search"
+                  className="w-full rounded-lg border border-gray-300 py-2.5 pl-10 pr-3 text-sm outline-none focus:ring-2 focus:ring-primary-500"
+                  placeholder="Nhập số hợp đồng, ví dụ: 12/2026/HĐ..."
+                  value={contractSearch}
+                  onChange={(event) => setContractSearch(event.target.value)}
+                  autoFocus
+                />
+              </div>
+
+              {contractsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="h-7 w-7 animate-spin rounded-full border-b-2 border-primary-600" />
+                </div>
+              ) : contracts.length === 0 ? (
                 <div className="text-center py-8">
-                  <p className="text-gray-400">Chưa có hợp đồng nào đã hoàn thành.</p>
-                  <p className="text-xs text-gray-400 mt-1">Hãy hoàn thành bước hợp đồng và chọn loại gói thầu trong LCNT.</p>
+                  <p className="text-gray-400">
+                    {contractSearch
+                      ? 'Không tìm thấy hợp đồng phù hợp.'
+                      : 'Chưa có hợp đồng nào đã hoàn thành.'}
+                  </p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Hãy hoàn thành bước hợp đồng và chọn loại gói thầu trong LCNT.
+                  </p>
                 </div>
               ) : (
                 <div className="space-y-2 max-h-80 overflow-y-auto">
                   {contracts.map((contract: any) => {
                     const hasPayment = contract.payments && contract.payments.length > 0;
-                    const hopDongData = contract.steps?.[0]?.data || {};
-                    const maSoHD = hopDongData.MaSoHD || hopDongData.MaSoHopDong || '';
+                    const summary = getContractSummary(contract);
 
                     return (
                       <div key={contract.id}
@@ -233,14 +319,22 @@ function ThanhToanPageInner() {
                       >
                         <div className="flex items-center justify-between">
                           <div className="min-w-0 flex-1">
-                            <p className="font-medium text-sm text-gray-900 truncate">{contract.tenGoiThau}</p>
+                            <p className="font-semibold text-sm text-gray-900">
+                              {summary.soHopDong || 'Chưa có số hợp đồng'}
+                            </p>
+                            <p className="mt-0.5 truncate text-sm text-gray-700">
+                              {summary.tenGoiThau || 'Chưa có tên gói thầu'}
+                            </p>
+                            <p className="mt-0.5 truncate text-xs text-gray-500">
+                              Nhà thầu: {summary.tenNhaThau || 'Chưa cập nhật'}
+                            </p>
+                            <p className="mt-0.5 truncate text-xs text-gray-500">
+                              Dự án: {summary.tenDuAn || 'Chưa cập nhật'}
+                            </p>
                             <div className="flex items-center gap-2 mt-1 flex-wrap">
                               <span className={'inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ' + (PACKAGE_TYPE_COLORS[contract.contractPackageType] || '')}>
                                 {PACKAGE_TYPE_LABELS[contract.contractPackageType] || ''}
                               </span>
-                              {maSoHD && (
-                                <span className="text-xs text-gray-400">HĐ: {maSoHD}</span>
-                              )}
                             </div>
                           </div>
                           {hasPayment ? (

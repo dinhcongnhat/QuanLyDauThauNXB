@@ -4,31 +4,31 @@
 
 @layer base {
   body {
-    font-family: var(--font-inter), sans-serif;
-    @apply bg-slate-50/50 text-slate-800 antialiased text-[15px] leading-relaxed;
+    font-family: var(--font-vietnamese), "Segoe UI", Arial, sans-serif;
+    @apply bg-slate-50 text-slate-800 antialiased text-[15px] leading-relaxed;
   }
 
   h1, h2, h3, h4, h5, h6 {
-    font-family: var(--font-outfit), sans-serif;
+    font-family: var(--font-vietnamese), "Segoe UI", Arial, sans-serif;
     @apply font-bold text-slate-900 tracking-tight;
   }
 }
 
-/* Custom styled inputs override globally */
-.inp, .input-field, input[type="text"], input[type="email"], input[type="password"], input[type="number"], input[type="date"], select, textarea {
-  border: 1px solid #cbd5e1 !important;
-  border-radius: 0.75rem !important;
-  padding: 0.65rem 1rem !important;
-  font-size: 0.925rem !important;
-  outline: none !important;
-  background-color: #ffffff !important;
-  transition: all 0.2s ease-in-out !important;
-  color: #1e293b !important;
+/* Consistent, production form controls without overriding component states. */
+.inp, .input-field {
+  border: 1px solid #cbd5e1;
+  border-radius: 0.625rem;
+  padding: 0.625rem 0.875rem;
+  font-size: 0.875rem;
+  outline: none;
+  background-color: #ffffff;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  color: #1e293b;
 }
 
-.inp:focus, .input-field:focus, input:focus, select:focus, textarea:focus {
-  border-color: #dc2626 !important;
-  box-shadow: 0 0 0 4px rgba(220, 38, 38, 0.08) !important;
+.inp:focus, .input-field:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
 }
 
 /* Scrollbar customizations */
@@ -55,23 +55,6 @@
 /* Custom transitions and hover states for buttons */
 button, a {
   @apply transition-all duration-200 ease-in-out;
-}
-
-/* Table styles overrides to look cleaner and spaced */
-table {
-  @apply min-w-full divide-y divide-slate-100;
-}
-
-th {
-  @apply px-6 py-4 bg-slate-50 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider !important;
-}
-
-td {
-  @apply px-6 py-4 text-sm text-slate-600 border-b border-slate-100 !important;
-}
-
-tr:hover {
-  @apply bg-slate-50/50 transition-colors;
 }
 
 /* Badge custom layout */

@@ -9,7 +9,8 @@
     "start:prod": "node dist/main",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:seed": "ts-node prisma/seed.ts"
+    "prisma:seed": "ts-node prisma/seed.ts",
+    "test:device-workflow-docx": "ts-node scripts/test-device-workflow-docx.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.3.0",

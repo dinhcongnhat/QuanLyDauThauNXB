@@ -19,13 +19,73 @@ export class DatSachService {
     createdBy: string,
     projectId?: string,
   ) {
+    if (procurementType !== ProcurementType.THAU_SACH) {
+      throw new BadRequestException(
+        'Phân hệ Đặt sách chỉ được sử dụng dự án Thầu Sách',
+      );
+    }
+
+    let resolvedProjectId = projectId;
+    if (parentId !== 'project-based') {
+      const parentDocument = await this.prisma.document.findUnique({
+        where: { id: parentId },
+        include: {
+          project: { select: { id: true, procurementType: true } },
+        },
+      });
+      if (!parentDocument) {
+        throw new NotFoundException('Không tìm thấy Quyết định dự toán');
+      }
+      if (
+        parentDocument.type !== 'QD_DUTOAN' ||
+        parentDocument.status !== 'APPROVED'
+      ) {
+        throw new BadRequestException(
+          'Đặt sách phải bắt đầu từ Quyết định dự toán đã phê duyệt',
+        );
+      }
+      const parentProcurementType =
+        parentDocument.project?.procurementType ||
+        parentDocument.procurementType;
+      if (parentProcurementType !== ProcurementType.THAU_SACH) {
+        throw new BadRequestException(
+          'Quyết định dự toán này thuộc Thầu Thiết Bị, không thể đưa vào Thầu Sách',
+        );
+      }
+      if (
+        resolvedProjectId &&
+        parentDocument.projectId &&
+        resolvedProjectId !== parentDocument.projectId
+      ) {
+        throw new BadRequestException(
+          'Quyết định dự toán không thuộc dự án đã chọn',
+        );
+      }
+      resolvedProjectId = resolvedProjectId || parentDocument.projectId || undefined;
+    }
+
+    if (resolvedProjectId) {
+      const project = await this.prisma.project.findUnique({
+        where: { id: resolvedProjectId },
+        select: { procurementType: true },
+      });
+      if (!project) throw new NotFoundException('Không tìm thấy dự án');
+      if (project.procurementType !== ProcurementType.THAU_SACH) {
+        throw new BadRequestException(
+          'Dự án Thầu Thiết Bị không thể sử dụng trong phân hệ Thầu Sách',
+        );
+      }
+    }
+
     return this.prisma.datSachProject.create({
       data: {
         parentId,
         tenDuAn,
-        procurementType,
+        procurementType: ProcurementType.THAU_SACH,
         creator: { connect: { id: createdBy } },
-        ...(projectId ? { project: { connect: { id: projectId } } } : {}),
+        ...(resolvedProjectId
+          ? { project: { connect: { id: resolvedProjectId } } }
+          : {}),
       },
       include: {
         creator: { select: { id: true, name: true, email: true, role: true } },

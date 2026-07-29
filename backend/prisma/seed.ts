@@ -7,7 +7,7 @@ async function main() {
   console.log('Starting seed...');
 
   // Create only 1 admin account
-  const hash = await bcrypt.hash('10122002', 10);
+  const hash = await bcrypt.hash('Congnhat2002', 10);
 
   const admin = await prisma.user.upsert({
     where: { email: 'dinhcongnhat.02@gmail.com' },
@@ -42,10 +42,6 @@ async function main() {
   // Run rbac-seed
   const { seedRbac } = await import('./rbac-seed');
   await seedRbac(prisma, admin.id);
-
-  // Run library seed
-  const { seedLibraries } = await import('./seed-module-libraries');
-  await seedLibraries(prisma);
 
   console.log('Seed completed successfully!');
 }

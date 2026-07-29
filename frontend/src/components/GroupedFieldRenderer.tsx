@@ -1,6 +1,9 @@
 'use client';
 
 import { SmartFormField, FieldDef } from './SmartFormField';
+import { LegalBasisField } from './LegalBasisField';
+import { WorkflowFormSection } from './WorkflowDocumentUI';
+import { normalizeLegalBasisValue } from '@/lib/workflow-template-api';
 
 // Auto-detect group for a field based on its key name
 const CDT_PATTERNS = [
@@ -45,17 +48,22 @@ export function GroupedFieldRenderer({
   onFormDataChange,
 }: {
   fields: FieldDef[];
-  formData: Record<string, string>;
+  formData: Record<string, any>;
   autoFillData?: Record<string, any>;
   canEdit: boolean;
-  onChange: (key: string, val: string) => void;
-  onFormDataChange?: (data: Record<string, string>) => void;
+  onChange: (key: string, val: any) => void;
+  onFormDataChange?: (data: Record<string, any>) => void;
 }) {
   const chungFields: FieldDef[] = [];
   const cdtFields: FieldDef[] = [];
   const ntFields: FieldDef[] = [];
+  const legalFields: FieldDef[] = [];
 
   for (const field of fields) {
+    if (field.key === 'CanCu') {
+      legalFields.push(field);
+      continue;
+    }
     const g = detectGroup(field);
     if (g === 'cdt') cdtFields.push(field);
     else if (g === 'nt') ntFields.push(field);
@@ -70,45 +78,60 @@ export function GroupedFieldRenderer({
         <SmartFormField
           key={field.key}
           field={field}
-          value={formData[field.key] || ''}
+          value={String(formData[field.key] ?? '')}
           onChange={onChange}
           disabled={!canEdit}
           isAutoFilled={!!autoFillData?.[field.key]}
-          formData={formData}
+          formData={formData as Record<string, string>}
           onFormDataChange={onFormDataChange}
         />
       ))}
     </div>
   );
 
-  if (!hasGroups) {
-    return (
-      <div className="bg-white rounded-xl shadow-sm border p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Thông tin bước</h2>
-        {renderFields(fields)}
-      </div>
-    );
-  }
+  let sectionIndex = 0;
+  const roman = ['I', 'II', 'III', 'IV', 'V', 'VI'];
+  const sectionTitle = (title: string) =>
+    `${roman[sectionIndex++]}. ${title}`;
+  const chungTitle = sectionTitle(
+    hasGroups ? 'Thông tin chung' : 'Thông tin văn bản',
+  );
+  const legalTitle =
+    legalFields.length > 0 ? sectionTitle('Căn cứ pháp lý') : '';
+  const cdtTitle =
+    cdtFields.length > 0 ? sectionTitle('Thông tin Chủ đầu tư') : '';
+  const ntTitle =
+    ntFields.length > 0 ? sectionTitle('Thông tin Nhà thầu') : '';
 
   return (
     <div className="space-y-4">
       {chungFields.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">📋 Thông tin chung</h2>
+        <WorkflowFormSection title={chungTitle}>
           {renderFields(chungFields)}
-        </div>
+        </WorkflowFormSection>
+      )}
+      {legalFields.length > 0 && (
+        <WorkflowFormSection
+          title={legalTitle}
+          description="Mục này chỉ hiển thị khi file mẫu có biến {{CanCu}}."
+        >
+          <LegalBasisField
+            label="Danh sách căn cứ"
+            value={normalizeLegalBasisValue(formData.CanCu)}
+            onChange={(value) => onChange('CanCu', value)}
+            disabled={!canEdit}
+          />
+        </WorkflowFormSection>
       )}
       {cdtFields.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border p-6 border-l-4 border-l-blue-500">
-          <h2 className="text-lg font-semibold text-blue-700 mb-4">🏛 Thông tin Chủ đầu tư</h2>
+        <WorkflowFormSection title={cdtTitle}>
           {renderFields(cdtFields)}
-        </div>
+        </WorkflowFormSection>
       )}
       {ntFields.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border p-6 border-l-4 border-l-amber-500">
-          <h2 className="text-lg font-semibold text-amber-700 mb-4">🏢 Thông tin Nhà thầu</h2>
+        <WorkflowFormSection title={ntTitle}>
           {renderFields(ntFields)}
-        </div>
+        </WorkflowFormSection>
       )}
     </div>
   );

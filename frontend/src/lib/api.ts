@@ -16,6 +16,15 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
 
   const res = await fetch(`${API_BASE}${url}`, { ...options, headers });
 
+  if (res.status === 401 && typeof window !== 'undefined') {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    localStorage.removeItem('activeView');
+    if (window.location.pathname !== '/login') {
+      window.location.replace('/login');
+    }
+  }
+
   if (!res.ok) {
     const error = await res.json().catch(() => ({ message: 'Request failed' }));
     throw new Error(error.message || `HTTP ${res.status}`);
@@ -44,6 +53,23 @@ export const api = {
   deleteProject: (id: string) =>
     request<any>(`/projects/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   getProjectStats: () => request<any>('/projects/stats'),
+
+  getDocumentWarehouse: (params: {
+    q?: string;
+    tag?: string;
+    projectId?: string;
+    page?: number;
+    limit?: number;
+  } = {}) => {
+    const search = new URLSearchParams();
+    if (params.q) search.set('q', params.q);
+    if (params.tag) search.set('tag', params.tag);
+    if (params.projectId) search.set('projectId', params.projectId);
+    if (params.page) search.set('page', String(params.page));
+    if (params.limit) search.set('limit', String(params.limit));
+    const suffix = search.toString();
+    return request<any>(`/document-warehouse${suffix ? `?${suffix}` : ''}`);
+  },
 
   // ── Project Members ─────────────────────────────────────────
   getProjectMembers: (id: string) =>
@@ -117,11 +143,69 @@ export const api = {
     request<any>('/users/permissions', { method: 'POST', body: JSON.stringify({ role, permissionKeys }) }),
 
   // Documents
-  createDocument: (type: string, data: any, parentId?: string, assignedTo?: string, projectId?: string) =>
+  createDocument: (
+    type: string,
+    data: any,
+    parentId?: string,
+    assignedTo?: string,
+    projectId?: string,
+    sourceDocumentId?: string,
+  ) =>
     request<any>('/documents', {
       method: 'POST',
-      body: JSON.stringify({ type, data, parentId, assignedTo, projectId }),
+      body: JSON.stringify({
+        type,
+        data,
+        parentId,
+        assignedTo,
+        projectId,
+        sourceDocumentId,
+      }),
     }),
+
+  uploadKhaiToanAttachment: async (documentId: string, file: File) => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await fetch(
+      `${API_BASE}/documents/${encodeURIComponent(documentId)}/khai-toan-attachment`,
+      {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      },
+    );
+    if (!response.ok) {
+      const error = await response
+        .json()
+        .catch(() => ({ message: 'Không thể tải file khái toán' }));
+      throw new Error(error.message || `HTTP ${response.status}`);
+    }
+    return response.json() as Promise<{
+      attachment: {
+        objectPath: string;
+        originalName: string;
+        mimeType: string;
+        size: number;
+        uploadedAt: string;
+      };
+      document: any;
+    }>;
+  },
+
+  getKhaiToanAttachment: (documentId: string) =>
+    request<{
+      attachment: {
+        objectPath: string;
+        originalName: string;
+        mimeType: string;
+        size: number;
+        uploadedAt: string;
+      };
+      url: string;
+    }>(
+      `/documents/${encodeURIComponent(documentId)}/khai-toan-attachment`,
+    ),
 
   createDuToanBatch: (ttData: any, qdData: any, assignedTo: string, projectId?: string) =>
     request<any>('/documents/create-du-toan-batch', {
@@ -129,11 +213,74 @@ export const api = {
       body: JSON.stringify({ ttData, qdData, assignedTo, projectId }),
     }),
 
+  previewDocument: async (type: string, data: Record<string, any>) => {
+    const token =
+      typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const response = await fetch(`${API_BASE}/documents/preview`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ type, data }),
+    });
+    if (response.status === 401 && typeof window !== 'undefined') {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      localStorage.removeItem('activeView');
+      window.location.replace('/login');
+    }
+    if (!response.ok) {
+      const error = await response
+        .json()
+        .catch(() => ({ message: 'Không thể tạo bản xem trước Word' }));
+      throw new Error(error.message || `HTTP ${response.status}`);
+    }
+    return response.arrayBuffer();
+  },
+
+  previewDocumentPdf: async (type: string, data: Record<string, any>) => {
+    const token =
+      typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const response = await fetch(`${API_BASE}/documents/preview-pdf`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ type, data }),
+    });
+    if (response.status === 401 && typeof window !== 'undefined') {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      localStorage.removeItem('activeView');
+      window.location.replace('/login');
+    }
+    if (!response.ok) {
+      const error = await response
+        .json()
+        .catch(() => ({ message: 'Không thể tạo bản xem trước PDF' }));
+      throw new Error(error.message || `HTTP ${response.status}`);
+    }
+    return response.blob();
+  },
+
   getUsersByRole: (role: string) =>
     request<any[]>(`/users/by-role/${encodeURIComponent(role)}`),
 
-  getDocumentsByType: (types: string[], projectId?: string) =>
-    request<any[]>(`/documents/by-type?types=${encodeURIComponent(types.join(','))}${projectId ? `&projectId=${encodeURIComponent(projectId)}` : ''}`),
+  getDocumentsByType: (
+    types: string[],
+    projectId?: string,
+    page = 1,
+    limit = 100,
+    procurementType?: 'THAU_SACH' | 'THAU_THIET_BI',
+  ) =>
+    request<any[]>(
+      `/documents/by-type?types=${encodeURIComponent(types.join(','))}` +
+        `${projectId ? `&projectId=${encodeURIComponent(projectId)}` : ''}` +
+        `${procurementType ? `&procurementType=${encodeURIComponent(procurementType)}` : ''}` +
+        `&page=${page}&limit=${limit}`,
+    ),
 
   getDocumentsByParent: (parentId: string) =>
     request<any[]>(`/documents/by-parent/${encodeURIComponent(parentId)}`),
@@ -176,6 +323,38 @@ export const api = {
     });
   },
 
+  downloadDocumentBundle: (id: string) => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    return fetch(
+      `${API_BASE}/documents/${encodeURIComponent(id)}/download-bundle`,
+      {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      },
+    );
+  },
+
+  downloadDocumentCover: (id: string) => {
+    const token =
+      typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    return fetch(
+      `${API_BASE}/documents/${encodeURIComponent(id)}/download-cover`,
+      {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      },
+    );
+  },
+
+  previewDocumentCoverPdf: (id: string) => {
+    const token =
+      typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    return fetch(
+      `${API_BASE}/documents/${encodeURIComponent(id)}/preview-cover-pdf`,
+      {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      },
+    );
+  },
+
   downloadDocumentPdf: (id: string) => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
     return fetch(`${API_BASE}/documents/${encodeURIComponent(id)}/download-pdf`, {
@@ -193,10 +372,20 @@ export const api = {
     request<any[]>(`/contractor-selection/approved-qd${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''}`),
   getPendingApprovals: () => request<any[]>('/contractor-selection/pending-approvals'),
 
-  createContractorSelection: (qdKhlcntId: string, goiThauIndex: number, projectId?: string) =>
+  createContractorSelection: (
+    qdKhlcntId: string,
+    goiThauIndex: number,
+    projectId?: string,
+    packageId?: string,
+  ) =>
     request<any>('/contractor-selection', {
       method: 'POST',
-      body: JSON.stringify({ qdKhlcntId, goiThauIndex, projectId }),
+      body: JSON.stringify({
+        qdKhlcntId,
+        goiThauIndex,
+        projectId,
+        packageId,
+      }),
     }),
 
   getContractorSelection: (id: string) =>
@@ -253,6 +442,26 @@ export const api = {
     return fetch(`/api/contractor-selection/step/${encodeURIComponent(stepId)}/download-pdf`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
+  },
+
+  previewLCNTStepPdf: async (stepId: string, data: Record<string, any>) => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const response = await fetch(
+      `/api/contractor-selection/step/${encodeURIComponent(stepId)}/preview-pdf`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ data }),
+      },
+    );
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: 'Không thể tạo preview LCNT' }));
+      throw new Error(error.message || `HTTP ${response.status}`);
+    }
+    return response.blob();
   },
 
   downloadLCNTStepDocx: (stepId: string) => {
@@ -346,6 +555,33 @@ export const api = {
     return fetch(`/api/payment/step/${encodeURIComponent(stepId)}/download`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
+  },
+
+  downloadPaymentStepPdf: (stepId: string) => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    return fetch(`/api/payment/step/${encodeURIComponent(stepId)}/download-pdf`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+  },
+
+  previewPaymentStepPdf: async (stepId: string, data: Record<string, any>) => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const response = await fetch(
+      `/api/payment/step/${encodeURIComponent(stepId)}/preview-pdf`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ data }),
+      },
+    );
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: 'Không thể tạo preview thanh toán' }));
+      throw new Error(error.message || `HTTP ${response.status}`);
+    }
+    return response.blob();
   },
 
   generatePaymentDocx: (stepId: string) =>
@@ -694,21 +930,6 @@ export const api = {
     request<any>(`/rbac/users/${userId}/roles`, { method: 'PUT', body: JSON.stringify({ roleIds }) }),
   addUserRole: (userId: string, roleId: string) =>
     request<any>(`/rbac/users/${userId}/roles`, { method: 'POST', body: JSON.stringify({ roleId }) }),
-  // ====================== Document Library ======================
-  getLibraries: (organizationId?: string) =>
-    request<any[]>(`/document-library/library${organizationId ? `?organizationId=${encodeURIComponent(organizationId)}` : ''}`),
-  getLibraryByType: (types: string[]) =>
-    request<any[]>('/document-library/libraries/by-types', {
-      method: 'POST',
-      body: JSON.stringify({ types }),
-    }),
-  getSavedValues: (libraryId: string) =>
-    request<any[]>(`/document-library/library/${encodeURIComponent(libraryId)}/value`),
-  createSavedValue: (libraryId: string, data: { tenGiaTri: string; duLieu: Record<string, any> }) =>
-    request<any>(`/document-library/library/${encodeURIComponent(libraryId)}/value`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
 
   removeUserRole: (userId: string, roleId: string) =>
     request<any>(`/rbac/users/${userId}/roles/${roleId}`, { method: 'DELETE' }),

@@ -33,15 +33,59 @@ export interface Document {
   status: DocStatus;
   data: any;
   parentId?: string;
+  sourceDocumentId?: string;
   projectId?: string;
+  procurementType?: string;
   createdBy: string;
   delegatedTo?: string;
   createdAt: string;
   updatedAt: string;
   creator: Pick<User, 'id' | 'name' | 'email' | 'role'>;
   parent?: { id: string; type: DocType; data?: any; status?: DocStatus };
+  sourceDocument?: {
+    id: string;
+    type: DocType;
+    data?: any;
+    status?: DocStatus;
+  };
+  project?: {
+    id: string;
+    tenDuAn: string;
+    procurementType: string;
+    status?: string;
+  };
   children?: Document[];
   reviews?: Review[];
+}
+
+export interface LegalBasisSelectionValue {
+  legalDocumentId: string | null;
+  source: 'LIBRARY' | 'MANUAL';
+  citationSnapshot: string;
+}
+
+export interface ProcurementPackage {
+  id: string;
+  tenGoiThau: string;
+  giaDuToanGoiThau: string;
+  ghiChu: string;
+  congViec: string;
+  nguonVon: string;
+  hinhThucLuaChonNhaThau: string;
+  phuongThucLuaChonNhaThau: string;
+  thoiGianToChucLuaChonNhaThau: string;
+  thoiGianBatDauToChucLuaChonNhaThau: string;
+  loaiHopDong: string;
+  thoiGianThucHienGoiThau: string;
+  tuyChonMuaThem: string;
+}
+
+export interface KhaiToanAttachment {
+  objectPath: string;
+  originalName: string;
+  mimeType: string;
+  size: number;
+  uploadedAt: string;
 }
 
 export interface DashboardStats {
@@ -94,7 +138,10 @@ export interface ContractorSelection {
   id: string;
   qdKhlcntId: string;
   goiThauIndex: number;
+  packageId?: string;
   tenGoiThau: string;
+  soHopDong?: string;
+  ngayKyHopDong?: string;
   procurementMethod: ProcurementMethod;
   data?: any;
   createdBy: string;

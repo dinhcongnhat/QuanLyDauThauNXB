@@ -1,704 +1,660 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import toast from 'react-hot-toast';
-import { docLibraryApi } from '@/lib/document-library-api';
 import {
-  Organization, Library, LibraryField, SavedValue,
-  LibraryType, FieldType,
-  LIBRARY_TYPE_LABELS, FIELD_TYPE_LABELS,
-  useDocumentLibraryStore,
-} from '@/lib/document-library-types';
-import { LibrarySidebar } from '@/components/admin/LibrarySidebar';
-import { FieldTypeIcon } from '@/components/admin/FieldTypeIcon';
+  BookOpen,
+  Edit3,
+  Loader2,
+  Plus,
+  Search,
+  Trash2,
+  X,
+} from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import toast from 'react-hot-toast';
+import {
+  formatLegalDocumentCitation,
+  LegalDocument,
+  LegalDocumentInput,
+  legalDocumentApi,
+  Pagination,
+} from '@/lib/legal-document-api';
+import { useAuthStore } from '@/lib/store';
+import { LegalDocumentOcrPanel } from '@/components/admin/LegalDocumentOcrPanel';
+import type { LegalDocumentOcrResult } from '@/lib/vietnamese-legal-document-ocr';
 
-const LOAI_OPTIONS: LibraryType[] = [
-  'THONG_TIN_TO_CHUC', 'THONG_TIN_NHA_THAU', 'DIA_CHI', 'KY_TUONG', 'CUSTOM',
-  'DAT_SACH_GDN', 'DAT_SACH_PCDI', 'DAT_SACH_QD',
-  'DUTOAN_TT', 'DUTOAN_QD',
-  'KHLCNT',
-  'LCNT_STEP',
-  'THANH_TOAN',
-];
-const FIELD_TYPE_OPTIONS: FieldType[] = ['TEXT', 'TEXTAREA', 'DATE', 'MONEY', 'NUMBER', 'EMAIL', 'PHONE'];
+const EMPTY_FORM: LegalDocumentInput = {
+  tenCanCu: '',
+  soHieu: '',
+  coQuanBanHanh: '',
+  hinhThucVanBan: '',
+  linhVuc: '',
+  trichYeuNoiDung: '',
+  ngayBanHanh: '',
+};
 
-type Tab = 'organizations' | 'library-detail' | 'saved-values';
+const EMPTY_PAGINATION: Pagination = {
+  total: 0,
+  page: 1,
+  limit: 20,
+  totalPages: 0,
+};
+
+const FORM_INPUT_CLASS =
+  'w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100';
+
+function formatDisplayDate(value: string): string {
+  const [year, month, day] = value.slice(0, 10).split('-');
+  return year && month && day ? `${day}/${month}/${year}` : value;
+}
 
 export default function ThuVienVanBanPage() {
-  const [tab, setTab] = useState<Tab>('organizations');
-  const [organizations, setOrganizations] = useState<Organization[]>([]);
-  const [libraries, setLibraries] = useState<Library[]>([]);
-  const [activeOrg, setActiveOrg] = useState<Organization | null>(null);
-  const [activeLib, setActiveLib] = useState<Library | null>(null);
-  const [activeFields, setActiveFields] = useState<LibraryField[]>([]);
-  const [activeValues, setActiveValues] = useState<SavedValue[]>([]);
+  const user = useAuthStore((state) => state.user);
+  const isAdmin = user?.role === 'ADMIN';
+
+  const [documents, setDocuments] = useState<LegalDocument[]>([]);
+  const [pagination, setPagination] =
+    useState<Pagination>(EMPTY_PAGINATION);
   const [loading, setLoading] = useState(true);
+  const [reloadKey, setReloadKey] = useState(0);
 
-  // Form states
-  const [showOrgForm, setShowOrgForm] = useState(false);
-  const [showLibForm, setShowLibForm] = useState(false);
-  const [showFieldForm, setShowFieldForm] = useState(false);
-  const [showValueForm, setShowValueForm] = useState(false);
-  const [editingOrg, setEditingOrg] = useState<Organization | null>(null);
-  const [editingLib, setEditingLib] = useState<Library | null>(null);
-  const [editingField, setEditingField] = useState<LibraryField | null>(null);
-  const [editingValue, setEditingValue] = useState<SavedValue | null>(null);
+  const [searchText, setSearchText] = useState('');
+  const [hinhThuc, setHinhThuc] = useState('');
+  const [linhVuc, setLinhVuc] = useState('');
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(20);
 
-  const [orgForm, setOrgForm] = useState({ ten: '', moTa: '' });
-  const [libForm, setLibForm] = useState({ ten: '', loai: 'THONG_TIN_TO_CHUC' as LibraryType });
-  const [fieldForm, setFieldForm] = useState({
-    tenTruong: '', khoa: '', kieuDuLieu: 'TEXT' as FieldType,
-    giaTriMacDinh: '', batBuoc: false, thuTu: 0, nhom: '',
-  });
-  const [valueForm, setValueForm] = useState({ tenGiaTri: '', duLieu: {} as Record<string, string> });
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState<LegalDocument | null>(null);
+  const [form, setForm] = useState<LegalDocumentInput>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
 
-  const fetchOrganizations = async () => {
-    setLoading(true);
-    try {
-      const data = await docLibraryApi.getOrganizations();
-      setOrganizations(data);
-    } catch (err: any) { toast.error(err.message); }
-    finally { setLoading(false); }
-  };
-
-  const fetchLibraries = async (orgId?: string) => {
-    try {
-      const data = await docLibraryApi.getLibraries(orgId);
-      setLibraries(data);
-    } catch (err: any) { toast.error(err.message); }
-  };
-
-  const fetchLibraryDetail = async (libId: string) => {
-    try {
-      const data = await docLibraryApi.getLibrary(libId);
-      setActiveLib(data);
-      setActiveFields(data.fields || []);
-      setActiveValues(data.savedValues || []);
-    } catch (err: any) { toast.error(err.message); }
-  };
-
-  const selectOrg = async (org: Organization) => {
-    setActiveOrg(org);
-    setTab('library-detail');
-    setActiveLib(null);
-    try {
-      const libs = await docLibraryApi.getLibraries(org.id);
-      setLibraries(libs);
-    } catch (err: any) { toast.error(err.message); }
-  };
-
-  const selectLib = async (lib: Library) => {
-    await fetchLibraryDetail(lib.id);
-    setTab('saved-values');
-  };
-
-  useEffect(() => { fetchOrganizations(); }, []);
-
-  // Organization CRUD
-  const handleSaveOrg = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
-    try {
-      if (editingOrg) {
-        await docLibraryApi.updateOrganization(editingOrg.id, orgForm);
-        toast.success('Cập nhật tổ chức thành công');
-      } else {
-        await docLibraryApi.createOrganization(orgForm);
-        toast.success('Tạo tổ chức thành công');
+  useEffect(() => {
+    let cancelled = false;
+    const timeout = window.setTimeout(async () => {
+      setLoading(true);
+      try {
+        const response = await legalDocumentApi.list({
+          q: searchText,
+          hinhThuc,
+          linhVuc,
+          page,
+          limit,
+        });
+        if (!cancelled) {
+          setDocuments(response.items);
+          setPagination(response.pagination);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : 'Không thể tải thư viện văn bản',
+          );
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-      await fetchOrganizations();
-      setShowOrgForm(false);
-      setEditingOrg(null);
-      setOrgForm({ ten: '', moTa: '' });
-    } catch (err: any) { toast.error(err.message); }
-    finally { setSaving(false); }
-  };
+    }, 300);
 
-  const handleDeleteOrg = async (id: string) => {
-    if (!confirm('Xoá tổ chức này? Tất cả thư viện và dữ liệu bên trong sẽ bị xoá.')) return;
-    try {
-      await docLibraryApi.deleteOrganization(id);
-      toast.success('Đã xoá tổ chức');
-      if (activeOrg?.id === id) setActiveOrg(null);
-      await fetchOrganizations();
-    } catch (err: any) { toast.error(err.message); }
-  };
-
-  const openEditOrg = (org: Organization) => {
-    setEditingOrg(org);
-    setOrgForm({ ten: org.ten, moTa: org.moTa || '' });
-    setShowOrgForm(true);
-  };
-
-  // Library CRUD
-  const handleSaveLib = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeOrg) return;
-    setSaving(true);
-    try {
-      if (editingLib) {
-        await docLibraryApi.updateLibrary(editingLib.id, libForm);
-        toast.success('Cập nhật thư viện thành công');
-      } else {
-        await docLibraryApi.createLibrary({ ...libForm, organizationId: activeOrg.id });
-        toast.success('Tạo thư viện thành công');
-      }
-      await fetchLibraries(activeOrg.id);
-      setShowLibForm(false);
-      setEditingLib(null);
-      setLibForm({ ten: '', loai: 'THONG_TIN_TO_CHUC' });
-    } catch (err: any) { toast.error(err.message); }
-    finally { setSaving(false); }
-  };
-
-  const handleDeleteLib = async (lib: Library) => {
-    if (!confirm(`Xoá thư viện "${lib.ten}"? Tất cả fields và giá trị sẽ bị xoá.`)) return;
-    try {
-      await docLibraryApi.deleteLibrary(lib.id);
-      toast.success('Đã xoá thư viện');
-      if (activeLib?.id === lib.id) setActiveLib(null);
-      if (activeOrg) await fetchLibraries(activeOrg.id);
-    } catch (err: any) { toast.error(err.message); }
-  };
-
-  const openEditLib = (lib: Library) => {
-    setEditingLib(lib);
-    setLibForm({ ten: lib.ten, loai: lib.loai as LibraryType });
-    setShowLibForm(true);
-  };
-
-  // Field CRUD
-  const handleSaveField = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeLib) return;
-    setSaving(true);
-    try {
-      if (editingField) {
-        await docLibraryApi.updateField(activeLib.id, editingField.id, fieldForm);
-        toast.success('Cập nhật trường thành công');
-      } else {
-        await docLibraryApi.createField(activeLib.id, fieldForm);
-        toast.success('Thêm trường thành công');
-      }
-      await fetchLibraryDetail(activeLib.id);
-      setShowFieldForm(false);
-      setEditingField(null);
-      setFieldForm({ tenTruong: '', khoa: '', kieuDuLieu: 'TEXT', giaTriMacDinh: '', batBuoc: false, thuTu: 0, nhom: '' });
-    } catch (err: any) { toast.error(err.message); }
-    finally { setSaving(false); }
-  };
-
-  const handleDeleteField = async (fieldId: string) => {
-    if (!confirm('Xoá trường này?')) return;
-    if (!activeLib) return;
-    try {
-      await docLibraryApi.deleteField(activeLib.id, fieldId);
-      toast.success('Đã xoá trường');
-      await fetchLibraryDetail(activeLib.id);
-    } catch (err: any) { toast.error(err.message); }
-  };
-
-  const openEditField = (field: LibraryField) => {
-    setEditingField(field);
-    setFieldForm({
-      tenTruong: field.tenTruong,
-      khoa: field.khoa,
-      kieuDuLieu: field.kieuDuLieu as FieldType,
-      giaTriMacDinh: field.giaTriMacDinh || '',
-      batBuoc: field.batBuoc,
-      thuTu: field.thuTu,
-      nhom: field.nhom || '',
-    });
-    setShowFieldForm(true);
-  };
-
-  // Saved Value CRUD
-  const handleSaveValue = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeLib) return;
-    setSaving(true);
-    try {
-      if (editingValue) {
-        await docLibraryApi.updateValue(activeLib.id, editingValue.id, valueForm);
-        toast.success('Cập nhật giá trị thành công');
-      } else {
-        await docLibraryApi.saveValue(activeLib.id, valueForm);
-        toast.success('Lưu giá trị thành công');
-      }
-      await fetchLibraryDetail(activeLib.id);
-      setShowValueForm(false);
-      setEditingValue(null);
-      setValueForm({ tenGiaTri: '', duLieu: {} });
-    } catch (err: any) { toast.error(err.message); }
-    finally { setSaving(false); }
-  };
-
-  const handleDeleteValue = async (valueId: string) => {
-    if (!confirm('Xoá giá trị đã lưu này?')) return;
-    if (!activeLib) return;
-    try {
-      await docLibraryApi.deleteValue(activeLib.id, valueId);
-      toast.success('Đã xoá giá trị');
-      await fetchLibraryDetail(activeLib.id);
-    } catch (err: any) { toast.error(err.message); }
-  };
-
-  const openEditValue = (val: SavedValue) => {
-    setEditingValue(val);
-    setValueForm({ tenGiaTri: val.tenGiaTri, duLieu: val.duLieu });
-    setShowValueForm(true);
-  };
-
-  const getLoaiColor = (loai: LibraryType) => {
-    const colors: Record<LibraryType, string> = {
-      THONG_TIN_TO_CHUC: 'bg-blue-100 text-blue-700',
-      THONG_TIN_NHA_THAU: 'bg-amber-100 text-amber-700',
-      DIA_CHI: 'bg-green-100 text-green-700',
-      KY_TUONG: 'bg-purple-100 text-purple-700',
-      CUSTOM: 'bg-gray-100 text-gray-700',
-      DAT_SACH_GDN: 'bg-indigo-100 text-indigo-700',
-      DAT_SACH_PCDI: 'bg-indigo-100 text-indigo-700',
-      DAT_SACH_QD: 'bg-indigo-100 text-indigo-700',
-      DUTOAN_TT: 'bg-teal-100 text-teal-700',
-      DUTOAN_QD: 'bg-teal-100 text-teal-700',
-      KHLCNT: 'bg-orange-100 text-orange-700',
-      LCNT_STEP: 'bg-pink-100 text-pink-700',
-      THANH_TOAN: 'bg-red-100 text-red-700',
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
     };
-    return colors[loai] || 'bg-gray-100 text-gray-700';
+  }, [searchText, hinhThuc, linhVuc, page, limit, reloadKey]);
+
+  const citationPreview = useMemo(() => {
+    const canPreview =
+      form.soHieu.trim() &&
+      form.coQuanBanHanh.trim() &&
+      form.hinhThucVanBan.trim() &&
+      form.trichYeuNoiDung.trim() &&
+      form.ngayBanHanh;
+    return canPreview ? formatLegalDocumentCitation(form) : '';
+  }, [form]);
+
+  const openCreate = () => {
+    setEditing(null);
+    setForm({ ...EMPTY_FORM });
+    setShowForm(true);
   };
 
-  const renderOrgCard = (org: Organization) => (
-    <div key={org.id} className="bg-white rounded-xl border border-gray-200 p-4 hover:border-primary-300 hover:shadow-sm transition-all">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex-1 min-w-0">
-          <h3 className="font-semibold text-gray-900 truncate">{org.ten}</h3>
-          <p className="text-xs text-gray-500 mt-0.5">{org.moTa || 'Không có mô tả'}</p>
-          <div className="flex gap-2 mt-2">
-            <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
-              {org.libraries?.length || 0} thư viện
-            </span>
-          </div>
-        </div>
-        <div className="flex gap-1 shrink-0">
-          <button onClick={() => openEditOrg(org)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Sửa">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4"><path d="M11.013 1.427a1.75 1.75 0 0 1 2.474 0l1.086 1.086a1.75 1.75 0 0 1 0 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 0 1-.927-.928l.929-3.25c.081-.286.235-.547.445-.758l8.61-8.61Zm1.414 1.06a.25.25 0 0 0-.354 0L10.811 3.75l1.439 1.44 1.263-1.263a.25.25 0 0 0 0-.354l-1.086-1.086ZM11.189 6.25 9.75 4.5l-6.97 6.97.93 3.417 3.416-.929L11.189 6.25Z" /></svg>
-          </button>
-          <button onClick={() => handleDeleteOrg(org.id)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Xoá">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" clipRule="evenodd" /></svg>
-          </button>
-        </div>
-      </div>
-      <div className="mt-3 flex gap-2">
-        <button onClick={() => selectOrg(org)} className="flex-1 px-3 py-1.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-xs font-medium transition-colors">
-          Quản lý thư viện
-        </button>
-      </div>
-    </div>
-  );
+  const openEdit = (document: LegalDocument) => {
+    setEditing(document);
+    setForm({
+      tenCanCu: document.tenCanCu || '',
+      soHieu: document.soHieu,
+      coQuanBanHanh: document.coQuanBanHanh,
+      hinhThucVanBan: document.hinhThucVanBan,
+      linhVuc: document.linhVuc,
+      trichYeuNoiDung: document.trichYeuNoiDung,
+      ngayBanHanh: document.ngayBanHanh.slice(0, 10),
+    });
+    setShowForm(true);
+  };
 
-  const renderFieldRow = (field: LibraryField) => (
-    <tr key={field.id} className="border-b border-gray-100 hover:bg-gray-50">
-      <td className="px-4 py-3 text-sm font-medium text-gray-900">{field.tenTruong}</td>
-      <td className="px-4 py-3 text-xs font-mono text-gray-500">{field.khoa}</td>
-      <td className="px-4 py-3 text-sm text-gray-600">
-        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
-          <FieldTypeIcon type={field.kieuDuLieu as FieldType} />
-          {FIELD_TYPE_LABELS[field.kieuDuLieu as FieldType]}
-        </span>
-      </td>
-      <td className="px-4 py-3 text-sm text-gray-500">{field.nhom || '-'}</td>
-      <td className="px-4 py-3 text-center">
-        {field.batBuoc && <span className="text-xs text-red-500 font-medium">Bắt buộc</span>}
-      </td>
-      <td className="px-4 py-3 text-center">
-        <button onClick={() => openEditField(field)} className="p-1 text-gray-400 hover:text-blue-600"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4"><path d="M11.013 1.427a1.75 1.75 0 0 1 2.474 0l1.086 1.086a1.75 1.75 0 0 1 0 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 0 1-.927-.928l.929-3.25c.081-.286.235-.547.445-.758l8.61-8.61Zm1.414 1.06a.25.25 0 0 0-.354 0L10.811 3.75l1.439 1.44 1.263-1.263a.25.25 0 0 0 0-.354l-1.086-1.086Z" /></svg></button>
-        <button onClick={() => handleDeleteField(field.id)} className="p-1 text-gray-400 hover:text-red-600"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" clipRule="evenodd" /></svg></button>
-      </td>
-    </tr>
-  );
+  const closeForm = () => {
+    if (saving) return;
+    setShowForm(false);
+    setEditing(null);
+    setForm({ ...EMPTY_FORM });
+  };
 
-  const renderValueRow = (val: SavedValue) => (
-    <tr key={val.id} className="border-b border-gray-100 hover:bg-gray-50">
-      <td className="px-4 py-3 text-sm font-medium text-gray-900">{val.tenGiaTri}</td>
-      <td className="px-4 py-3 text-sm text-gray-500 max-w-xs truncate">{JSON.stringify(val.duLieu)}</td>
-      <td className="px-4 py-3 text-xs text-gray-400">{new Date(val.createdAt).toLocaleDateString('vi-VN')}</td>
-      <td className="px-4 py-3 text-center">
-        <button onClick={() => openEditValue(val)} className="p-1 text-gray-400 hover:text-blue-600"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4"><path d="M11.013 1.427a1.75 1.75 0 0 1 2.474 0l1.086 1.086a1.75 1.75 0 0 1 0 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 0 1-.927-.928l.929-3.25c.081-.286.235-.547.445-.758l8.61-8.61Zm1.414 1.06a.25.25 0 0 0-.354 0L10.811 3.75l1.439 1.44 1.263-1.263a.25.25 0 0 0 0-.354l-1.086-1.086Z" /></svg></button>
-        <button onClick={() => handleDeleteValue(val.id)} className="p-1 text-gray-400 hover:text-red-600"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" clipRule="evenodd" /></svg></button>
-      </td>
-    </tr>
-  );
+  const handleSave = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!isAdmin) return;
 
-  const renderValueForm = () => (
-    <div className="bg-white rounded-xl border border-gray-200 p-6 mb-4">
-      <h3 className="text-lg font-semibold mb-4">{editingValue ? 'Sửa giá trị' : 'Lưu giá trị mới'}</h3>
-      <form onSubmit={handleSaveValue} className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Tên giá trị</label>
-          <input type="text" value={valueForm.tenGiaTri} onChange={e => setValueForm({ ...valueForm, tenGiaTri: e.target.value })}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500"
-            placeholder="VD: Công ty ABC" required />
-        </div>
-        {activeFields.map(f => (
-          <div key={f.id}>
-            <label className="block text-sm font-medium text-gray-700 mb-1">{f.tenTruong}</label>
-            {f.kieuDuLieu === 'TEXTAREA' ? (
-              <textarea value={(valueForm.duLieu[f.khoa] as string) || ''}
-                onChange={e => setValueForm({ ...valueForm, duLieu: { ...valueForm.duLieu, [f.khoa]: e.target.value } })}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500 min-h-[60px]" />
-            ) : f.kieuDuLieu === 'DATE' ? (
-              <input type="date" value={(valueForm.duLieu[f.khoa] as string) || ''}
-                onChange={e => setValueForm({ ...valueForm, duLieu: { ...valueForm.duLieu, [f.khoa]: e.target.value } })}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500" />
-            ) : (
-              <input type={f.kieuDuLieu === 'EMAIL' ? 'email' : f.kieuDuLieu === 'NUMBER' ? 'number' : 'text'}
-                value={(valueForm.duLieu[f.khoa] as string) || ''}
-                onChange={e => setValueForm({ ...valueForm, duLieu: { ...valueForm.duLieu, [f.khoa]: e.target.value } })}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500"
-                placeholder={f.giaTriMacDinh || ''} />
-            )}
-          </div>
-        ))}
-        <div className="flex gap-2 justify-end">
-          <button type="button" onClick={() => { setShowValueForm(false); setEditingValue(null); setValueForm({ tenGiaTri: '', duLieu: {} }); }}
-            className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm">Hủy</button>
-          <button type="submit" disabled={saving}
-            className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 text-sm">
-            {saving ? 'Đang lưu...' : (editingValue ? 'Cập nhật' : 'Lưu giá trị')}
-          </button>
-        </div>
-      </form>
-    </div>
-  );
+    setSaving(true);
+    try {
+      if (editing) {
+        await legalDocumentApi.update(editing.id, form);
+        toast.success('Đã cập nhật văn bản pháp lý');
+      } else {
+        await legalDocumentApi.create(form);
+        toast.success('Đã thêm văn bản pháp lý');
+      }
+      closeFormAfterSave();
+      setReloadKey((current) => current + 1);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : 'Không thể lưu văn bản pháp lý',
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const closeFormAfterSave = () => {
+    setShowForm(false);
+    setEditing(null);
+    setForm({ ...EMPTY_FORM });
+  };
+
+  const handleDelete = async (document: LegalDocument) => {
+    if (!isAdmin) return;
+    if (
+      !window.confirm(
+        `Xóa văn bản "${document.soHieu}" khỏi thư viện? Thao tác này không làm thay đổi câu viện dẫn đã lưu trong hồ sơ cũ.`,
+      )
+    ) {
+      return;
+    }
+
+    try {
+      await legalDocumentApi.remove(document.id);
+      toast.success('Đã xóa văn bản pháp lý');
+      if (documents.length === 1 && page > 1) {
+        setPage((current) => current - 1);
+      } else {
+        setReloadKey((current) => current + 1);
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : 'Không thể xóa văn bản pháp lý',
+      );
+    }
+  };
+
+  const updateForm = (
+    field: keyof LegalDocumentInput,
+    value: string,
+  ) => {
+    setForm((current) => ({ ...current, [field]: value }));
+  };
+
+  const applyOcrResult = (result: LegalDocumentOcrResult) => {
+    setForm((current) => ({
+      ...current,
+      ...result.fields,
+    }));
+    if (result.matchedFields.length > 0) {
+      toast.success(
+        `OCR đã điền ${result.matchedFields.length}/7 trường. Vui lòng kiểm tra lại trước khi lưu.`,
+      );
+    }
+  };
 
   return (
-    <div className="flex gap-6 h-full">
-      {/* Sidebar */}
-      <div className="w-64 shrink-0">
-        <div className="bg-white rounded-xl border border-gray-200 p-4 sticky top-4">
-          <h2 className="text-sm font-semibold text-gray-700 mb-3 px-1">Quản lý hệ thống</h2>
-          <LibrarySidebar />
-        </div>
-      </div>
-
-      {/* Main Content */}
-      <div className="flex-1 min-w-0">
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-gray-900">Thư viện Văn Bản</h1>
-          <p className="text-gray-500 mt-1">Quản lý tổ chức, thư viện, trường thông tin và giá trị tái sử dụng</p>
-        </div>
-
-        {/* Breadcrumb */}
-        {(activeOrg || activeLib) && (
-          <div className="flex items-center gap-2 text-sm text-gray-500 mb-4">
-            <button onClick={() => { setActiveOrg(null); setActiveLib(null); setTab('organizations'); }}
-              className="hover:text-primary-600 transition-colors">Tổ chức</button>
-            {activeOrg && (
-              <>
-                <span>/</span>
-                <button onClick={() => { setActiveLib(null); setTab('library-detail'); }}
-                  className="hover:text-primary-600 transition-colors">{activeOrg.ten}</button>
-              </>
-            )}
-            {activeLib && (
-              <>
-                <span>/</span>
-                <span className="text-gray-900 font-medium">{activeLib.ten}</span>
-              </>
-            )}
+    <div className="space-y-6">
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
+        <div>
+          <div className="flex items-center gap-2">
+            <BookOpen className="h-6 w-6 text-primary-600" />
+            <h1 className="text-2xl font-bold text-gray-900">
+              Thư viện văn bản pháp lý
+            </h1>
           </div>
-        )}
+          <p className="mt-1 text-sm text-gray-500">
+            Quản lý nguồn căn cứ dùng chung cho các biểu mẫu và văn bản Word.
+          </p>
+        </div>
 
-        {/* Tab bar */}
-        <div className="flex gap-1 mb-6 bg-gray-100 p-1 rounded-lg w-fit">
-          <button onClick={() => { setTab('organizations'); setActiveOrg(null); setActiveLib(null); }}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${tab === 'organizations' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>
-            Tổ chức
+        {isAdmin && (
+          <button
+            type="button"
+            onClick={openCreate}
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-primary-700"
+          >
+            <Plus className="h-4 w-4" />
+            Thêm văn bản
           </button>
-          {activeOrg && (
-            <button onClick={() => { setTab('library-detail'); }}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${tab === 'library-detail' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>
-              Thư viện
-            </button>
-          )}
-          {activeLib && (
-            <button onClick={() => { setTab('saved-values'); }}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${tab === 'saved-values' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>
-              Giá trị đã lưu
-            </button>
-          )}
-        </div>
-
-        {/* ── ORGANIZATIONS TAB ── */}
-        {tab === 'organizations' && (
-          <div>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-900">Danh sách Tổ chức</h2>
-              <button onClick={() => { setShowOrgForm(true); setEditingOrg(null); setOrgForm({ ten: '', moTa: '' }); }}
-                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium">
-                + Thêm Tổ chức
-              </button>
-            </div>
-
-            {showOrgForm && (
-              <div className="bg-white rounded-xl border border-gray-200 p-6 mb-4">
-                <h3 className="text-lg font-semibold mb-4">{editingOrg ? 'Sửa Tổ chức' : 'Thêm Tổ chức mới'}</h3>
-                <form onSubmit={handleSaveOrg} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Tên tổ chức</label>
-                    <input type="text" value={orgForm.ten} onChange={e => setOrgForm({ ...orgForm, ten: e.target.value })}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500"
-                      placeholder="VD: Tổ chức A - Chủ đầu tư" required />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Mô tả</label>
-                    <input type="text" value={orgForm.moTa} onChange={e => setOrgForm({ ...orgForm, moTa: e.target.value })}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500"
-                      placeholder="Mô tả ngắn..." />
-                  </div>
-                  <div className="md:col-span-2 flex gap-2 justify-end">
-                    <button type="button" onClick={() => { setShowOrgForm(false); setEditingOrg(null); }}
-                      className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm">Hủy</button>
-                    <button type="submit" disabled={saving}
-                      className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 text-sm">
-                      {saving ? 'Đang lưu...' : 'Lưu'}
-                    </button>
-                  </div>
-                </form>
-              </div>
-            )}
-
-            {loading ? (
-              <div className="flex justify-center py-12"><div className="animate-spin h-8 w-8 border-4 border-primary-500 border-t-transparent rounded-full" /></div>
-            ) : organizations.length === 0 ? (
-              <div className="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center">
-                <p className="text-gray-500">Chưa có tổ chức nào. Nhấn "Thêm Tổ chức" để bắt đầu.</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {organizations.map(renderOrgCard)}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ── LIBRARIES TAB ── */}
-        {tab === 'library-detail' && activeOrg && (
-          <div>
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="text-lg font-semibold text-gray-900">Thư viện: {activeOrg.ten}</h2>
-                <p className="text-sm text-gray-500">{activeOrg.moTa}</p>
-              </div>
-              <button onClick={() => { setShowLibForm(true); setEditingLib(null); setLibForm({ ten: '', loai: 'THONG_TIN_TO_CHUC' }); }}
-                className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium">
-                + Thêm Thư viện
-              </button>
-            </div>
-
-            {showLibForm && (
-              <div className="bg-white rounded-xl border border-gray-200 p-6 mb-4">
-                <h3 className="text-lg font-semibold mb-4">{editingLib ? 'Sửa Thư viện' : 'Thêm Thư viện mới'}</h3>
-                <form onSubmit={handleSaveLib} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Tên thư viện</label>
-                    <input type="text" value={libForm.ten} onChange={e => setLibForm({ ...libForm, ten: e.target.value })}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500"
-                      placeholder="VD: Thông tin Chủ đầu tư" required />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Loại thư viện</label>
-                    <select value={libForm.loai} onChange={e => setLibForm({ ...libForm, loai: e.target.value as LibraryType })}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500">
-                      {LOAI_OPTIONS.map(t => <option key={t} value={t}>{LIBRARY_TYPE_LABELS[t]}</option>)}
-                    </select>
-                  </div>
-                  <div className="md:col-span-2 flex gap-2 justify-end">
-                    <button type="button" onClick={() => { setShowLibForm(false); setEditingLib(null); }}
-                      className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm">Hủy</button>
-                    <button type="submit" disabled={saving}
-                      className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 text-sm">
-                      {saving ? 'Đang lưu...' : 'Lưu'}
-                    </button>
-                  </div>
-                </form>
-              </div>
-            )}
-
-            {libraries.length === 0 ? (
-              <div className="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center">
-                <p className="text-gray-500">Chưa có thư viện nào trong tổ chức này.</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {libraries.map(lib => (
-                  <div key={lib.id} className="bg-white rounded-xl border border-gray-200 p-4 hover:border-primary-300 transition-all">
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <h3 className="font-semibold text-gray-900">{lib.ten}</h3>
-                          <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${getLoaiColor(lib.loai as LibraryType)}`}>
-                            {LIBRARY_TYPE_LABELS[lib.loai as LibraryType]}
-                          </span>
-                        </div>
-                        <div className="flex gap-3 mt-1.5 text-xs text-gray-500">
-                          <span>{lib._count?.fields || lib.fields?.length || 0} trường</span>
-                          <span>{lib._count?.savedValues || lib.savedValues?.length || 0} giá trị</span>
-                        </div>
-                      </div>
-                      <div className="flex gap-1">
-                        <button onClick={() => selectLib(lib)}
-                          className="px-3 py-1.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-xs font-medium">
-                          Quản lý
-                        </button>
-                        <button onClick={() => openEditLib(lib)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg">
-                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4"><path d="M11.013 1.427a1.75 1.75 0 0 1 2.474 0l1.086 1.086a1.75 1.75 0 0 1 0 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 0 1-.927-.928l.929-3.25c.081-.286.235-.547.445-.758l8.61-8.61Zm1.414 1.06a.25.25 0 0 0-.354 0L10.811 3.75l1.439 1.44 1.263-1.263a.25.25 0 0 0 0-.354l-1.086-1.086Z" /></svg>
-                        </button>
-                        <button onClick={() => handleDeleteLib(lib)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg">
-                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4"><path fillRule="evenodd" d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" clipRule="evenodd" /></svg>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ── FIELDS + VALUES TAB ── */}
-        {tab === 'saved-values' && activeLib && (
-          <div>
-            {/* Library Header */}
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="text-lg font-semibold text-gray-900">{activeLib.ten}</h2>
-                <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium mt-1 ${getLoaiColor(activeLib.loai as LibraryType)}`}>
-                  {LIBRARY_TYPE_LABELS[activeLib.loai as LibraryType]}
-                </span>
-              </div>
-              <div className="flex gap-2">
-                <button onClick={() => { setShowFieldForm(true); setEditingField(null); setFieldForm({ tenTruong: '', khoa: '', kieuDuLieu: 'TEXT', giaTriMacDinh: '', batBuoc: false, thuTu: 0, nhom: '' }); }}
-                  className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium">
-                + Thêm Trường
-              </button>
-                <button onClick={() => { setShowValueForm(true); setEditingValue(null); setValueForm({ tenGiaTri: '', duLieu: {} }); }}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium">
-                + Lưu Giá trị
-              </button>
-              </div>
-            </div>
-
-            {/* Value Form */}
-            {showValueForm && renderValueForm()}
-
-            {/* Field Form */}
-            {showFieldForm && (
-              <div className="bg-white rounded-xl border border-gray-200 p-6 mb-4">
-                <h3 className="text-lg font-semibold mb-4">{editingField ? 'Sửa Trường' : 'Thêm Trường mới'}</h3>
-                <form onSubmit={handleSaveField} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Tên trường (label)</label>
-                    <input type="text" value={fieldForm.tenTruong} onChange={e => setFieldForm({ ...fieldForm, tenTruong: e.target.value })}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500"
-                      placeholder="VD: Tên công ty" required />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Khoá (key)</label>
-                    <input type="text" value={fieldForm.khoa} onChange={e => setFieldForm({ ...fieldForm, khoa: e.target.value })}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500 font-mono"
-                      placeholder="VD: cdt_ten_cong_ty" required />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Kiểu dữ liệu</label>
-                    <select value={fieldForm.kieuDuLieu} onChange={e => setFieldForm({ ...fieldForm, kieuDuLieu: e.target.value as FieldType })}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500">
-                      {FIELD_TYPE_OPTIONS.map(t => <option key={t} value={t}>{FIELD_TYPE_LABELS[t]}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Nhóm</label>
-                    <input type="text" value={fieldForm.nhom} onChange={e => setFieldForm({ ...fieldForm, nhom: e.target.value })}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500"
-                      placeholder="VD: Thông tin chung" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Giá trị mặc định</label>
-                    <input type="text" value={fieldForm.giaTriMacDinh} onChange={e => setFieldForm({ ...fieldForm, giaTriMacDinh: e.target.value })}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Thứ tự</label>
-                    <input type="number" value={fieldForm.thuTu} onChange={e => setFieldForm({ ...fieldForm, thuTu: parseInt(e.target.value) || 0 })}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500" />
-                  </div>
-                  <div className="md:col-span-2 flex items-center gap-2">
-                    <input type="checkbox" id="batBuoc" checked={fieldForm.batBuoc}
-                      onChange={e => setFieldForm({ ...fieldForm, batBuoc: e.target.checked })} className="w-4 h-4" />
-                    <label htmlFor="batBuoc" className="text-sm text-gray-700">Bắt buộc</label>
-                  </div>
-                  <div className="md:col-span-2 flex gap-2 justify-end">
-                    <button type="button" onClick={() => { setShowFieldForm(false); setEditingField(null); }}
-                      className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm">Hủy</button>
-                    <button type="submit" disabled={saving}
-                      className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 text-sm">
-                      {saving ? 'Đang lưu...' : 'Lưu Trường'}
-                    </button>
-                  </div>
-                </form>
-              </div>
-            )}
-
-            {/* Fields Table */}
-            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6">
-              <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-                <h3 className="font-semibold text-gray-900">Trường thông tin ({activeFields.length})</h3>
-              </div>
-              {activeFields.length === 0 ? (
-                <div className="p-8 text-center text-gray-500 text-sm">Chưa có trường nào. Nhấn "Thêm Trường" để bắt đầu.</div>
-              ) : (
-                <table className="w-full">
-                  <thead className="bg-gray-50 border-b border-gray-200">
-                    <tr>
-                      <th className="text-left px-4 py-2 text-xs font-medium text-gray-500 uppercase">Tên trường</th>
-                      <th className="text-left px-4 py-2 text-xs font-medium text-gray-500 uppercase">Khoá</th>
-                      <th className="text-left px-4 py-2 text-xs font-medium text-gray-500 uppercase">Kiểu</th>
-                      <th className="text-left px-4 py-2 text-xs font-medium text-gray-500 uppercase">Nhóm</th>
-                      <th className="text-center px-4 py-2 text-xs font-medium text-gray-500 uppercase">Bắt buộc</th>
-                      <th className="text-center px-4 py-2 text-xs font-medium text-gray-500 uppercase w-20">Thao tác</th>
-                    </tr>
-                  </thead>
-                  <tbody>{activeFields.map(renderFieldRow)}</tbody>
-                </table>
-              )}
-            </div>
-
-            {/* Saved Values Table */}
-            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-              <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-                <h3 className="font-semibold text-gray-900">Giá trị đã lưu ({activeValues.length})</h3>
-              </div>
-              {activeValues.length === 0 ? (
-                <div className="p-8 text-center text-gray-500 text-sm">Chưa có giá trị nào. Điền thông tin vào form rồi nhấn "Lưu Giá trị".</div>
-              ) : (
-                <table className="w-full">
-                  <thead className="bg-gray-50 border-b border-gray-200">
-                    <tr>
-                      <th className="text-left px-4 py-2 text-xs font-medium text-gray-500 uppercase">Tên</th>
-                      <th className="text-left px-4 py-2 text-xs font-medium text-gray-500 uppercase">Dữ liệu</th>
-                      <th className="text-left px-4 py-2 text-xs font-medium text-gray-500 uppercase">Ngày tạo</th>
-                      <th className="text-center px-4 py-2 text-xs font-medium text-gray-500 uppercase w-20">Thao tác</th>
-                    </tr>
-                  </thead>
-                  <tbody>{activeValues.map(renderValueRow)}</tbody>
-                </table>
-              )}
-            </div>
-          </div>
         )}
       </div>
+
+      {!isAdmin && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+          Bạn có thể tìm kiếm và sử dụng thư viện. Chỉ quản trị viên được
+          thêm, sửa hoặc xóa văn bản.
+        </div>
+      )}
+
+      <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(280px,2fr)_1fr_1fr_auto]">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            <input
+              value={searchText}
+              onChange={(event) => {
+                setSearchText(event.target.value);
+                setPage(1);
+              }}
+              placeholder="Tìm tên căn cứ, số hiệu, cơ quan, trích yếu..."
+              className="w-full rounded-lg border border-gray-300 py-2.5 pl-10 pr-3 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
+            />
+          </div>
+          <input
+            value={hinhThuc}
+            onChange={(event) => {
+              setHinhThuc(event.target.value);
+              setPage(1);
+            }}
+            placeholder="Lọc hình thức"
+            className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
+          />
+          <input
+            value={linhVuc}
+            onChange={(event) => {
+              setLinhVuc(event.target.value);
+              setPage(1);
+            }}
+            placeholder="Lọc lĩnh vực"
+            className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
+          />
+          <button
+            type="button"
+            onClick={() => {
+              setSearchText('');
+              setHinhThuc('');
+              setLinhVuc('');
+              setPage(1);
+            }}
+            className="rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Xóa lọc
+          </button>
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="min-w-[1180px] w-full">
+            <thead className="border-b border-gray-200 bg-gray-50">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">
+                  Số hiệu
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">
+                  Cơ quan ban hành
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">
+                  Hình thức văn bản
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">
+                  Lĩnh vực
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">
+                  Trích yếu nội dung
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600">
+                  Ngày ban hành
+                </th>
+                {isAdmin && (
+                  <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-gray-600">
+                    Thao tác
+                  </th>
+                )}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {loading ? (
+                <tr>
+                  <td
+                    colSpan={isAdmin ? 7 : 6}
+                    className="px-4 py-14 text-center"
+                  >
+                    <Loader2 className="mx-auto h-7 w-7 animate-spin text-primary-600" />
+                    <p className="mt-2 text-sm text-gray-500">
+                      Đang tải thư viện...
+                    </p>
+                  </td>
+                </tr>
+              ) : documents.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={isAdmin ? 7 : 6}
+                    className="px-4 py-14 text-center text-sm text-gray-500"
+                  >
+                    Không tìm thấy văn bản phù hợp.
+                  </td>
+                </tr>
+              ) : (
+                documents.map((document) => (
+                  <tr key={document.id} className="hover:bg-gray-50">
+                    <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-gray-900">
+                      {document.soHieu}
+                    </td>
+                    <td className="max-w-[220px] px-4 py-3 text-sm text-gray-700">
+                      {document.coQuanBanHanh}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-700">
+                      {document.hinhThucVanBan}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-700">
+                      {document.linhVuc}
+                    </td>
+                    <td
+                      className="max-w-[380px] px-4 py-3 text-sm leading-5 text-gray-700"
+                      title={document.citation}
+                    >
+                      {document.tenCanCu && (
+                        <span className="mb-1 block font-medium text-primary-700">
+                          {document.tenCanCu}
+                        </span>
+                      )}
+                      {document.trichYeuNoiDung}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-700">
+                      {formatDisplayDate(document.ngayBanHanh)}
+                    </td>
+                    {isAdmin && (
+                      <td className="whitespace-nowrap px-4 py-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => openEdit(document)}
+                          className="rounded-lg p-2 text-blue-600 hover:bg-blue-50"
+                          title="Sửa"
+                        >
+                          <Edit3 className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(document)}
+                          className="ml-1 rounded-lg p-2 text-red-600 hover:bg-red-50"
+                          title="Xóa"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="flex flex-col items-center justify-between gap-3 border-t border-gray-200 px-4 py-3 sm:flex-row">
+          <p className="text-sm text-gray-600">
+            Tổng cộng <span className="font-semibold">{pagination.total}</span>{' '}
+            văn bản
+          </p>
+          <div className="flex items-center gap-2">
+            <select
+              value={limit}
+              onChange={(event) => {
+                setLimit(Number(event.target.value));
+                setPage(1);
+              }}
+              className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+              aria-label="Số dòng mỗi trang"
+            >
+              <option value={10}>10 / trang</option>
+              <option value={20}>20 / trang</option>
+              <option value={50}>50 / trang</option>
+            </select>
+            <button
+              type="button"
+              onClick={() => setPage((current) => current - 1)}
+              disabled={page <= 1 || loading}
+              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Trước
+            </button>
+            <span className="min-w-[92px] text-center text-sm text-gray-600">
+              Trang {pagination.page} / {Math.max(1, pagination.totalPages)}
+            </span>
+            <button
+              type="button"
+              onClick={() => setPage((current) => current + 1)}
+              disabled={
+                loading ||
+                pagination.totalPages === 0 ||
+                page >= pagination.totalPages
+              }
+              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Sau
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {showForm && isAdmin && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label={
+            editing ? 'Cập nhật văn bản pháp lý' : 'Thêm văn bản pháp lý'
+          }
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeForm();
+          }}
+        >
+          <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white shadow-xl">
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b bg-white px-6 py-4">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">
+                  {editing
+                    ? 'Cập nhật văn bản pháp lý'
+                    : 'Thêm văn bản pháp lý'}
+                </h2>
+                <p className="mt-0.5 text-xs text-gray-500">
+                  Có thể dùng OCR để tự điền, sau đó kiểm tra đủ sáu trường
+                  pháp lý trước khi lưu.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeForm}
+                disabled={saving}
+                className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 disabled:opacity-50"
+                aria-label="Đóng"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSave} className="space-y-5 p-6">
+              <LegalDocumentOcrPanel
+                onExtract={applyOcrResult}
+                disabled={saving}
+              />
+
+              <FormField label="Tên căn cứ" required={false}>
+                <input
+                  maxLength={500}
+                  value={form.tenCanCu}
+                  onChange={(event) =>
+                    updateForm('tenCanCu', event.target.value)
+                  }
+                  placeholder="Ví dụ: Nghị định về lựa chọn nhà đầu tư"
+                  className={FORM_INPUT_CLASS}
+                />
+                <span className="mt-1 block text-xs text-gray-500">
+                  Tên gợi nhớ do Admin đặt; người dùng có thể tìm theo tên này.
+                  Tên không được đưa vào câu viện dẫn Word.
+                </span>
+              </FormField>
+
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <FormField label="Số hiệu">
+                  <input
+                    required
+                    maxLength={255}
+                    value={form.soHieu}
+                    onChange={(event) =>
+                      updateForm('soHieu', event.target.value)
+                    }
+                    placeholder="22/2023/QH15"
+                    className={FORM_INPUT_CLASS}
+                  />
+                </FormField>
+
+                <FormField label="Ngày ban hành">
+                  <input
+                    required
+                    type="date"
+                    value={form.ngayBanHanh}
+                    onChange={(event) =>
+                      updateForm('ngayBanHanh', event.target.value)
+                    }
+                    className={FORM_INPUT_CLASS}
+                  />
+                </FormField>
+
+                <FormField label="Cơ quan ban hành">
+                  <input
+                    required
+                    maxLength={500}
+                    value={form.coQuanBanHanh}
+                    onChange={(event) =>
+                      updateForm('coQuanBanHanh', event.target.value)
+                    }
+                    placeholder="Quốc hội khóa XV, Kỳ họp thứ 5"
+                    className={FORM_INPUT_CLASS}
+                  />
+                </FormField>
+
+                <FormField label="Hình thức văn bản">
+                  <input
+                    required
+                    maxLength={255}
+                    value={form.hinhThucVanBan}
+                    onChange={(event) =>
+                      updateForm('hinhThucVanBan', event.target.value)
+                    }
+                    placeholder="Luật"
+                    className={FORM_INPUT_CLASS}
+                  />
+                </FormField>
+
+                <FormField label="Lĩnh vực">
+                  <input
+                    required
+                    maxLength={255}
+                    value={form.linhVuc}
+                    onChange={(event) =>
+                      updateForm('linhVuc', event.target.value)
+                    }
+                    placeholder="Đấu thầu"
+                    className={FORM_INPUT_CLASS}
+                  />
+                </FormField>
+
+                <div className="md:col-span-2">
+                  <FormField label="Trích yếu nội dung">
+                    <textarea
+                      required
+                      rows={3}
+                      maxLength={2000}
+                      value={form.trichYeuNoiDung}
+                      onChange={(event) =>
+                        updateForm('trichYeuNoiDung', event.target.value)
+                      }
+                      placeholder="Đấu thầu"
+                      className={`${FORM_INPUT_CLASS} resize-y`}
+                    />
+                  </FormField>
+                </div>
+              </div>
+
+              {citationPreview && (
+                <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">
+                    Câu viện dẫn
+                  </p>
+                  <p className="mt-1 text-sm italic leading-6 text-gray-800">
+                    {citationPreview}
+                  </p>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Lĩnh vực chỉ dùng để tìm kiếm và không xuất hiện trong
+                    câu viện dẫn.
+                  </p>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 border-t pt-4">
+                <button
+                  type="button"
+                  onClick={closeForm}
+                  disabled={saving}
+                  className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {saving
+                    ? 'Đang lưu...'
+                    : editing
+                      ? 'Lưu thay đổi'
+                      : 'Thêm văn bản'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
     </div>
+  );
+}
+
+function FormField({
+  label,
+  children,
+  required = true,
+}: {
+  label: string;
+  children: React.ReactNode;
+  required?: boolean;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-sm font-medium text-gray-700">
+        {label}{' '}
+        {required && <span className="text-red-500">*</span>}
+      </span>
+      {children}
+    </label>
   );
 }

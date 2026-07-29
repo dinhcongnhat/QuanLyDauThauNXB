@@ -3,8 +3,145 @@ import { PrismaService } from '../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
 import { ContractPackageType, NotificationType } from '@prisma/client';
 import { NotificationService } from '../notifications/notification.service';
-import { generatePaymentDocx, getPaymentSteps } from './payment-docx-generator';
+import {
+  generatePaymentDocx,
+  getPaymentSteps,
+  getPaymentTemplateFields,
+} from './payment-docx-generator';
 import { JwtService } from '@nestjs/jwt';
+import { prepareWorkflowTemplateData } from '../utils/docx-template-renderer';
+
+function asRecord(value: unknown): Record<string, any> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, any>
+    : {};
+}
+
+function firstMeaningful(...values: any[]): any {
+  return values.find((value) => {
+    if (value === undefined || value === null || value === '') return false;
+    if (Array.isArray(value)) return value.length > 0;
+    return true;
+  });
+}
+
+function formatTemplateDate(value: any): any {
+  if (!(value instanceof Date)) return value;
+  return `${value.getUTCDate()}/${value.getUTCMonth() + 1}/${value.getUTCFullYear()}`;
+}
+
+function buildPaymentWorkflowPayload(
+  selection: {
+    data: unknown;
+    tenGoiThau: string;
+    soHopDong?: string | null;
+    ngayKyHopDong?: Date | null;
+  },
+  qdDataValue: unknown,
+  contractDataValue: unknown,
+  paymentDataValue: unknown,
+  stepDataSources: unknown[],
+): Record<string, any> {
+  const qdData = asRecord(qdDataValue);
+  const packageData = asRecord(selection.data);
+  const contractData = asRecord(contractDataValue);
+  const paymentData = asRecord(paymentDataValue);
+  const merged = Object.assign(
+    {},
+    qdData,
+    packageData,
+    contractData,
+    paymentData,
+    ...stepDataSources.map(asRecord),
+  ) as Record<string, any>;
+
+  const contractNumber = firstMeaningful(
+    selection.soHopDong,
+    contractData.SoHopDong,
+    contractData.MaSoHD,
+    contractData.MaSoHopDong,
+    paymentData.SoHopDong,
+    paymentData.MaSoHD,
+  );
+  const contractDate = formatTemplateDate(firstMeaningful(
+    contractData.NgayBanHanhHopDong,
+    contractData.NgayBanHanhHopdong,
+    contractData.NgayBanHanh,
+    contractData.ThoiGianKyHD,
+    contractData.ThoiGianKyHopDong,
+    selection.ngayKyHopDong,
+  ));
+  const contractorName = firstMeaningful(
+    merged.TenNhaThau,
+    merged.NhaThau,
+    merged.TenNhaThauTrungThau,
+    merged.NhaThauTrungThau,
+  );
+  const contractValue = firstMeaningful(
+    merged.GiaGoiThau,
+    merged.GiaTriHopDongBangSo,
+    merged.GiaHDBangSo,
+    merged.GiaTrungThau,
+    merged.GiaGoiThauBangSo,
+    merged.giaGoiThau,
+  );
+  const legalBasis = firstMeaningful(
+    merged.CanCu,
+    merged.canCu,
+    merged.canCuPhapLy,
+    merged.CanCuVanBanPhapLy,
+    merged.TenCacVanBanPhapLyLienQuan,
+  );
+
+  return prepareWorkflowTemplateData({
+    ...merged,
+    packages: [packageData],
+    goiThau: [packageData],
+    TenGoiThau: firstMeaningful(
+      merged.TenGoiThau,
+      merged.tenGoiThau,
+      selection.tenGoiThau,
+    ),
+    TenDuAn: firstMeaningful(merged.TenDuAn, merged.tenDuAn),
+    ChuDauTu: firstMeaningful(merged.ChuDauTu, merged.chuDauTu, merged.TenChuDauTu),
+    CanCu: legalBasis,
+    canCu: legalBasis,
+    SoHopDong: contractNumber,
+    MaSoHD: contractNumber,
+    NgayBanHanhHopDong: contractDate,
+    NgayBanHanhHopdong: contractDate,
+    TenNhaThau: contractorName,
+    NhaThau: contractorName,
+    MSTNhaThau: firstMeaningful(
+      merged.MSTNhaThau,
+      merged.MaSoThueNhaThau,
+      merged.maSoThueNhaThau,
+    ),
+    SoDienThoaiNhaThau: firstMeaningful(
+      merged.SoDienThoaiNhaThau,
+      merged.DienThoaiNhaThau,
+    ),
+    TaiKhoanNhaThau: firstMeaningful(
+      merged.TaiKhoanNhaThau,
+      merged.SoTaiKhoanNhaThau,
+      merged.ThongTinTaiKhoanNhaThau,
+    ),
+    GiaGoiThau: contractValue,
+    GiaGoiThauBangChu: firstMeaningful(
+      merged.GiaGoiThauBangChu,
+      merged.GiaTriHopDongBangChu,
+      merged.GiaHDBangChu,
+    ),
+    DonViSanPhamGoiThau: firstMeaningful(
+      merged.DonViSanPhamGoiThau,
+      merged['DonViSanPham GoiThau'],
+    ),
+    HinhThucSanPhamGoiThau: firstMeaningful(
+      merged.HinhThucSanPhamGoiThau,
+      merged['HinhThucSanPham GoiThau'],
+    ),
+  });
+}
 
 @Injectable()
 export class PaymentService {
@@ -101,14 +238,24 @@ export class PaymentService {
     return step;
   }
 
-  /** Get contracts that have been completed (hop_dong step COMPLETED with contractPackageType set) */
-  async getCompletedContractsForPayment(projectId?: string) {
+  /**
+   * Search completed contracts before starting payment. New records use the
+   * indexed soHopDong column; legacy aliases in hop_dong JSON are still read.
+   */
+  async getCompletedContractsForPayment(projectId?: string, query?: string) {
+    const normalizedQuery = (query || '').trim();
     const where: any = {
       contractPackageType: { not: null },
       steps: { some: { stepKey: 'hop_dong', status: 'COMPLETED' } },
     };
     if (projectId) {
       where.projectId = projectId;
+    }
+    if (normalizedQuery) {
+      where.soHopDong = {
+        contains: normalizedQuery,
+        mode: 'insensitive',
+      };
     }
     const selections = await this.prisma.contractorSelection.findMany({
       where,
@@ -120,6 +267,7 @@ export class PaymentService {
         creator: { select: { id: true, name: true, role: true } },
       },
       orderBy: { updatedAt: 'desc' },
+      take: 50,
     });
     return selections;
   }
@@ -128,6 +276,17 @@ export class PaymentService {
 
   /** Create a payment process from a completed contract */
   async createPayment(userId: string, contractorSelectionId: string, projectId?: string) {
+    const existingPayment = await this.prisma.payment.findFirst({
+      where: { contractorSelectionId },
+      include: {
+        steps: { orderBy: { stepOrder: 'asc' } },
+        contractorSelection: { select: { id: true, tenGoiThau: true } },
+      },
+    });
+    if (existingPayment) {
+      return existingPayment;
+    }
+
     const selection = await this.prisma.contractorSelection.findUnique({
       where: { id: contractorSelectionId },
       include: { steps: { where: { stepKey: 'hop_dong' } } },
@@ -142,8 +301,16 @@ export class PaymentService {
       throw new BadRequestException('Hợp đồng chưa hoàn thành');
     }
 
-    const hopDongData = (hopDongStep.data as any) || {};
-    const maSoHD = hopDongData.MaSoHD || hopDongData.MaSoHopDong || '';
+    const hopDongData = asRecord(hopDongStep.data);
+    const maSoHD = String(firstMeaningful(
+      (selection as any).soHopDong,
+      hopDongData.SoHopDong,
+      hopDongData.MaSoHD,
+      hopDongData.MaSoHopDong,
+    ) || '').trim();
+    if (!maSoHD) {
+      throw new BadRequestException('Hợp đồng chưa có Số hợp đồng');
+    }
 
     const packageType = selection.contractPackageType as ContractPackageType;
     const stepDefs = getPaymentSteps(packageType);
@@ -154,6 +321,7 @@ export class PaymentService {
         projectId: projectId || selection.projectId,
         contractPackageType: packageType,
         maSoHD,
+        data: { SoHopDong: maSoHD },
         createdBy: userId,
         steps: {
           create: stepDefs.map(s => ({
@@ -170,10 +338,10 @@ export class PaymentService {
       },
     });
 
-    if (projectId) {
+    if (payment.projectId) {
       await this.prisma.projectLog.create({
         data: {
-          projectId,
+          projectId: payment.projectId,
           stepKey: 'thanh_toan',
           action: 'CREATE_PAYMENT',
           message: `Khởi tạo hồ sơ thanh toán cho gói thầu "${payment.contractorSelection.tenGoiThau}"`,
@@ -267,7 +435,55 @@ export class PaymentService {
 
   // ====================== DOCX ======================
 
-  async generateStepDocx(stepId: string): Promise<Buffer> {
+  async generateStepDocx(
+    stepId: string,
+    draftData?: Record<string, any>,
+  ): Promise<Buffer> {
+    const step = await this.prisma.paymentStep.findUnique({
+      where: { id: stepId },
+      include: {
+        payment: {
+          include: {
+            contractorSelection: {
+              include: {
+                qdKhlcnt: { select: { data: true } },
+                steps: { where: { stepKey: 'hop_dong' } },
+              },
+            },
+            steps: { orderBy: { stepOrder: 'asc' } },
+          },
+        },
+      },
+    });
+    if (!step) throw new NotFoundException('Không tìm thấy bước');
+
+    const payment = step.payment;
+    const selection = payment.contractorSelection;
+    const previousCompletedData = payment.steps
+      .filter(
+        (item) =>
+          item.stepOrder < step.stepOrder
+          && item.status === 'COMPLETED'
+          && item.data,
+      )
+      .map((item) => item.data);
+    const currentStepData = {
+      ...asRecord(step.data),
+      ...asRecord(draftData),
+    };
+    const docxData = buildPaymentWorkflowPayload(
+      selection,
+      selection.qdKhlcnt?.data,
+      selection.steps[0]?.data,
+      payment.data,
+      [...previousCompletedData, currentStepData],
+    );
+    delete docxData._attachments;
+
+    return generatePaymentDocx(payment.contractPackageType, step.stepKey, docxData);
+  }
+
+  private async generateStepDocxLegacy(stepId: string): Promise<Buffer> {
     const step = await this.prisma.paymentStep.findUnique({
       where: { id: stepId },
       include: {
@@ -355,6 +571,24 @@ export class PaymentService {
     delete docxData._attachments;
 
     return generatePaymentDocx(payment.contractPackageType, step.stepKey, docxData);
+  }
+
+  async getTemplateFieldsForStep(stepId: string) {
+    const step = await this.prisma.paymentStep.findUnique({
+      where: { id: stepId },
+      include: { payment: { select: { contractPackageType: true } } },
+    });
+    if (!step) throw new NotFoundException('Không tìm thấy bước thanh toán');
+
+    const template = await getPaymentTemplateFields(
+      step.payment.contractPackageType,
+      step.stepKey,
+    );
+    return {
+      stepKey: step.stepKey,
+      contractPackageType: step.payment.contractPackageType,
+      ...template,
+    };
   }
 
   async generateAndSaveDocx(stepId: string): Promise<string> {
@@ -502,6 +736,41 @@ export class PaymentService {
 
   /** Get auto-fill data from the contract + previous payment steps */
   async getAutoFillData(paymentId: string, stepKey: string): Promise<Record<string, any>> {
+    const payment = await this.prisma.payment.findUnique({
+      where: { id: paymentId },
+      include: {
+        contractorSelection: {
+          include: {
+            qdKhlcnt: { select: { data: true } },
+            steps: { where: { stepKey: 'hop_dong' } },
+          },
+        },
+        steps: { orderBy: { stepOrder: 'asc' } },
+      },
+    });
+    if (!payment) throw new NotFoundException('Không tìm thấy hồ sơ thanh toán');
+
+    const targetStep = payment.steps.find((item) => item.stepKey === stepKey);
+    if (!targetStep) throw new NotFoundException('Không tìm thấy bước thanh toán');
+    const previousCompletedData = payment.steps
+      .filter(
+        (item) =>
+          item.stepOrder < targetStep.stepOrder
+          && item.status === 'COMPLETED'
+          && item.data,
+      )
+      .map((item) => item.data);
+
+    return buildPaymentWorkflowPayload(
+      payment.contractorSelection,
+      payment.contractorSelection.qdKhlcnt?.data,
+      payment.contractorSelection.steps[0]?.data,
+      payment.data,
+      previousCompletedData,
+    );
+  }
+
+  private async getAutoFillDataLegacy(paymentId: string, stepKey: string): Promise<Record<string, any>> {
     const payment = await this.prisma.payment.findUnique({
       where: { id: paymentId },
       include: {

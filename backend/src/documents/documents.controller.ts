@@ -1,13 +1,16 @@
 import {
   Controller, Get, Post, Param, Body, Query, Res, UseGuards, Request,
+  UseInterceptors, UploadedFile,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { IsString, IsOptional, IsEnum, IsObject } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Public } from '../auth/public.decorator';
 import { DocumentsService } from './documents.service';
-import { DocType } from '@prisma/client';
+import { DocType, ProcurementType } from '@prisma/client';
 import { convertDocxToPdf } from '../utils/docx-to-pdf';
+import * as JSZip from 'jszip';
 
 class CreateDocumentDto {
   @IsEnum(DocType) type: DocType;
@@ -15,6 +18,7 @@ class CreateDocumentDto {
   @IsOptional() @IsString() parentId?: string;
   @IsOptional() @IsString() assignedTo?: string;
   @IsOptional() @IsString() projectId?: string;
+  @IsOptional() @IsString() sourceDocumentId?: string;
 }
 
 class CreateDuToanBatchDto {
@@ -22,6 +26,11 @@ class CreateDuToanBatchDto {
   @IsObject() qdData: any;
   @IsString() assignedTo: string;
   @IsOptional() @IsString() projectId?: string;
+}
+
+class PreviewDocumentDto {
+  @IsString() type: string;
+  @IsObject() data: Record<string, any>;
 }
 
 class RejectDto {
@@ -54,6 +63,7 @@ export class DocumentsController {
       dto.parentId,
       dto.assignedTo,
       dto.projectId,
+      dto.sourceDocumentId,
     );
   }
 
@@ -66,6 +76,32 @@ export class DocumentsController {
       dto.assignedTo,
       dto.projectId,
     );
+  }
+
+  @Post('preview')
+  async preview(@Body() dto: PreviewDocumentDto, @Res() res: Response) {
+    const buffer = await this.svc.generatePreviewDocx(dto.type, dto.data);
+    res.set({
+      'Content-Type':
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'Content-Disposition': 'inline; filename="preview.docx"',
+      'Content-Length': buffer.length,
+      'Cache-Control': 'no-store, max-age=0',
+    });
+    res.end(buffer);
+  }
+
+  @Post('preview-pdf')
+  async previewPdf(@Body() dto: PreviewDocumentDto, @Res() res: Response) {
+    const docxBuffer = await this.svc.generatePreviewDocx(dto.type, dto.data);
+    const buffer = convertDocxToPdf(docxBuffer);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': 'inline; filename="preview.pdf"',
+      'Content-Length': buffer.length,
+      'Cache-Control': 'no-store, max-age=0',
+    });
+    res.end(buffer);
   }
 
   @Get('stats')
@@ -82,6 +118,7 @@ export class DocumentsController {
   async findByType(
     @Query('types') types: string,
     @Query('projectId') projectId: string,
+    @Query('procurementType') procurementType: ProcurementType,
     @Query('page') page: string,
     @Query('limit') limit: string,
     @Request() req: any,
@@ -89,7 +126,15 @@ export class DocumentsController {
     const typeList = types.split(',') as DocType[];
     const pageNum = page ? parseInt(page, 10) : 1;
     const limitNum = limit ? parseInt(limit, 10) : 20;
-    return this.svc.findByType(typeList, req.user.sub, req.user.role, projectId, pageNum, limitNum);
+    return this.svc.findByType(
+      typeList,
+      req.user.sub,
+      req.user.role,
+      projectId,
+      pageNum,
+      limitNum,
+      procurementType,
+    );
   }
 
   @Get('by-project/:projectId')
@@ -100,6 +145,11 @@ export class DocumentsController {
   @Get('by-parent/:parentId')
   async findByParent(@Param('parentId') parentId: string) {
     return this.svc.findByParent(parentId);
+  }
+
+  @Get('template-fields')
+  async getTemplateFields(@Query('type') type: DocType) {
+    return this.svc.getTemplateFields(type);
   }
 
   @Get(':id')
@@ -136,6 +186,47 @@ export class DocumentsController {
     res.end(pdfBuffer);
   }
 
+  @Get(':id/download-bundle')
+  async downloadBundle(@Param('id') id: string, @Res() res: Response) {
+    const bundle = await this.svc.generateDocumentBundle(id);
+    const zip = new JSZip();
+    bundle.files.forEach((file) => zip.file(file.filename, file.buffer));
+    const buffer = await zip.generateAsync({ type: 'nodebuffer' });
+    const encoded = encodeURIComponent(bundle.filename);
+    res.set({
+      'Content-Type': 'application/zip',
+      'Content-Disposition': `attachment; filename="documents.zip"; filename*=UTF-8''${encoded}`,
+      'Content-Length': buffer.length,
+    });
+    res.end(buffer);
+  }
+
+  @Get(':id/download-cover')
+  async downloadCover(@Param('id') id: string, @Res() res: Response) {
+    const { filename, buffer } = await this.svc.generateCoverDocx(id);
+    const encoded = encodeURIComponent(filename);
+    res.set({
+      'Content-Type':
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'Content-Disposition': `attachment; filename="cover.docx"; filename*=UTF-8''${encoded}`,
+      'Content-Length': buffer.length,
+    });
+    res.end(buffer);
+  }
+
+  @Get(':id/preview-cover-pdf')
+  async previewCoverPdf(@Param('id') id: string, @Res() res: Response) {
+    const { buffer } = await this.svc.generateCoverDocx(id);
+    const pdfBuffer = convertDocxToPdf(buffer);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': 'inline; filename="cover-preview.pdf"',
+      'Content-Length': pdfBuffer.length,
+      'Cache-Control': 'no-store, max-age=0',
+    });
+    res.end(pdfBuffer);
+  }
+
   @Public()
   @Get(':id/download-public')
   async downloadPublic(@Param('id') id: string, @Query('token') token: string, @Res() res: Response) {
@@ -155,6 +246,30 @@ export class DocumentsController {
   @Get(':id/onlyoffice-config')
   async getOnlyofficeConfig(@Param('id') id: string) {
     return this.svc.getOnlyofficeConfig(id);
+  }
+
+  @Post(':id/khai-toan-attachment')
+  @UseInterceptors(FileInterceptor('file', {
+    limits: { fileSize: 50 * 1024 * 1024 },
+  }))
+  async uploadKhaiToanAttachment(
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Request() req: any,
+  ) {
+    if (!file) throw new Error('Chưa chọn file');
+    const originalname = Buffer.from(file.originalname, 'latin1').toString('utf8');
+    return this.svc.uploadKhaiToanAttachment(id, req.user.sub, {
+      buffer: file.buffer,
+      originalname,
+      mimetype: file.mimetype,
+      size: file.size,
+    });
+  }
+
+  @Get(':id/khai-toan-attachment')
+  async getKhaiToanAttachment(@Param('id') id: string, @Request() req: any) {
+    return this.svc.getKhaiToanAttachmentUrl(id, req.user.sub);
   }
 
   @Post(':id/approve')

@@ -10,6 +10,22 @@ import { Role } from '@/lib/types';
 import toast from 'react-hot-toast';
 import { AnimatePresence, motion } from 'framer-motion';
 import NotificationBell from './NotificationBell';
+import {
+  BadgeCheck,
+  Archive,
+  BookOpen,
+  ClipboardList,
+  FileCheck2,
+  FolderKanban,
+  Gavel,
+  LayoutDashboard,
+  LibraryBig,
+  Monitor,
+  Settings,
+  ShoppingCart,
+  UsersRound,
+  WalletCards,
+} from 'lucide-react';
 
 const roleLabels: Record<Role, string> = {
   ADMIN: 'Quản trị viên',
@@ -181,59 +197,59 @@ export function Sidebar({ onOpenNotifications }: SidebarProps) {
     pathname === href || (href !== '/dashboard' && pathname.startsWith(href));
 
   const linkCls = (href: string) =>
-    `flex items-center gap-3.5 px-4 py-3 rounded-xl text-[14.5px] transition-all duration-200 ${
+    `flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm transition-all duration-150 ${
       isActive(href)
-        ? 'bg-red-600 text-white font-semibold shadow-md shadow-red-500/20'
-        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-medium'
+        ? 'bg-red-50 text-red-800 font-semibold ring-1 ring-inset ring-red-100'
+        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-950 font-medium'
     }`;
 
   const roleDisplay = activeView === 'chu-dau-tu' ? 'Chủ đầu tư' : 'Nhà thầu';
 
   const dropdownCls = (isOpen: boolean) =>
-    `w-full flex items-center justify-between px-4 py-3 rounded-xl text-[14.5px] transition-colors duration-200 ${
+    `w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm transition-colors duration-150 ${
       isOpen
-        ? 'bg-slate-50 text-slate-900 font-semibold'
+        ? 'bg-slate-100 text-slate-950 font-semibold'
         : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-medium'
     }`;
 
   const subLinkCls = (href: string) =>
-    `flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-[13.5px] transition-all duration-200 ${
+    `flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] transition-all duration-150 ${
       isActive(href)
-        ? 'bg-red-50 text-red-700 font-semibold border-l-2 border-red-600 pl-3.5'
+        ? 'bg-blue-50 text-blue-800 font-semibold ring-1 ring-inset ring-blue-100'
         : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900 font-medium'
     }`;
 
   return (
-    <aside className="w-68 bg-white border-r border-slate-100 h-screen sticky top-0 flex flex-col shrink-0 shadow-sm">
+    <aside className="sticky top-0 flex h-screen w-[244px] shrink-0 flex-col border-r border-slate-200/80 bg-white shadow-[4px_0_24px_rgba(15,23,42,0.035)] xl:w-[252px] 2xl:w-[272px]">
       {/* ── Header / Logo ── */}
-      <div className="px-6 py-5 border-b border-slate-100 bg-slate-50/50">
+      <div className="border-b border-slate-100 px-5 py-4">
         <div className="flex items-center gap-3.5">
-          <Image src="/logo.png" alt="Logo" width={48} height={48} className="rounded-xl shrink-0 shadow-sm" />
+          <Image src="/logo.png" alt="Logo" width={46} height={46} className="shrink-0 rounded-xl" />
           <div className="min-w-0">
-            <p className="text-sm font-extrabold text-slate-900 leading-tight tracking-tight uppercase">Hệ thống QLĐT</p>
-            <p className="text-[11px] text-slate-400 font-medium mt-0.5">Quản lý Đấu thầu NXB</p>
+            <p className="text-[13px] font-extrabold uppercase leading-tight tracking-tight text-slate-950">Hệ thống QLĐT</p>
+            <p className="mt-1 text-[10px] font-medium text-slate-500">Quản lý Đấu thầu NXB</p>
           </div>
         </div>
       </div>
 
       {/* ── Role indicator ── */}
       {!isAdmin && (isCDT || isNT) && (
-        <div className="mx-4 mt-4 mb-2 px-4 py-3 rounded-xl bg-gradient-to-r from-red-50 to-orange-50 border border-red-100/60 shadow-sm">
-          <p className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Vai trò hiện tại</p>
-          <p className="text-sm font-extrabold text-red-800 mt-0.5">{roleDisplay}</p>
+        <div className="mx-3 mb-2 mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3">
+          <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-slate-400">Không gian làm việc</p>
+          <p className="mt-1 text-sm font-bold text-slate-800">{roleDisplay}</p>
         </div>
       )}
 
       {/* ── Navigation ── */}
-      <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+      <nav className="flex flex-1 flex-col space-y-1 overflow-y-auto px-3 py-3">
         {/* Tổng quan */}
         <Link href="/dashboard" className={linkCls('/dashboard')}>
-          {Icon.dashboard}<span>Tổng quan</span>
+          <LayoutDashboard className="h-[18px] w-[18px]" /><span>Tổng quan</span>
         </Link>
 
         {/* Phê duyệt */}
         <Link href="/dashboard/phe-duyet" className={linkCls('/dashboard/phe-duyet')}>
-          {Icon.stamp}<span>Phê duyệt</span>
+          <BadgeCheck className="h-[18px] w-[18px]" /><span>Phê duyệt</span>
         </Link>
 
         {/* ===== ADMIN NAV ===== */}
@@ -253,10 +269,10 @@ export function Sidebar({ onOpenNotifications }: SidebarProps) {
               {quanLyOpen && (
                 <div className="ml-6 mt-1 space-y-1 border-l-2 border-gray-100 pl-3">
                   <Link href="/dashboard/admin/thu-vien-van-ban" className={linkCls('/dashboard/admin/thu-vien-van-ban')}>
-                    {Icon.library}<span>Thư viện Văn Bản</span>
+                    <LibraryBig className="h-[18px] w-[18px]" /><span>Thư viện văn bản</span>
                   </Link>
                   <Link href="/dashboard/quan-ly/nguoi-dung" className={linkCls('/dashboard/quan-ly/nguoi-dung')}>
-                    {Icon.users}<span>Quản lý người dùng</span>
+                    <UsersRound className="h-[18px] w-[18px]" /><span>Quản lý người dùng</span>
                   </Link>
                   <Link href="/dashboard/quan-ly/phan-quyen" className={linkCls('/dashboard/quan-ly/phan-quyen')}>
                     {Icon.shield}<span>Quản lý phân quyền</span>
@@ -272,7 +288,7 @@ export function Sidebar({ onOpenNotifications }: SidebarProps) {
           <>
             {/* Quản lý Dự án */}
             <Link href="/dashboard/du-an" className={linkCls('/dashboard/du-an')}>
-              {Icon.project}<span>Quản lý Dự án</span>
+              <FolderKanban className="h-[18px] w-[18px]" /><span>Quản lý dự án</span>
             </Link>
 
             {/* Thầu Sách - expandable */}
@@ -286,26 +302,26 @@ export function Sidebar({ onOpenNotifications }: SidebarProps) {
                 className={dropdownCls(quanLyOpen)}
               >
                 <span className="flex items-center gap-3">
-                  {Icon.book}<span>Thầu Sách</span>
+                  <BookOpen className="h-[18px] w-[18px]" /><span>Thầu sách</span>
                 </span>
                 <span className={`text-[10px] transition-transform ${quanLyOpen ? 'rotate-90' : ''}`}>▶</span>
               </button>
               {quanLyOpen && (
                 <div className="ml-6 mt-1 space-y-1 border-l-2 border-green-100 pl-3">
                   <Link href="/dashboard/mua-sam/sach/dat-sach" className={subLinkCls('/dashboard/mua-sam/sach/dat-sach')}>
-                    {Icon.cart}<span>Đặt sách</span>
+                    <ShoppingCart className="h-4 w-4" /><span>Đặt sách</span>
                   </Link>
                   <Link href="/dashboard/mua-sam/sach/du-toan" className={subLinkCls('/dashboard/mua-sam/sach/du-toan')}>
-                    {Icon.docText}<span>Phê duyệt Dự toán</span>
+                    <FileCheck2 className="h-4 w-4" /><span>Phê duyệt dự toán</span>
                   </Link>
                   <Link href="/dashboard/mua-sam/sach/khlcnt" className={subLinkCls('/dashboard/mua-sam/sach/khlcnt')}>
-                    {Icon.clipboard}<span>Kế hoạch LCNT</span>
+                    <ClipboardList className="h-4 w-4" /><span>Kế hoạch LCNT</span>
                   </Link>
                   <Link href="/dashboard/lua-chon-nha-thau" className={subLinkCls('/dashboard/lua-chon-nha-thau')}>
-                    {Icon.building}<span>Lựa chọn Nhà thầu</span>
+                    <Gavel className="h-4 w-4" /><span>Lựa chọn nhà thầu</span>
                   </Link>
                   <Link href="/dashboard/thanh-toan" className={subLinkCls('/dashboard/thanh-toan')}>
-                    {Icon.wallet}<span>Thanh toán</span>
+                    <WalletCards className="h-4 w-4" /><span>Thanh toán</span>
                   </Link>
                 </div>
               )}
@@ -322,23 +338,23 @@ export function Sidebar({ onOpenNotifications }: SidebarProps) {
                 className={dropdownCls(thietBiOpen)}
               >
                 <span className="flex items-center gap-3">
-                  {Icon.device}<span>Thầu Thiết Bị</span>
+                  <Monitor className="h-[18px] w-[18px]" /><span>Thầu thiết bị</span>
                 </span>
                 <span className={`text-[10px] transition-transform ${thietBiOpen ? 'rotate-90' : ''}`}>▶</span>
               </button>
               {thietBiOpen && (
                 <div className="ml-6 mt-1 space-y-1 border-l-2 border-blue-100 pl-3">
                   <Link href="/dashboard/mua-sam/thiet-bi/du-toan" className={subLinkCls('/dashboard/mua-sam/thiet-bi/du-toan')}>
-                    {Icon.docText}<span>Phê duyệt Dự toán</span>
+                    <FileCheck2 className="h-4 w-4" /><span>Phê duyệt dự toán</span>
                   </Link>
                   <Link href="/dashboard/mua-sam/thiet-bi/khlcnt" className={subLinkCls('/dashboard/mua-sam/thiet-bi/khlcnt')}>
-                    {Icon.clipboard}<span>Kế hoạch LCNT</span>
+                    <ClipboardList className="h-4 w-4" /><span>Kế hoạch LCNT</span>
                   </Link>
                   <Link href="/dashboard/lua-chon-nha-thau" className={subLinkCls('/dashboard/lua-chon-nha-thau')}>
-                    {Icon.building}<span>Lựa chọn Nhà thầu</span>
+                    <Gavel className="h-4 w-4" /><span>Lựa chọn nhà thầu</span>
                   </Link>
                   <Link href="/dashboard/thanh-toan" className={subLinkCls('/dashboard/thanh-toan')}>
-                    {Icon.wallet}<span>Thanh toán</span>
+                    <WalletCards className="h-4 w-4" /><span>Thanh toán</span>
                   </Link>
                 </div>
               )}
@@ -353,9 +369,20 @@ export function Sidebar({ onOpenNotifications }: SidebarProps) {
               {Icon.bidding}<span>Tham dự đấu thầu</span>
             </Link>
             <Link href="/dashboard/hop-dong" className={linkCls('/dashboard/hop-dong')}>
-              {Icon.contract}<span>Quản lý Hợp đồng</span>
+            <FileCheck2 className="h-[18px] w-[18px]" /><span>Quản lý hợp đồng</span>
             </Link>
           </>
+        )}
+
+        {(isAdmin || isCDT) && (
+          <div
+            className="border-t border-slate-200 pt-3"
+            style={{ marginTop: 'auto' }}
+          >
+            <Link href="/dashboard/kho-van-ban" className={linkCls('/dashboard/kho-van-ban')}>
+              <Archive className="h-[18px] w-[18px]" /><span>Kho văn bản</span>
+            </Link>
+          </div>
         )}
       </nav>
 
@@ -385,7 +412,7 @@ export function Sidebar({ onOpenNotifications }: SidebarProps) {
             className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
             title="Cài đặt"
           >
-            {Icon.gear}
+            <Settings className="h-[18px] w-[18px]" />
           </button>
         </div>
 

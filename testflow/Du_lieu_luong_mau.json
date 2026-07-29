@@ -1,0 +1,96 @@
+{
+  "project": "Dự án đầu tư trang thiết bị công nghệ thông tin năm 2026",
+  "packages": [
+    {
+      "id": "package-1",
+      "TenGoiThau": "Gói thầu tư vấn lập hồ sơ mời thầu và đánh giá hồ sơ dự thầu",
+      "GiaDuToanGoiThau": "120000000",
+      "GhiChu": "Gói thầu tư vấn được kiểm thử xuyên suốt đến thanh toán",
+      "CongViec": "Lập hồ sơ mời thầu và đánh giá hồ sơ dự thầu",
+      "NguonVon": "Nguồn thu hoạt động sự nghiệp"
+    },
+    {
+      "id": "package-2",
+      "TenGoiThau": "Gói thầu tư vấn thẩm định hồ sơ mời thầu và kết quả lựa chọn nhà thầu",
+      "GiaDuToanGoiThau": "45000000",
+      "GhiChu": "Tư vấn thẩm định độc lập",
+      "CongViec": "Thẩm định hồ sơ và kết quả lựa chọn nhà thầu",
+      "NguonVon": "Nguồn thu hoạt động sự nghiệp"
+    },
+    {
+      "id": "package-3",
+      "TenGoiThau": "Gói thầu mua sắm thiết bị công nghệ thông tin",
+      "GiaDuToanGoiThau": "2350000000",
+      "GhiChu": "Mua sắm thiết bị theo cấu hình được phê duyệt",
+      "CongViec": "Cung cấp, lắp đặt và bàn giao thiết bị",
+      "NguonVon": "Nguồn thu hoạt động sự nghiệp"
+    }
+  ],
+  "selectedPackageId": "package-1",
+  "contract": {
+    "TenDuAn": "Dự án đầu tư trang thiết bị công nghệ thông tin năm 2026",
+    "NgayBanHanh": "2026-07-29",
+    "TongMucDauTu": "100100000000",
+    "packages": [
+      {
+        "id": "package-1",
+        "TenGoiThau": "Gói thầu tư vấn lập hồ sơ mời thầu và đánh giá hồ sơ dự thầu",
+        "GiaDuToanGoiThau": "120000000",
+        "GhiChu": "Gói thầu tư vấn được kiểm thử xuyên suốt đến thanh toán",
+        "CongViec": "Lập hồ sơ mời thầu và đánh giá hồ sơ dự thầu",
+        "NguonVon": "Nguồn thu hoạt động sự nghiệp"
+      },
+      {
+        "id": "package-2",
+        "TenGoiThau": "Gói thầu tư vấn thẩm định hồ sơ mời thầu và kết quả lựa chọn nhà thầu",
+        "GiaDuToanGoiThau": "45000000",
+        "GhiChu": "Tư vấn thẩm định độc lập",
+        "CongViec": "Thẩm định hồ sơ và kết quả lựa chọn nhà thầu",
+        "NguonVon": "Nguồn thu hoạt động sự nghiệp"
+      },
+      {
+        "id": "package-3",
+        "TenGoiThau": "Gói thầu mua sắm thiết bị công nghệ thông tin",
+        "GiaDuToanGoiThau": "2350000000",
+        "GhiChu": "Mua sắm thiết bị theo cấu hình được phê duyệt",
+        "CongViec": "Cung cấp, lắp đặt và bàn giao thiết bị",
+        "NguonVon": "Nguồn thu hoạt động sự nghiệp"
+      }
+    ],
+    "canCu": [
+      {
+        "legalDocumentId": "legal-22-2023-qh15",
+        "source": "LIBRARY",
+        "citationSnapshot": "Căn cứ Luật Đấu thầu số 22/2023/QH15, ngày 23/6/2023 của Quốc hội khóa XV, Kỳ họp thứ 5;"
+      },
+      {
+        "legalDocumentId": "legal-57-2024-qh15",
+        "source": "LIBRARY",
+        "citationSnapshot": "Căn cứ Luật số 57/2024/QH15, ngày 29/11/2024 của Quốc hội sửa đổi, bổ sung một số điều của Luật Quy hoạch, Luật Đầu tư, Luật Đầu tư theo phương thức đối tác công tư và Luật Đấu thầu;"
+      },
+      {
+        "legalDocumentId": "legal-90-2025-qh15",
+        "source": "LIBRARY",
+        "citationSnapshot": "Căn cứ Luật số 90/2025/QH15, ngày 25/6/2025 của Quốc hội sửa đổi, bổ sung một số điều của Luật Đấu thầu, Luật Đầu tư theo phương thức đối tác công tư, Luật Hải quan, Luật thuế giá trị gia tăng, Luật thuế xuất khẩu, thuế nhập khẩu, Luật Đầu tư, Luật Đầu tư công, Luật Quản lý, sử dụng tài sản công;"
+      },
+      {
+        "legalDocumentId": "legal-214-2025-nd-cp",
+        "source": "LIBRARY",
+        "citationSnapshot": "Căn cứ Nghị định số 214/2025/NĐ-CP, ngày 04/8/2025 của Chính phủ quy định chi tiết một số điều và biện pháp thi hành Luật Đấu thầu về lựa chọn nhà thầu;"
+      }
+    ],
+    "TenGoiThau": "Gói thầu tư vấn lập hồ sơ mời thầu và đánh giá hồ sơ dự thầu",
+    "TenNhaThau": "Công ty TNHH Tư vấn Đấu thầu Minh Anh",
+    "MSTNhaThau": "0101234567",
+    "DiaChiNhaThau": "Số 25 phố Tràng Tiền, phường Hoàn Kiếm, Hà Nội",
+    "DaiDienNhaThau": "Nguyễn Minh Anh",
+    "ChucVuNhaThau": "Giám đốc",
+    "SoDienThoaiNhaThau": "0901234567",
+    "TaiKhoanNhaThau": "102900012345",
+    "GiaGoiThau": "120.000.000",
+    "GiaGoiThauBangChu": "Một trăm hai mươi triệu đồng",
+    "SoHopDong": "12/2026/HĐTV-NXB",
+    "SanPhamGoiThau": "Hồ sơ mời thầu và báo cáo đánh giá hồ sơ dự thầu",
+    "SoLuongSanPhamGoiThau": "01"
+  }
+}

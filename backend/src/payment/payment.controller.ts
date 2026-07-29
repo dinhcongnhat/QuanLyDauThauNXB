@@ -10,6 +10,7 @@ import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { Role } from '@prisma/client';
 import { PaymentService } from './payment.service';
+import { convertDocxToPdf } from '../utils/docx-to-pdf';
 import * as JSZip from 'jszip';
 
 class CreatePaymentDto {
@@ -38,9 +39,20 @@ export class PaymentController {
     return this.svc.searchByContractNumber(query || '', projectId);
   }
 
+  @Get('contracts/search')
+  async searchCompletedContracts(
+    @Query('q') query?: string,
+    @Query('projectId') projectId?: string,
+  ) {
+    return this.svc.getCompletedContractsForPayment(projectId, query);
+  }
+
   @Get('contracts')
-  async getContracts(@Query('projectId') projectId?: string) {
-    return this.svc.getCompletedContractsForPayment(projectId);
+  async getContracts(
+    @Query('projectId') projectId?: string,
+    @Query('q') query?: string,
+  ) {
+    return this.svc.getCompletedContractsForPayment(projectId, query);
   }
 
   @Get('step/:stepId')
@@ -66,6 +78,11 @@ export class PaymentController {
   @Get('step/:stepId/auto-fill')
   async getAutoFill(@Param('stepId') stepId: string) {
     return this.svc.getAutoFillForStep(stepId);
+  }
+
+  @Get('step/:stepId/template-fields')
+  async getTemplateFields(@Param('stepId') stepId: string) {
+    return this.svc.getTemplateFieldsForStep(stepId);
   }
 
   @Post('step/:stepId/update')
@@ -110,6 +127,39 @@ export class PaymentController {
     const objectName = await this.svc.generateAndSaveDocx(stepId);
     const url = await this.svc.getFileUrl(objectName);
     return { objectName, url };
+  }
+
+  @Get('step/:stepId/download-pdf')
+  async downloadStepPdf(@Param('stepId') stepId: string, @Res() res: Response) {
+    const step = await this.svc.getPaymentStep(stepId);
+    const tenGoiThau = step.payment?.contractorSelection?.tenGoiThau || 'document';
+    const filename = `${step.title} - ${tenGoiThau}.pdf`;
+    const docxBuffer = await this.svc.generateStepDocx(stepId);
+    const pdfBuffer = convertDocxToPdf(docxBuffer);
+    const encoded = encodeURIComponent(filename);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="${encoded}"; filename*=UTF-8''${encoded}`,
+      'Content-Length': pdfBuffer.length,
+    });
+    res.end(pdfBuffer);
+  }
+
+  @Post('step/:stepId/preview-pdf')
+  async previewStepPdf(
+    @Param('stepId') stepId: string,
+    @Body() dto: UpdateStepDto,
+    @Res() res: Response,
+  ) {
+    const docxBuffer = await this.svc.generateStepDocx(stepId, dto.data);
+    const pdfBuffer = convertDocxToPdf(docxBuffer);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': 'inline; filename="preview.pdf"',
+      'Content-Length': pdfBuffer.length,
+      'Cache-Control': 'no-store, max-age=0',
+    });
+    res.end(pdfBuffer);
   }
 
   // ====================== ZIP DOWNLOAD ======================

@@ -17,7 +17,8 @@ import * as JSZip from 'jszip';
 
 class CreateSelectionDto {
   @IsString() qdKhlcntId: string;
-  @IsNumber() goiThauIndex: number;
+  @IsOptional() @IsNumber() goiThauIndex?: number;
+  @IsOptional() @IsString() packageId?: string;
   @IsOptional() @IsString() projectId?: string;
 }
 
@@ -67,7 +68,13 @@ export class ContractorSelectionController {
   @Post()
   @Roles(Role.ADMIN)
   async create(@Body() dto: CreateSelectionDto, @Request() req: any) {
-    return this.svc.createSelection(req.user.sub, dto.qdKhlcntId, dto.goiThauIndex, dto.projectId);
+    return this.svc.createSelection(
+      req.user.sub,
+      dto.qdKhlcntId,
+      dto.goiThauIndex,
+      dto.projectId,
+      dto.packageId,
+    );
   }
 
   @Get(':id')
@@ -91,6 +98,12 @@ export class ContractorSelectionController {
   @Get('step/:stepId/auto-fill')
   async getAutoFill(@Param('stepId') stepId: string) {
     return this.svc.getAutoFillDataForStep(stepId);
+  }
+
+  /** Read the placeholders directly from the DOCX used by this step. */
+  @Get('step/:stepId/template-fields')
+  async getTemplateFields(@Param('stepId') stepId: string) {
+    return this.svc.getTemplateFieldsForStep(stepId);
   }
 
   @Post('step/:stepId/update')
@@ -188,6 +201,23 @@ export class ContractorSelectionController {
       'Content-Type': 'application/pdf',
       'Content-Disposition': `attachment; filename="${encoded}"; filename*=UTF-8''${encoded}`,
       'Content-Length': pdfBuffer.length,
+    });
+    res.end(pdfBuffer);
+  }
+
+  @Post('step/:stepId/preview-pdf')
+  async previewStepPdf(
+    @Param('stepId') stepId: string,
+    @Body() dto: UpdateStepDto,
+    @Res() res: Response,
+  ) {
+    const docxBuffer = await this.svc.generateStepDocx(stepId, dto.data);
+    const pdfBuffer = convertDocxToPdf(docxBuffer);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': 'inline; filename="preview.pdf"',
+      'Content-Length': pdfBuffer.length,
+      'Cache-Control': 'no-store, max-age=0',
     });
     res.end(pdfBuffer);
   }

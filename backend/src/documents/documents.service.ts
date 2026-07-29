@@ -5,8 +5,40 @@ import { DocType, DocStatus, Role, ProcurementType } from '@prisma/client';
 import { NotificationsGateway } from '../notifications/notifications.gateway';
 import { NotificationService } from '../notifications/notification.service';
 import { NotificationType } from '@prisma/client';
-import { generateToTrinhKHLCNT, generateBaoCaoKHLCNT, generateQuyetDinhKHLCNT } from './docx-generator';
-import { generateDuToanDocx } from './dutoan-docx-generator';
+import { generateBaoCaoKHLCNT } from './docx-generator';
+import {
+  generateDuToanCoverDocx,
+  generateDuToanDocx,
+  getDuToanTemplateFields,
+} from './dutoan-docx-generator';
+import {
+  generateKhlcntCoverDocx,
+  generateKhlcntDocx,
+  getKhlcntTemplateFields,
+} from './khlcnt-docx-generator';
+import { MinioService } from '../minio/minio.service';
+import {
+  appendDocxAttachment,
+  prepareWorkflowTemplateData,
+  validateDocxAttachmentForMerge,
+} from '../utils/docx-template-renderer';
+import * as path from 'path';
+import * as JSZip from 'jszip';
+
+function mergeDocumentSourceData(
+  source: Record<string, any>,
+  current: Record<string, any>,
+): Record<string, any> {
+  const merged = { ...source };
+  for (const [key, value] of Object.entries(current)) {
+    const isEmpty = value === undefined
+      || value === null
+      || value === ''
+      || (Array.isArray(value) && value.length === 0);
+    if (!isEmpty || merged[key] === undefined) merged[key] = value;
+  }
+  return merged;
+}
 
 @Injectable()
 export class DocumentsService {
@@ -15,6 +47,7 @@ export class DocumentsService {
     private notifications: NotificationsGateway,
     private notificationService: NotificationService,
     private jwtService: JwtService,
+    private minio: MinioService,
   ) {}
 
   private getInitialStatus(type: DocType): DocStatus {
@@ -58,39 +91,127 @@ export class DocumentsService {
     parentId?: string,
     assignedTo?: string,
     projectId?: string,
+    sourceDocumentId?: string,
   ) {
+    const sourceDocument = sourceDocumentId
+      ? await this.prisma.document.findUnique({ where: { id: sourceDocumentId } })
+      : null;
+    if (sourceDocumentId && !sourceDocument) {
+      throw new NotFoundException('Không tìm thấy văn bản nguồn');
+    }
+    const parentDocument = parentId
+      ? await this.prisma.document.findUnique({ where: { id: parentId } })
+      : null;
+    if (parentId && !parentDocument) {
+      throw new NotFoundException('Không tìm thấy văn bản cha');
+    }
+    if (!projectId && sourceDocument?.projectId) {
+      projectId = sourceDocument.projectId;
+    }
+
     // If parentId is provided and projectId is not, inherit from parent document
-    if (parentId && !projectId) {
-      const parent = await this.prisma.document.findUnique({ where: { id: parentId } });
-      if (parent && parent.projectId) {
-        projectId = parent.projectId;
-      }
+    if (!projectId && parentDocument?.projectId) {
+      projectId = parentDocument.projectId;
+    }
+    if (
+      projectId
+      && parentDocument?.projectId
+      && parentDocument.projectId !== projectId
+    ) {
+      throw new BadRequestException(
+        'Văn bản cha không thuộc dự án đã chọn',
+      );
     }
 
     // Validate project exists if provided
     let projectType: ProcurementType | null = null;
+    let projectName = '';
     if (projectId) {
       const project = await this.prisma.project.findUnique({ where: { id: projectId } });
       if (!project) throw new NotFoundException('Không tìm thấy dự án');
       projectType = project.procurementType;
+      projectName = project.tenDuAn;
+    }
+
+    // `parentId` anchors a stage (for example KHLCNT → QĐ Dự toán).
+    // `sourceDocumentId` links a decision to the exact approved proposal from
+    // which it inherited its data.
+    if (sourceDocumentId) {
+      const source = sourceDocument!;
+      const expectedSourceType =
+        type === DocType.QD_DUTOAN ? DocType.TT_DUTOAN
+        : type === DocType.QD_KHLCNT ? DocType.TT_KHLCNT
+        : null;
+      if (expectedSourceType && source.type !== expectedSourceType) {
+        throw new BadRequestException(`Văn bản nguồn phải có loại ${expectedSourceType}`);
+      }
+      if (source.status !== DocStatus.APPROVED) {
+        throw new BadRequestException('Văn bản nguồn chưa được phê duyệt');
+      }
+      if (projectId && source.projectId && source.projectId !== projectId) {
+        throw new BadRequestException('Văn bản nguồn không thuộc dự án đã chọn');
+      }
+      if (type === DocType.QD_KHLCNT && parentId && source.parentId !== parentId) {
+        throw new BadRequestException('Tờ trình KHLCNT không thuộc Quyết định dự toán đã chọn');
+      }
+    }
+    if (
+      projectType === ProcurementType.THAU_THIET_BI
+      && ([DocType.QD_DUTOAN, DocType.QD_KHLCNT] as DocType[]).includes(type)
+      && !sourceDocumentId
+    ) {
+      throw new BadRequestException('Phải chọn tờ trình đã duyệt làm văn bản nguồn');
+    }
+    if (
+      projectType === ProcurementType.THAU_THIET_BI
+      && ([DocType.QD_DUTOAN, DocType.QD_KHLCNT] as DocType[]).includes(type)
+    ) {
+      const decisionNumber =
+        data?.SoVanBan
+        ?? data?.soVanBan
+        ?? data?.SoQuyetDinh
+        ?? data?.soQuyetDinh;
+      if (!String(decisionNumber || '').trim()) {
+        throw new BadRequestException(
+          'Vui lòng nhập số Quyết định; hệ thống không dùng số Tờ trình thay thế',
+        );
+      }
     }
 
     // KHLCNT docs need an approved QD_DUTOAN parent
     if (([DocType.TT_KHLCNT, DocType.BC_KHLCNT, DocType.QD_KHLCNT] as DocType[]).includes(type)) {
       if (!parentId) throw new BadRequestException('Phải chọn quyết định dự toán đã duyệt');
-      const parent = await this.prisma.document.findUnique({ where: { id: parentId } });
-      if (!parent || parent.type !== DocType.QD_DUTOAN || parent.status !== DocStatus.APPROVED) {
+      if (
+        !parentDocument
+        || parentDocument.type !== DocType.QD_DUTOAN
+        || parentDocument.status !== DocStatus.APPROVED
+      ) {
         throw new BadRequestException('Quyết định dự toán chưa được phê duyệt');
       }
     }
 
     const status = this.getInitialStatus(type);
+    const inheritedData =
+      (sourceDocument?.data as Record<string, any>)
+      || (
+        ([DocType.TT_KHLCNT, DocType.BC_KHLCNT] as DocType[]).includes(type)
+          ? (parentDocument?.data as Record<string, any>)
+          : undefined
+      )
+      || {};
+    const mergedData = mergeDocumentSourceData(inheritedData, data || {});
+    if (projectName) {
+      mergedData.TenDuAn = projectName;
+      mergedData.tenDuAn = projectName;
+    }
+    const normalizedData = prepareWorkflowTemplateData(mergedData);
     const doc = await this.prisma.document.create({
       data: {
         type,
         status,
-        data,
+        data: normalizedData,
         parentId,
+        sourceDocumentId,
         createdBy: userId,
         projectId,
         procurementType: projectType,
@@ -99,6 +220,7 @@ export class DocumentsService {
       include: {
         creator: { select: { id: true, name: true, email: true, role: true } },
         parent: { select: { id: true, type: true, status: true } },
+        sourceDocument: { select: { id: true, type: true, status: true } },
       },
     });
 
@@ -130,7 +252,7 @@ export class DocumentsService {
             this.notificationService.create(u.id, {
               type: NotificationType.DOC_SUBMITTED,
               title: 'Có tài liệu mới cần duyệt',
-              message: `${doc.creator.name} đã gửi ${docTypeLabels[type] || 'tài liệu'} "${(doc.data as any)?.tenDuAn || ''}" chờ bạn phê duyệt.`,
+              message: `${doc.creator.name} đã gửi ${docTypeLabels[type] || 'tài liệu'} "${(doc.data as any)?.TenDuAn || (doc.data as any)?.tenDuAn || ''}" chờ bạn phê duyệt.`,
               link: '/dashboard',
             }),
           ),
@@ -166,7 +288,7 @@ export class DocumentsService {
         data: {
           type: DocType.TT_DUTOAN,
           status,
-          data: ttData,
+          data: prepareWorkflowTemplateData(ttData || {}),
           createdBy: userId,
           assignedTo,
           projectId,
@@ -180,7 +302,8 @@ export class DocumentsService {
         data: {
           type: DocType.QD_DUTOAN,
           status,
-          data: qdData,
+          data: prepareWorkflowTemplateData(qdData || {}),
+          sourceDocumentId: tt.id,
           createdBy: userId,
           assignedTo,
           projectId,
@@ -205,6 +328,7 @@ export class DocumentsService {
     projectId?: string,
     page: number = 1,
     limit: number = 20,
+    procurementType?: ProcurementType,
   ) {
     const where: any = { type: { in: types } };
 
@@ -212,9 +336,23 @@ export class DocumentsService {
     if (projectId) {
       where.projectId = projectId;
     }
+    // Document types such as TT_DUTOAN/QD_DUTOAN are shared by both
+    // procurement flows. Always constrain the project relation when a
+    // module requests one flow so records can never leak across modules.
+    if (procurementType) {
+      where.project = { procurementType };
+    }
 
     if (role === 'USER') {
-      where.createdBy = userId;
+      const currentUser = userId
+        ? await this.prisma.user.findUnique({
+            where: { id: userId },
+            select: { canApprove: true },
+          })
+        : null;
+      if (!currentUser?.canApprove) {
+        where.createdBy = userId;
+      }
     }
 
     const skip = (page - 1) * limit;
@@ -226,6 +364,7 @@ export class DocumentsService {
           creator: { select: { id: true, name: true, email: true, role: true } },
           assignee: { select: { id: true, name: true, role: true } },
           parent: { select: { id: true, type: true, data: true, status: true } },
+          sourceDocument: { select: { id: true, type: true, data: true, status: true } },
           project: { select: { id: true, tenDuAn: true, procurementType: true } },
           reviews: {
             include: { user: { select: { id: true, name: true, role: true } } },
@@ -253,6 +392,7 @@ export class DocumentsService {
         creator: { select: { id: true, name: true, email: true, role: true } },
         assignee: { select: { id: true, name: true, role: true } },
         parent: { select: { id: true, type: true, data: true, status: true } },
+        sourceDocument: { select: { id: true, type: true, data: true, status: true } },
         reviews: {
           include: { user: { select: { id: true, name: true, role: true } } },
           orderBy: { createdAt: 'desc' },
@@ -269,6 +409,7 @@ export class DocumentsService {
       include: {
         creator: { select: { id: true, name: true, email: true, role: true } },
         parent: { select: { id: true, type: true, data: true, status: true } },
+        sourceDocument: { select: { id: true, type: true, data: true, status: true } },
         project: { select: { id: true, tenDuAn: true, procurementType: true, status: true } },
         children: {
           include: {
@@ -391,21 +532,65 @@ export class DocumentsService {
   async resubmit(id: string, userId: string, data?: any) {
     const doc = await this.prisma.document.findUnique({ where: { id } });
     if (!doc) throw new NotFoundException('Không tìm thấy tài liệu');
-    if (doc.status !== DocStatus.REJECTED) throw new BadRequestException('Chỉ tài liệu bị từ chối mới được gửi lại');
-    if (doc.createdBy !== userId) throw new ForbiddenException('Chỉ người tạo mới được gửi lại');
+    const editableStatuses: DocStatus[] = [
+      DocStatus.DRAFT,
+      DocStatus.PENDING_APPROVAL,
+      DocStatus.PENDING_HEAD,
+      DocStatus.PENDING_DIRECTOR,
+      DocStatus.REJECTED,
+    ];
+    if (!editableStatuses.includes(doc.status)) {
+      throw new BadRequestException(
+        'Văn bản đã phê duyệt không thể chỉnh sửa; hãy tạo văn bản thay thế',
+      );
+    }
+    const actor = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+    if (doc.createdBy !== userId && actor?.role !== Role.ADMIN) {
+      throw new ForbiddenException(
+        'Chỉ người tạo hoặc Admin mới được chỉnh sửa văn bản',
+      );
+    }
 
-    // Get original status based on document type
-    const newStatus = this.getInitialStatus(doc.type);
+    const isRejected = doc.status === DocStatus.REJECTED;
+    const newStatus = isRejected ? this.getInitialStatus(doc.type) : doc.status;
+    let normalizedData: Record<string, any> | undefined;
+    if (data) {
+      const mergedData = mergeDocumentSourceData(
+        (doc.data as Record<string, any>) || {},
+        data,
+      );
+      if (doc.projectId) {
+        const project = await this.prisma.project.findUnique({
+          where: { id: doc.projectId },
+          select: { tenDuAn: true },
+        });
+        if (project) {
+          mergedData.TenDuAn = project.tenDuAn;
+          mergedData.tenDuAn = project.tenDuAn;
+        }
+      }
+      normalizedData = prepareWorkflowTemplateData(mergedData);
+    }
     const updated = await this.prisma.document.update({
       where: { id },
-      data: { status: newStatus, ...(data ? { data } : {}) },
+      data: {
+        status: newStatus,
+        ...(normalizedData ? { data: normalizedData } : {}),
+      },
       include: { creator: { select: { id: true, name: true, email: true, role: true } } },
     });
     await this.prisma.review.create({
-      data: { documentId: id, userId, action: 'RESUBMIT' },
+      data: {
+        documentId: id,
+        userId,
+        action: isRejected ? 'RESUBMIT' : 'UPDATE_PENDING',
+      },
     });
 
-    // Notify approvers about resubmission
+    // Keep reviewers informed when the content they are reviewing changes.
     const approvers = await this.prisma.user.findMany({
       where: {
         OR: [
@@ -419,8 +604,12 @@ export class DocumentsService {
         approvers.map((u) =>
           this.notificationService.create(u.id, {
             type: NotificationType.DOC_SUBMITTED,
-            title: 'Có tài liệu gửi lại duyệt',
-            message: `${updated.creator.name} đã gửi lại tài liệu "${(updated.data as any)?.tenDuAn || ''}" cần bạn duyệt.`,
+            title: isRejected
+              ? 'Có tài liệu gửi lại duyệt'
+              : 'Tài liệu chờ duyệt vừa được cập nhật',
+            message: `${updated.creator.name} đã ${
+              isRejected ? 'gửi lại' : 'cập nhật'
+            } tài liệu "${(updated.data as any)?.TenDuAn || (updated.data as any)?.tenDuAn || ''}" cần bạn duyệt.`,
             link: '/dashboard',
           }),
         ),
@@ -495,23 +684,278 @@ export class DocumentsService {
     return { docStats, recentReviews };
   }
 
+  async getTemplateFields(type: DocType) {
+    switch (type) {
+      case DocType.TT_DUTOAN:
+      case DocType.QD_DUTOAN:
+        return { fields: await getDuToanTemplateFields(type) };
+      case DocType.TT_KHLCNT:
+      case DocType.QD_KHLCNT:
+        return { fields: await getKhlcntTemplateFields(type) };
+      default:
+        throw new BadRequestException('Loại tài liệu không có mẫu DOCX động');
+    }
+  }
+
   async generateDocx(id: string): Promise<Buffer> {
     const doc = await this.prisma.document.findUniqueOrThrow({ where: { id } });
     const d = doc.data as any;
+    let generated: Buffer;
     switch (doc.type) {
       case DocType.TT_DUTOAN:
-        return generateDuToanDocx('TT_DUTOAN', d);
+        generated = await generateDuToanDocx('TT_DUTOAN', d);
+        break;
       case DocType.QD_DUTOAN:
-        return generateDuToanDocx('QD_DUTOAN', d);
+        generated = await generateDuToanDocx('QD_DUTOAN', d);
+        break;
       case DocType.TT_KHLCNT:
-        return generateToTrinhKHLCNT({ ...d, ngayLap: new Date(d.ngayLap) });
+        generated = await generateKhlcntDocx('TT_KHLCNT', d);
+        break;
       case DocType.BC_KHLCNT:
-        return generateBaoCaoKHLCNT({ ...d, ngayLap: new Date(d.ngayLap) });
+        generated = await generateBaoCaoKHLCNT({ ...d, ngayLap: new Date(d.ngayLap) });
+        break;
       case DocType.QD_KHLCNT:
-        return generateQuyetDinhKHLCNT({ ...d, ngayBanHanh: new Date(d.ngayBanHanh) });
+        generated = await generateKhlcntDocx('QD_KHLCNT', d);
+        break;
       default:
         throw new BadRequestException('Loại tài liệu không hỗ trợ');
     }
+
+    const attachment = d?.khaiToanAttachment ?? d?._khaiToanAttachment;
+    if (doc.type === DocType.QD_DUTOAN && attachment?.objectPath) {
+      const attachmentBuffer = await this.minio.download(attachment.objectPath);
+      generated = await appendDocxAttachment(generated, attachmentBuffer);
+    }
+    return generated;
+  }
+
+  /**
+   * Render an unsaved form against the real DOCX template. The browser uses
+   * this response for realtime preview, so preview and downloaded documents
+   * always share exactly the same renderer and placeholder rules.
+   */
+  async generatePreviewDocx(
+    type: string,
+    data: Record<string, any>,
+  ): Promise<Buffer> {
+    switch (type) {
+      case 'COVER_DUTOAN':
+        return generateDuToanCoverDocx(data);
+      case DocType.TT_DUTOAN:
+        return generateDuToanDocx('TT_DUTOAN', data);
+      case DocType.QD_DUTOAN:
+        return generateDuToanDocx('QD_DUTOAN', data);
+      case 'COVER_KHLCNT':
+        return generateKhlcntCoverDocx(data);
+      case DocType.TT_KHLCNT:
+        return generateKhlcntDocx('TT_KHLCNT', data);
+      case DocType.QD_KHLCNT:
+        return generateKhlcntDocx('QD_KHLCNT', data);
+      default:
+        throw new BadRequestException(
+          'Loại văn bản không hỗ trợ xem trước từ mẫu Word',
+        );
+    }
+  }
+
+  async generateDocumentBundle(id: string): Promise<{
+    filename: string;
+    files: Array<{ filename: string; buffer: Buffer }>;
+  }> {
+    const document = await this.prisma.document.findUnique({
+      where: { id },
+      include: { sourceDocument: true },
+    });
+    if (!document) throw new NotFoundException('Không tìm thấy tài liệu');
+
+    const currentData = (document.data as Record<string, any>) || {};
+    const sourceData = (document.sourceDocument?.data as Record<string, any>) || currentData;
+    const files: Array<{ filename: string; buffer: Buffer }> = [];
+
+    if ([DocType.TT_DUTOAN, DocType.QD_DUTOAN].includes(document.type as any)) {
+      files.push({
+        filename: '0. Phiếu trình ký phê duyệt dự toán.docx',
+        buffer: await generateDuToanCoverDocx(sourceData),
+      });
+      files.push({
+        filename: '1. Tờ trình phê duyệt dự toán.docx',
+        buffer: await generateDuToanDocx('TT_DUTOAN', sourceData),
+      });
+      if (document.type === DocType.QD_DUTOAN) {
+        files.push({
+          filename: '2. Quyết định phê duyệt dự toán.docx',
+          buffer: await this.generateDocx(id),
+        });
+      }
+      return {
+        filename: `Hồ sơ Dự toán - ${currentData.TenDuAn || sourceData.TenDuAn || 'du-an'}.zip`,
+        files,
+      };
+    }
+
+    if ([DocType.TT_KHLCNT, DocType.QD_KHLCNT].includes(document.type as any)) {
+      files.push({
+        filename: '1. Phiếu trình ký phê duyệt KHLCNT.docx',
+        buffer: await generateKhlcntCoverDocx(sourceData),
+      });
+      files.push({
+        filename: '2. Tờ trình phê duyệt KHLCNT.docx',
+        buffer: await generateKhlcntDocx('TT_KHLCNT', sourceData),
+      });
+      if (document.type === DocType.QD_KHLCNT) {
+        files.push({
+          filename: '3. Quyết định phê duyệt KHLCNT.docx',
+          buffer: await this.generateDocx(id),
+        });
+      }
+      return {
+        filename: `Hồ sơ KHLCNT - ${currentData.TenDuAn || sourceData.TenDuAn || 'du-an'}.zip`,
+        files,
+      };
+    }
+
+    return {
+      filename: `${this.getDocFilename(document.type, currentData)}.zip`,
+      files: [{
+        filename: `${this.getDocFilename(document.type, currentData)}.docx`,
+        buffer: await this.generateDocx(id),
+      }],
+    };
+  }
+
+  async generateCoverDocx(id: string): Promise<{
+    filename: string;
+    buffer: Buffer;
+  }> {
+    const document = await this.prisma.document.findUnique({
+      where: { id },
+      include: { sourceDocument: true },
+    });
+    if (!document) throw new NotFoundException('Không tìm thấy tài liệu');
+
+    const currentData = (document.data as Record<string, any>) || {};
+    const sourceData =
+      (document.sourceDocument?.data as Record<string, any>) || currentData;
+
+    if (
+      [DocType.TT_DUTOAN, DocType.QD_DUTOAN].includes(document.type as any)
+    ) {
+      return {
+        filename: 'Phiếu trình ký phê duyệt dự toán.docx',
+        buffer: await generateDuToanCoverDocx(sourceData),
+      };
+    }
+    if (
+      [DocType.TT_KHLCNT, DocType.QD_KHLCNT].includes(document.type as any)
+    ) {
+      return {
+        filename: 'Phiếu trình ký phê duyệt KHLCNT.docx',
+        buffer: await generateKhlcntCoverDocx(sourceData),
+      };
+    }
+    throw new BadRequestException(
+      'Loại văn bản này không có mẫu Phiếu trình ký',
+    );
+  }
+
+  async uploadKhaiToanAttachment(
+    id: string,
+    userId: string,
+    file: { buffer: Buffer; originalname: string; mimetype: string; size: number },
+  ) {
+    const document = await this.prisma.document.findUnique({ where: { id } });
+    if (!document) throw new NotFoundException('Không tìm thấy tài liệu');
+    if (!([DocType.TT_DUTOAN, DocType.QD_DUTOAN] as DocType[]).includes(document.type)) {
+      throw new BadRequestException('File khái toán chỉ áp dụng cho hồ sơ Dự toán');
+    }
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+    if (document.createdBy !== userId && user?.role !== Role.ADMIN) {
+      throw new ForbiddenException('Bạn không có quyền thay file khái toán của tài liệu này');
+    }
+
+    const extension = path.extname(file.originalname).toLowerCase();
+    if (extension !== '.docx') {
+      throw new BadRequestException('Phụ lục khái toán phải là file DOCX để nối vào Quyết định');
+    }
+    try {
+      await validateDocxAttachmentForMerge(file.buffer);
+    } catch (error) {
+      throw new BadRequestException(
+        error instanceof Error
+          ? error.message
+          : 'File khái toán không phải là DOCX hợp lệ',
+      );
+    }
+    const safeName = file.originalname
+      .normalize('NFKD')
+      .replace(/[^\w.\-]+/g, '-')
+      .replace(/-+/g, '-');
+    const objectPath = `documents/${id}/khai-toan/${Date.now()}-${safeName}`;
+    await this.minio.upload(
+      objectPath,
+      file.buffer,
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    );
+
+    const attachment = {
+      objectPath,
+      originalName: file.originalname,
+      mimeType: file.mimetype,
+      size: file.size,
+      uploadedAt: new Date().toISOString(),
+    };
+    const currentData = (document.data as Record<string, any>) || {};
+    const previousAttachment = currentData.khaiToanAttachment ?? currentData._khaiToanAttachment;
+    let updated;
+    try {
+      updated = await this.prisma.document.update({
+        where: { id },
+        data: {
+          data: {
+            ...currentData,
+            khaiToanAttachment: attachment,
+            FileKhaiToanDinhKem: file.originalname,
+          },
+        },
+      });
+    } catch (error) {
+      await this.minio.delete(objectPath).catch(() => undefined);
+      throw error;
+    }
+    if (
+      previousAttachment?.objectPath
+      && previousAttachment.objectPath !== objectPath
+    ) {
+      await this.minio.delete(previousAttachment.objectPath).catch(() => undefined);
+    }
+    return { attachment, document: updated };
+  }
+
+  async getKhaiToanAttachmentUrl(id: string, userId: string) {
+    const document = await this.prisma.document.findUnique({ where: { id } });
+    if (!document) throw new NotFoundException('Không tìm thấy tài liệu');
+    const data = (document.data as Record<string, any>) || {};
+    const attachment = data.khaiToanAttachment ?? data._khaiToanAttachment;
+    if (!attachment?.objectPath) throw new NotFoundException('Chưa có file khái toán');
+    if (
+      document.createdBy !== userId
+      && document.assignedTo !== userId
+    ) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { role: true, canApprove: true },
+      });
+      if (user?.role !== Role.ADMIN && user?.canApprove !== true) {
+        throw new ForbiddenException('Bạn không có quyền xem file này');
+      }
+    }
+    return {
+      attachment,
+      url: await this.minio.getPresignedUrl(attachment.objectPath),
+    };
   }
 
   getDocFilename(type: DocType, data: any): string {

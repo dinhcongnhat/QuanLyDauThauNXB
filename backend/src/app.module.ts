@@ -10,9 +10,10 @@ import { PaymentModule } from './payment/payment.module';
 import { BidParticipationModule } from './bid-participation/bid-participation.module';
 import { DatSachModule } from './dat-sach/dat-sach.module';
 import { ProjectModule } from './project/project.module';
-import { DocumentLibraryModule } from './document-library/document-library.module';
 import { RbacModule } from './rbac/rbac.module';
 import { ChatModule } from './chat/chat.module';
+import { LegalDocumentsModule } from './legal-documents/legal-documents.module';
+import { DocumentWarehouseModule } from './document-warehouse/document-warehouse.module';
 
 @Module({
   imports: [
@@ -27,9 +28,10 @@ import { ChatModule } from './chat/chat.module';
     BidParticipationModule,
     DatSachModule,
     ProjectModule,
-    DocumentLibraryModule,
     RbacModule,
     ChatModule,
+    LegalDocumentsModule,
+    DocumentWarehouseModule,
   ],
 })
 export class AppModule implements NestModule {

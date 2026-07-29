@@ -23,7 +23,13 @@ function SachKHLcntPageInner() {
     setLoading(true);
     try {
       const [data, projectList] = await Promise.all([
-        api.getDocumentsByType(['QD_DUTOAN'], selectedProject || undefined),
+        api.getDocumentsByType(
+          ['QD_DUTOAN'],
+          selectedProject || undefined,
+          1,
+          100,
+          PROJ_TYPE,
+        ),
         api.getProjects(),
       ]);
       const docsList = Array.isArray(data) ? data : ((data as any)?.documents || []);

@@ -1,19 +1,39 @@
 'use client';
 
-import { useEffect, useState, useCallback, Suspense } from 'react';
-import { api } from '@/lib/api';
-import { useAuthStore } from '@/lib/store';
-import { Document as Doc, DocType, DocStatus, User } from '@/lib/types';
-import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
-import { AnimatePresence, motion } from 'framer-motion';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { LibraryPicker, SaveToLibraryModal } from '@/components/LibraryPicker';
-import { LibraryType, SavedValue } from '@/lib/document-library-types';
+import toast from 'react-hot-toast';
 import { HistoryModal } from '@/components/HistoryModal';
+import {
+  LegalBasisField,
+  LegalBasisSelection,
+} from '@/components/LegalBasisField';
 import { OnlyOfficePreview } from '@/components/OnlyOfficePreview';
 import { ProjectChat } from '@/components/ProjectChat';
+import {
+  WorkflowDocxPreview,
+  WorkflowDocxPreviewDocument,
+} from '@/components/WorkflowDocxPreview';
+import {
+  WorkflowFormSection,
+  WorkflowStageStepper,
+} from '@/components/WorkflowDocumentUI';
+import { api } from '@/lib/api';
+import { formatMoney } from '@/lib/format-utils';
+import { useAuthStore } from '@/lib/store';
+import {
+  Document as Doc,
+  DocStatus,
+  LegalBasisSelectionValue,
+  ProcurementPackage,
+} from '@/lib/types';
+
+const PROJ_TYPE = 'THAU_THIET_BI';
+const TODAY = new Date().toISOString().slice(0, 10);
+const INPUT_CLASS =
+  'w-full min-w-0 rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100';
 
 const statusLabels: Record<DocStatus, string> = {
   DRAFT: 'Bản nháp',
@@ -29,424 +49,1124 @@ const statusColors: Record<DocStatus, string> = {
   REJECTED: 'bg-red-100 text-red-700',
 };
 
-const typeLabels: Record<string, string> = {
+const typeLabels = {
   TT_DUTOAN: 'Tờ trình phê duyệt dự toán',
   QD_DUTOAN: 'Quyết định phê duyệt dự toán',
-};
+} as const;
 
-const PROJ_TYPE = 'THAU_THIET_BI';
+type FormType = keyof typeof typeLabels;
+type DuToanDraftStep = 'COVER' | 'DOCUMENT';
 
-type FormType = 'TT_DUTOAN' | 'QD_DUTOAN';
+interface DuToanFormData {
+  SoVanBan: string;
+  NgayBanHanh: string;
+  TenDuAn: string;
+  ThuyetMinh: string;
+  MucTieuQuyMo: string;
+  NguonVon: string;
+  NamThucHien: string;
+  canCu: LegalBasisSelectionValue[];
+  packages: ProcurementPackage[];
+}
+
+function packageId(prefix = 'package') {
+  if (
+    typeof globalThis.crypto !== 'undefined' &&
+    typeof globalThis.crypto.randomUUID === 'function'
+  ) {
+    return globalThis.crypto.randomUUID();
+  }
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function emptyPackage(id = 'package-1'): ProcurementPackage {
+  return {
+    id,
+    tenGoiThau: '',
+    giaDuToanGoiThau: '',
+    ghiChu: '',
+    congViec: '',
+    nguonVon: '',
+    hinhThucLuaChonNhaThau: '',
+    phuongThucLuaChonNhaThau: '',
+    thoiGianToChucLuaChonNhaThau: '',
+    thoiGianBatDauToChucLuaChonNhaThau: '',
+    loaiHopDong: '',
+    thoiGianThucHienGoiThau: '',
+    tuyChonMuaThem: '',
+  };
+}
+
+function emptyForm(): DuToanFormData {
+  return {
+    SoVanBan: '',
+    NgayBanHanh: TODAY,
+    TenDuAn: '',
+    ThuyetMinh: '',
+    MucTieuQuyMo: '',
+    NguonVon: '',
+    NamThucHien: String(new Date().getFullYear()),
+    canCu: [],
+    packages: [emptyPackage()],
+  };
+}
+
+function firstValue(data: Record<string, any>, ...keys: string[]): string {
+  for (const key of keys) {
+    const value = data?.[key];
+    if (value !== undefined && value !== null && value !== '') {
+      return String(value);
+    }
+  }
+  return '';
+}
+
+function normalizeLegalBases(
+  data: Record<string, any>,
+): LegalBasisSelectionValue[] {
+  const raw =
+    data?.canCu ??
+    data?.CanCu ??
+    data?.canCuPhapLy ??
+    data?.CanCuVanBanPhapLy ??
+    data?.TenCacVanBanPhapLyLienQuan ??
+    [];
+  const values = Array.isArray(raw) ? raw : [raw];
+
+  return values
+    .flatMap((item: any) => {
+      if (
+        typeof item === 'object' &&
+        item !== null &&
+        typeof item.citationSnapshot === 'string'
+      ) {
+        return [
+          {
+            legalDocumentId: item.legalDocumentId ?? null,
+            source: item.source === 'LIBRARY' ? 'LIBRARY' : 'MANUAL',
+            citationSnapshot: item.citationSnapshot,
+          } as LegalBasisSelectionValue,
+        ];
+      }
+      if (typeof item !== 'string') return [];
+      return item
+        .split(/\r?\n/)
+        .map((citationSnapshot) => citationSnapshot.trim())
+        .filter(Boolean)
+        .map(
+          (citationSnapshot): LegalBasisSelectionValue => ({
+            legalDocumentId: null,
+            source: 'MANUAL',
+            citationSnapshot,
+          }),
+        );
+    })
+    .filter((item) => item.citationSnapshot.trim());
+}
+
+function normalizePackage(
+  raw: Record<string, any>,
+  index: number,
+): ProcurementPackage {
+  return {
+    id: firstValue(raw, 'id') || `legacy-package-${index + 1}`,
+    tenGoiThau: firstValue(raw, 'tenGoiThau', 'TenGoiThau'),
+    giaDuToanGoiThau: formatMoney(
+      firstValue(
+        raw,
+        'giaDuToanGoiThau',
+        'GiaDuToanGoiThau',
+        'giaGoiThau',
+        'GiaGoiThau',
+      ),
+    ),
+    ghiChu: firstValue(raw, 'ghiChu', 'GhiChu'),
+    congViec: firstValue(
+      raw,
+      'congViec',
+      'CongViec',
+      'tomTatCongViec',
+    ),
+    nguonVon: firstValue(raw, 'nguonVon', 'NguonVon'),
+    hinhThucLuaChonNhaThau: firstValue(
+      raw,
+      'hinhThucLuaChonNhaThau',
+      'HinhThucLuaChonNhaThau',
+      'hinhThucLuaChon',
+    ),
+    phuongThucLuaChonNhaThau: firstValue(
+      raw,
+      'phuongThucLuaChonNhaThau',
+      'PhuongThucLuaChonNhaThau',
+      'phuongThucLuaChon',
+    ),
+    thoiGianToChucLuaChonNhaThau: firstValue(
+      raw,
+      'thoiGianToChucLuaChonNhaThau',
+      'ThoiGianToChucLuaChonNhaThau',
+      'thoiGianToChuc',
+    ),
+    thoiGianBatDauToChucLuaChonNhaThau: firstValue(
+      raw,
+      'thoiGianBatDauToChucLuaChonNhaThau',
+      'ThoiGianBatDauToChucLuaChonNhaThau',
+      'thoiGianBatDau',
+    ),
+    loaiHopDong: firstValue(raw, 'loaiHopDong', 'LoaiHopDong'),
+    thoiGianThucHienGoiThau: firstValue(
+      raw,
+      'thoiGianThucHienGoiThau',
+      'ThoiGianThucHienGoiThau',
+      'thoiGianThucHien',
+    ),
+    tuyChonMuaThem: firstValue(raw, 'tuyChonMuaThem', 'TuyChonMuaThem'),
+  };
+}
+
+function normalizePackages(data: Record<string, any>): ProcurementPackage[] {
+  const raw =
+    data?.packages ??
+    data?.goiThau ??
+    data?.GoiThau ??
+    data?.cacGoiThau ??
+    data?.CacGoiThau;
+  if (Array.isArray(raw) && raw.length > 0) {
+    return raw.map((item, index) =>
+      normalizePackage(item || {}, index),
+    );
+  }
+
+  const legacyName = firstValue(data, 'tenGoiThau', 'TenGoiThau');
+  if (legacyName) return [normalizePackage(data, 0)];
+  return [emptyPackage()];
+}
+
+function normalizeDuToanData(data: Record<string, any>): DuToanFormData {
+  return {
+    SoVanBan: firstValue(
+      data,
+      'SoVanBan',
+      'soVanBan',
+      'SoToTrinh',
+      'soToTrinh',
+      'SoQuyetDinh',
+      'soQuyetDinh',
+    ),
+    NgayBanHanh:
+      firstValue(data, 'NgayBanHanh', 'ngayBanHanh', 'ngayLap').slice(
+        0,
+        10,
+      ) || TODAY,
+    TenDuAn: firstValue(data, 'TenDuAn', 'tenDuAn'),
+    ThuyetMinh: firstValue(data, 'ThuyetMinh', 'thuyetMinh'),
+    MucTieuQuyMo: firstValue(
+      data,
+      'MucTieuQuyMo',
+      'mucTieuQuyMo',
+      'quyMo',
+    ),
+    NguonVon: firstValue(data, 'NguonVon', 'nguonVon'),
+    NamThucHien: firstValue(data, 'NamThucHien', 'namThucHien'),
+    canCu: normalizeLegalBases(data),
+    packages: normalizePackages(data),
+  };
+}
+
+function packageNames(data: Record<string, any>): string {
+  const derived = firstValue(data, 'TenCacGoiThau', 'tenCacGoiThau');
+  if (derived) return derived;
+  return normalizePackages(data)
+    .map((item) => item.tenGoiThau.trim())
+    .filter(Boolean)
+    .join(', ');
+}
+
+function cleanPayload(data: DuToanFormData): DuToanFormData {
+  return {
+    ...data,
+    canCu: data.canCu.filter((item) => item.citationSnapshot.trim()),
+    packages: data.packages.map((item) => ({
+      ...item,
+      tenGoiThau: item.tenGoiThau.trim(),
+    })),
+  };
+}
+
+function duToanDocxPreviewDocuments(
+  type: FormType,
+  data: DuToanFormData,
+  step: DuToanDraftStep,
+): WorkflowDocxPreviewDocument[] {
+  const payload = cleanPayload(data);
+  const cover: WorkflowDocxPreviewDocument = {
+    id: 'cover',
+    label: '0. Phiếu trình ký',
+    type: 'COVER_DUTOAN',
+    data: payload,
+  };
+
+  if (type === 'TT_DUTOAN' && step === 'COVER') return [cover];
+  if (type === 'TT_DUTOAN') {
+    return [
+      cover,
+      {
+        id: 'proposal',
+        label: '1. Tờ trình',
+        type: 'TT_DUTOAN',
+        data: payload,
+      },
+    ];
+  }
+  return [
+    cover,
+    {
+      id: 'decision',
+      label: '2. Quyết định',
+      type: 'QD_DUTOAN',
+      data: payload,
+    },
+  ];
+}
 
 function ThietBiDuToanPageInner() {
   const { user } = useAuthStore();
   const searchParams = useSearchParams();
   const [docs, setDocs] = useState<Doc[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
-  const [selectedProject, setSelectedProject] = useState<string>(searchParams.get('project') || '');
+  const [selectedProject, setSelectedProject] = useState(
+    searchParams.get('project') || '',
+  );
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState<FormType | null>(null);
-  const [rejectComment, setRejectComment] = useState('');
-  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [draftStep, setDraftStep] = useState<DuToanDraftStep>('COVER');
+  const [ttData, setTtData] = useState<DuToanFormData>(emptyForm);
+  const [qdData, setQdData] = useState<DuToanFormData>(emptyForm);
+  const [ttFile, setTtFile] = useState<File | null>(null);
+  const [qdFile, setQdFile] = useState<File | null>(null);
+  const [selectedTTId, setSelectedTTId] = useState('');
   const [editingDoc, setEditingDoc] = useState<Doc | null>(null);
-  const [detailDoc, setDetailDoc] = useState<Doc | null>(null);
-  const [previewDocId, setPreviewDocId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedTTId, setSelectedTTId] = useState('');
+  const [rejectComment, setRejectComment] = useState('');
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [previewDocId, setPreviewDocId] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
-  const [saveTTOpen, setSaveTTOpen] = useState(false);
-  const [saveQDOpen, setSaveQDOpen] = useState(false);
-
-  const [ttData, setTtData] = useState({
-    SoToTrinh: '', DiaDanh: '', Ngay: '', Thang: '', Nam: '',
-    ChuDauTu: '', TenDuAn: '', TenGoiThau: '', DonViTrinh: '', DonViMuaSam: '',
-    PhongBanThuocDonViTrinh: '', VietTatPhongBanThuocDonViTrinh: '',
-    TenCacVanBanPhapLyLienQuan: '', NguonVon: '', DiaDiemThucHien: '', ThoiGianThucHien: '',
-    KyHieuChiPhi1: '', NoiDungChiPhi1: '', GiaTriTruocThue1: '', ThueGTGT1: '', GiaTriSauThue1: '', GhiChu1: '',
-    NoiDungChiPhi2: '', GiaTriTruocThue2: '', ThueGTGT2: '', GiaTriSauThue2: '', GhiChu2: '',
-    DuToanBangSo: '', DuToanBangChu: '',
-    CacPhongBanLienQuan: '', CacNoiDungKhac: '',
-    ChiPhi1BangSo: '', ChiPhi1BangChu: '', ChiPhi2BangSo: '', ChiPhi2BangChu: '',
-  });
-
-  const [qdData, setQdData] = useState({
-    SoQuyetDinh: '', SoToTrinh: '', DiaDanh: '', Ngay: '', Thang: '', Nam: '',
-    ChuDauTu: '', VietTatChuDauTu: '', DaiDienChuDauTu: '', TenGoiThau: '', DonViMuaSam: '',
-    PhongBanThuocDonViTrinh: '', VietTatPhongBanThuocDonViTrinh: '',
-    PhongBanChuTriThuocDonViTrinh: '', DaiDienCacPhongBanLienQuan: '',
-    TenCacVanBanPhapLyLienQuan: '', NguonVon: '', DiaDiemThucHien: '', ThoiGianThucHien: '',
-    KyHieuChiPhi1: '', NoiDungChiPhi1: '', GiaTriTruocThue1: '', ThueGTGT1: '', GiaTriSauThue1: '', GhiChu1: '',
-    NoiDungChiPhi2: '', GiaTriTruocThue2: '', ThueGTGT2: '', GiaTriSauThue2: '', GhiChu2: '',
-    DuToanBangSo: '', DuToanBangChu: '',
-  });
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [data, projectList] = await Promise.all([
-        api.getDocumentsByType(['TT_DUTOAN', 'QD_DUTOAN'], selectedProject || undefined),
+      const [documentResponse, projectResponse] = await Promise.all([
+        api.getDocumentsByType(
+          ['TT_DUTOAN', 'QD_DUTOAN'],
+          selectedProject || undefined,
+          1,
+          100,
+          PROJ_TYPE,
+        ),
         api.getProjects(),
       ]);
-      const docsList = Array.isArray(data) ? data : ((data as any)?.documents || []);
-      setDocs(docsList);
-      setProjects((projectList.projects || []).filter((p: any) => p.procurementType === PROJ_TYPE));
-    } catch (err: any) { toast.error(err.message); }
-    finally { setLoading(false); }
+      setDocs(
+        Array.isArray(documentResponse)
+          ? documentResponse
+          : (documentResponse as any)?.documents || [],
+      );
+      setProjects(
+        (projectResponse.projects || []).filter(
+          (project: any) => project.procurementType === PROJ_TYPE,
+        ),
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'Không thể tải dữ liệu',
+      );
+    } finally {
+      setLoading(false);
+    }
   }, [selectedProject]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
 
-  const approvedTTs = docs.filter(d => d.type === 'TT_DUTOAN' && d.status === 'APPROVED');
-  const hasApprovedTT = approvedTTs.length > 0;
+  const selectedProjectRecord = useMemo(
+    () => projects.find((project: any) => project.id === selectedProject),
+    [projects, selectedProject],
+  );
+  const selectedProjectName = selectedProjectRecord?.tenDuAn?.trim() || '';
 
-  const handleSelectTT = (ttId: string) => {
-    setSelectedTTId(ttId);
-    const tt = approvedTTs.find(d => d.id === ttId);
-    if (tt?.data) {
-      const td = tt.data;
-      setQdData(prev => ({
-        ...prev,
-        SoToTrinh: td.SoToTrinh || prev.SoToTrinh,
-        DiaDanh: td.DiaDanh || prev.DiaDanh,
-        ChuDauTu: td.ChuDauTu || prev.ChuDauTu,
-        TenGoiThau: td.TenGoiThau || prev.TenGoiThau,
-        DonViMuaSam: td.DonViMuaSam || prev.DonViMuaSam,
-        PhongBanThuocDonViTrinh: td.PhongBanThuocDonViTrinh || prev.PhongBanThuocDonViTrinh,
-        VietTatPhongBanThuocDonViTrinh: td.VietTatPhongBanThuocDonViTrinh || prev.VietTatPhongBanThuocDonViTrinh,
-        TenCacVanBanPhapLyLienQuan: td.TenCacVanBanPhapLyLienQuan || prev.TenCacVanBanPhapLyLienQuan,
-        NguonVon: td.NguonVon || prev.NguonVon,
-        DiaDiemThucHien: td.DiaDiemThucHien || prev.DiaDiemThucHien,
-        ThoiGianThucHien: td.ThoiGianThucHien || prev.ThoiGianThucHien,
-        KyHieuChiPhi1: td.KyHieuChiPhi1 || prev.KyHieuChiPhi1,
-        NoiDungChiPhi1: td.NoiDungChiPhi1 || prev.NoiDungChiPhi1,
-        GiaTriTruocThue1: td.GiaTriTruocThue1 || prev.GiaTriTruocThue1,
-        ThueGTGT1: td.ThueGTGT1 || prev.ThueGTGT1,
-        GiaTriSauThue1: td.GiaTriSauThue1 || prev.GiaTriSauThue1,
-        GhiChu1: td.GhiChu1 || prev.GhiChu1,
-        NoiDungChiPhi2: td.NoiDungChiPhi2 || prev.NoiDungChiPhi2,
-        GiaTriTruocThue2: td.GiaTriTruocThue2 || prev.GiaTriTruocThue2,
-        ThueGTGT2: td.ThueGTGT2 || prev.ThueGTGT2,
-        GiaTriSauThue2: td.GiaTriSauThue2 || prev.GiaTriSauThue2,
-        GhiChu2: td.GhiChu2 || prev.GhiChu2,
-        DuToanBangSo: td.DuToanBangSo || prev.DuToanBangSo,
-        DuToanBangChu: td.DuToanBangChu || prev.DuToanBangChu,
-      }));
-    }
-  };
+  useEffect(() => {
+    if (!selectedProjectName) return;
+    setTtData((current) =>
+      current.TenDuAn === selectedProjectName
+        ? current
+        : { ...current, TenDuAn: selectedProjectName },
+    );
+    setQdData((current) =>
+      current.TenDuAn === selectedProjectName
+        ? current
+        : { ...current, TenDuAn: selectedProjectName },
+    );
+  }, [selectedProjectName]);
 
-  const handleLibraryTT = (val: SavedValue) => {
-    setTtData(prev => ({ ...prev, ...val.duLieu }));
-  };
-
-  const handleLibraryQD = (val: SavedValue) => {
-    setQdData(prev => ({ ...prev, ...val.duLieu }));
-  };
+  const approvedTTs = docs.filter(
+    (document) =>
+      document.type === 'TT_DUTOAN' && document.status === 'APPROVED',
+  );
+  const hasTT = docs.some((document) => document.type === 'TT_DUTOAN');
+  const hasApprovedQD = docs.some(
+    (document) =>
+      document.type === 'QD_DUTOAN' && document.status === 'APPROVED',
+  );
+  const hasQD = docs.some((document) => document.type === 'QD_DUTOAN');
+  const canApprove = user?.role === 'ADMIN' || user?.canApprove === true;
 
   const resetForm = () => {
     setShowForm(null);
+    setDraftStep('COVER');
+    setEditingDoc(null);
     setSelectedTTId('');
-    setTtData({
-      SoToTrinh: '', DiaDanh: '', Ngay: '', Thang: '', Nam: '',
-      ChuDauTu: '', TenDuAn: '', TenGoiThau: '', DonViTrinh: '', DonViMuaSam: '',
-      PhongBanThuocDonViTrinh: '', VietTatPhongBanThuocDonViTrinh: '',
-      TenCacVanBanPhapLyLienQuan: '', NguonVon: '', DiaDiemThucHien: '', ThoiGianThucHien: '',
-      KyHieuChiPhi1: '', NoiDungChiPhi1: '', GiaTriTruocThue1: '', ThueGTGT1: '', GiaTriSauThue1: '', GhiChu1: '',
-      NoiDungChiPhi2: '', GiaTriTruocThue2: '', ThueGTGT2: '', GiaTriSauThue2: '', GhiChu2: '',
-      DuToanBangSo: '', DuToanBangChu: '',
-      CacPhongBanLienQuan: '', CacNoiDungKhac: '',
-      ChiPhi1BangSo: '', ChiPhi1BangChu: '', ChiPhi2BangSo: '', ChiPhi2BangChu: '',
-    });
-    setQdData({
-      SoQuyetDinh: '', SoToTrinh: '', DiaDanh: '', Ngay: '', Thang: '', Nam: '',
-      ChuDauTu: '', VietTatChuDauTu: '', DaiDienChuDauTu: '', TenGoiThau: '', DonViMuaSam: '',
-      PhongBanThuocDonViTrinh: '', VietTatPhongBanThuocDonViTrinh: '',
-      PhongBanChuTriThuocDonViTrinh: '', DaiDienCacPhongBanLienQuan: '',
-      TenCacVanBanPhapLyLienQuan: '', NguonVon: '', DiaDiemThucHien: '', ThoiGianThucHien: '',
-      KyHieuChiPhi1: '', NoiDungChiPhi1: '', GiaTriTruocThue1: '', ThueGTGT1: '', GiaTriSauThue1: '', GhiChu1: '',
-      NoiDungChiPhi2: '', GiaTriTruocThue2: '', ThueGTGT2: '', GiaTriSauThue2: '', GhiChu2: '',
-      DuToanBangSo: '', DuToanBangChu: '',
-    });
+    setTtData(emptyForm());
+    setQdData(emptyForm());
+    setTtFile(null);
+    setQdFile(null);
   };
 
-  const handleCreateTT = async () => {
-    if (!ttData.TenGoiThau.trim()) { toast.error('Vui lòng nhập tên gói thầu'); return; }
-    setSubmitting(true);
-    try {
-      await api.createDocument('TT_DUTOAN', ttData, undefined, undefined, selectedProject || undefined);
-      toast.success('Đã tạo Tờ trình dự toán');
-      resetForm();
-      fetchData();
-    } catch (err: any) { toast.error(err.message); }
-    finally { setSubmitting(false); }
+  const openCreate = (type: FormType) => {
+    if (!selectedProject || !selectedProjectName) {
+      toast.error('Vui lòng chọn dự án Thầu Thiết Bị trước');
+      return;
+    }
+    resetForm();
+    const initial = { ...emptyForm(), TenDuAn: selectedProjectName };
+    if (type === 'TT_DUTOAN') {
+      setTtData(initial);
+      setDraftStep('COVER');
+    } else {
+      setQdData(initial);
+      setDraftStep('DOCUMENT');
+    }
+    setShowForm(type);
   };
 
-  const handleCreateQD = async () => {
-    if (!selectedTTId) { toast.error('Vui lòng chọn Tờ trình dự toán'); return; }
+  const selectApprovedTT = (ttId: string) => {
+    setSelectedTTId(ttId);
+    const proposal = approvedTTs.find((item) => item.id === ttId);
+    if (!proposal?.data) return;
+
+    const inherited = normalizeDuToanData(proposal.data);
+    setQdData((current) => ({
+      ...inherited,
+      TenDuAn: selectedProjectName || inherited.TenDuAn,
+      SoVanBan: current.SoVanBan,
+      NgayBanHanh: current.NgayBanHanh || TODAY,
+    }));
+  };
+
+  const startEditing = (document: Doc) => {
+    const type = document.type as FormType;
+    const normalized = normalizeDuToanData(document.data || {});
+    if (document.projectId) setSelectedProject(document.projectId);
+    setEditingDoc(document);
+    setShowForm(type);
+    setDraftStep('DOCUMENT');
+    setSelectedTTId(document.sourceDocumentId || '');
+    if (type === 'TT_DUTOAN') setTtData(normalized);
+    if (type === 'QD_DUTOAN') setQdData(normalized);
+  };
+
+  const validate = (data: DuToanFormData, type: FormType) => {
+    if (!selectedProject && !editingDoc?.projectId) {
+      toast.error('Vui lòng chọn dự án');
+      return false;
+    }
+    if (!selectedProjectName && !data.TenDuAn.trim()) {
+      toast.error('Không tìm thấy tên dự án trong Quản lý dự án');
+      return false;
+    }
+    if (
+      data.packages.length === 0 ||
+      data.packages.some((item) => !item.tenGoiThau.trim())
+    ) {
+      toast.error('Vui lòng nhập tên cho tất cả gói thầu');
+      return false;
+    }
+    if (type === 'QD_DUTOAN' && !selectedTTId && !editingDoc) {
+      toast.error('Vui lòng chọn Tờ trình dự toán đã duyệt');
+      return false;
+    }
+    if (type === 'QD_DUTOAN' && !data.SoVanBan.trim()) {
+      toast.error('Vui lòng nhập số Quyết định');
+      return false;
+    }
+    return true;
+  };
+
+  const continueFromCover = () => {
+    if (!selectedProjectName) {
+      toast.error('Vui lòng chọn dự án trong Quản lý dự án');
+      return;
+    }
+    if (
+      ttData.packages.length === 0 ||
+      ttData.packages.some((item) => !item.tenGoiThau.trim())
+    ) {
+      toast.error('Vui lòng nhập tên cho tất cả gói thầu ở Phiếu trình ký');
+      return;
+    }
+    setTtData((current) => ({
+      ...current,
+      TenDuAn: selectedProjectName,
+    }));
+    setDraftStep('DOCUMENT');
+  };
+
+  const saveDocument = async (type: FormType) => {
+    const currentData = type === 'TT_DUTOAN' ? ttData : qdData;
+    const file = type === 'TT_DUTOAN' ? ttFile : qdFile;
+    if (!validate(currentData, type)) return;
+
     setSubmitting(true);
     try {
-      await api.createDocument('QD_DUTOAN', qdData, undefined, undefined, selectedProject || undefined);
-      toast.success('Đã tạo Quyết định dự toán');
+      const payload = cleanPayload({
+        ...currentData,
+        TenDuAn: selectedProjectName || currentData.TenDuAn,
+      });
+      let saved: Doc;
+      if (editingDoc) {
+        saved = await api.resubmitDocument(editingDoc.id, payload);
+      } else {
+        saved = await api.createDocument(
+          type,
+          payload,
+          undefined,
+          undefined,
+          selectedProject || undefined,
+          type === 'QD_DUTOAN' ? selectedTTId : undefined,
+        );
+      }
+
+      let attachmentFailed = false;
+      if (file) {
+        try {
+          await api.uploadKhaiToanAttachment(saved.id, file);
+        } catch (error) {
+          attachmentFailed = true;
+          toast.error(
+            `Văn bản đã tạo nhưng chưa tải được phụ lục: ${
+              error instanceof Error ? error.message : 'Lỗi không xác định'
+            }`,
+          );
+        }
+      }
+
+      if (!attachmentFailed) {
+        toast.success(
+          editingDoc
+            ? editingDoc.status === 'REJECTED'
+              ? 'Đã lưu và gửi lại văn bản'
+              : 'Đã cập nhật văn bản đang chờ duyệt'
+            : `Đã tạo ${typeLabels[type]}`,
+        );
+      }
       resetForm();
-      fetchData();
-    } catch (err: any) { toast.error(err.message); }
-    finally { setSubmitting(false); }
+      await fetchData();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'Không thể lưu văn bản',
+      );
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleApprove = async (id: string) => {
-    try { await api.approveDocument(id); toast.success('Đã phê duyệt'); fetchData(); }
-    catch (err: any) { toast.error(err.message); }
+    try {
+      await api.approveDocument(id);
+      toast.success('Đã phê duyệt');
+      fetchData();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Không thể duyệt');
+    }
   };
 
   const handleReject = async (id: string) => {
-    if (!rejectComment.trim()) { toast.error('Vui lòng nhập bình luận'); return; }
-    try { await api.rejectDocument(id, rejectComment); toast.success('Đã yêu cầu làm lại'); setRejectingId(null); setRejectComment(''); fetchData(); }
-    catch (err: any) { toast.error(err.message); }
-  };
-
-  const handleResubmit = async (doc: Doc) => {
-    try { await api.resubmitDocument(doc.id, editingDoc?.data || doc.data); toast.success('Đã gửi lại'); setEditingDoc(null); fetchData(); }
-    catch (err: any) { toast.error(err.message); }
+    if (!rejectComment.trim()) {
+      toast.error('Vui lòng nhập lý do');
+      return;
+    }
+    try {
+      await api.rejectDocument(id, rejectComment);
+      toast.success('Đã yêu cầu làm lại');
+      setRejectingId(null);
+      setRejectComment('');
+      fetchData();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Không thể từ chối');
+    }
   };
 
   const handleDownload = async (id: string) => {
     try {
-      const res = await api.downloadDocument(id);
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'document.docx';
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (err: any) { toast.error(err.message); }
+      const response = await api.downloadDocument(id);
+      if (!response.ok) throw new Error('Không thể tải văn bản');
+      const blobUrl = URL.createObjectURL(await response.blob());
+      const anchor = document.createElement('a');
+      anchor.href = blobUrl;
+      anchor.download = 'van-ban-du-toan.docx';
+      anchor.click();
+      URL.revokeObjectURL(blobUrl);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Không thể tải file');
+    }
   };
 
-  const canApprove = user?.role === 'ADMIN' || user?.canApprove === true;
-  const canCreate = user?.role === 'ADMIN' || user?.role === 'USER';
+  const handleDownloadBundle = async (id: string) => {
+    try {
+      const response = await api.downloadDocumentBundle(id);
+      if (!response.ok) throw new Error('Không thể tải bộ hồ sơ');
+      const blobUrl = URL.createObjectURL(await response.blob());
+      const anchor = document.createElement('a');
+      anchor.href = blobUrl;
+      anchor.download = 'bo-ho-so-du-toan.zip';
+      anchor.click();
+      URL.revokeObjectURL(blobUrl);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'Không thể tải bộ hồ sơ',
+      );
+    }
+  };
 
-  const filteredDocs = docs.filter(doc => {
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase();
-    const fields = [
-      doc.data?.TenDuAn, doc.data?.SoToTrinh, doc.data?.SoQuyetDinh,
-      doc.data?.ChuDauTu, doc.data?.TenGoiThau, doc.data?.DonViMuaSam,
-      doc.creator?.name,
-    ].filter(Boolean);
-    return fields.some(f => String(f).toLowerCase().includes(q));
-  });
+  const handleDownloadCover = async (id: string) => {
+    try {
+      const response = await api.downloadDocumentCover(id);
+      if (!response.ok) throw new Error('Không thể tải Phiếu trình ký');
+      const blobUrl = URL.createObjectURL(await response.blob());
+      const anchor = document.createElement('a');
+      anchor.href = blobUrl;
+      anchor.download = 'phieu-trinh-ky-phe-duyet-du-toan.docx';
+      anchor.click();
+      URL.revokeObjectURL(blobUrl);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : 'Không thể tải Phiếu trình ký',
+      );
+    }
+  };
+
+  const openKhaiToan = async (id: string) => {
+    try {
+      const response = await api.getKhaiToanAttachment(id);
+      window.open(response.url, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'Không thể mở phụ lục',
+      );
+    }
+  };
+
+  const uploadAttachmentForExisting = async (
+    id: string,
+    file: File,
+  ) => {
+    if (!file.name.toLocaleLowerCase().endsWith('.docx')) {
+      toast.error('Phụ lục khái toán phải là file DOCX');
+      return;
+    }
+    try {
+      await api.uploadKhaiToanAttachment(id, file);
+      toast.success('Đã tải phụ lục khái toán');
+      await fetchData();
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : 'Không thể tải phụ lục khái toán',
+      );
+    }
+  };
+
+  const filteredDocs = useMemo(() => {
+    const query = searchQuery.trim().toLocaleLowerCase('vi');
+    if (!query) return docs;
+    return docs.filter((document) => {
+      const data = document.data || {};
+      return [
+        firstValue(data, 'TenDuAn', 'tenDuAn'),
+        firstValue(
+          data,
+          'SoVanBan',
+          'soVanBan',
+          'SoToTrinh',
+          'soToTrinh',
+          'SoQuyetDinh',
+          'soQuyetDinh',
+        ),
+        packageNames(data),
+        document.creator?.name,
+      ].some((value) =>
+        String(value || '')
+          .toLocaleLowerCase('vi')
+          .includes(query),
+      );
+    });
+  }, [docs, searchQuery]);
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="mx-auto w-full max-w-[1720px] space-y-4 2xl:space-y-6">
+      <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-start">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Phê duyệt dự toán</h1>
-          <p className="text-gray-500 mt-1 text-sm">Thầu Thiết Bị — Chọn dự án để xem và tạo tài liệu</p>
+          <h1 className="text-2xl font-bold text-gray-900">
+            Phê duyệt dự toán
+          </h1>
+          <p className="mt-1 text-sm text-gray-500">
+            Thầu Thiết Bị — dữ liệu nhiều gói thầu được dùng xuyên suốt
+            Dự toán → KHLCNT.
+          </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex w-full flex-wrap gap-2 sm:w-auto">
           {selectedProject && (
             <button
+              type="button"
               onClick={() => setShowHistory(true)}
-              className="px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-sm font-semibold flex items-center gap-1 transition-colors"
+              className="rounded-lg bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-100"
             >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
               Lịch sử
             </button>
           )}
-          {canCreate && !showForm && (
+          {!showForm && (
             <>
-              <button onClick={() => setShowForm('TT_DUTOAN')}
-                className="px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
-                + Tờ trình dự toán
+              <button
+                type="button"
+                onClick={() => openCreate('TT_DUTOAN')}
+                className="min-h-10 flex-1 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 sm:flex-none"
+              >
+                + Bắt đầu hồ sơ dự toán
               </button>
-              {hasApprovedTT ? (
-                <button onClick={() => setShowForm('QD_DUTOAN')}
-                  className="px-4 py-2.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-medium">
-                  + Quyết định dự toán
-                </button>
-              ) : (
-                <span className="px-4 py-2.5 bg-gray-100 text-gray-400 rounded-lg text-sm cursor-not-allowed"
-                  title="Cần có Tờ trình được duyệt">
-                  🔒 QĐ dự toán
-                </span>
-              )}
+              <button
+                type="button"
+                onClick={() => openCreate('QD_DUTOAN')}
+                disabled={approvedTTs.length === 0}
+                className="min-h-10 flex-1 rounded-xl bg-purple-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-purple-700 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-400 sm:flex-none"
+              >
+                + Quyết định dự toán
+              </button>
             </>
           )}
         </div>
       </div>
 
-      {/* Project Selector */}
-      <div className="bg-blue-50 rounded-xl p-4 border border-blue-100">
-        <label className="block text-sm font-medium text-blue-900 mb-2">Chọn dự án</label>
+      <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
+        <label className="mb-2 block text-sm font-medium text-blue-900">
+          Dự án Thầu Thiết Bị
+        </label>
         <select
-          className="w-full max-w-xs bg-white border border-blue-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-400 outline-none"
           value={selectedProject}
-          onChange={e => setSelectedProject(e.target.value)}
+          disabled={Boolean(showForm)}
+          onChange={(event) => setSelectedProject(event.target.value)}
+          className="w-full max-w-xl rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-300 disabled:bg-gray-100"
         >
-          <option value="">— Tất cả dự án Thầu Thiết Bị —</option>
-          {projects.map((p: any) => (
-            <option key={p.id} value={p.id}>{p.tenDuAn}</option>
+          <option value="">— Chọn dự án —</option>
+          {projects.map((project: any) => (
+            <option key={project.id} value={project.id}>
+              {project.tenDuAn}
+            </option>
           ))}
         </select>
       </div>
 
-      {/* Forms (simplified, similar to original) */}
+      <WorkflowStageStepper
+        stages={[
+          {
+            number: 0,
+            label: 'Mẫu phiếu trình ký phê duyệt dự toán',
+            description:
+              'Nhập tên các gói thầu; tên dự án được lấy từ Quản lý dự án.',
+            status:
+              hasTT ||
+              (showForm === 'TT_DUTOAN' && draftStep === 'DOCUMENT')
+                ? 'completed'
+                : showForm === 'TT_DUTOAN' && draftStep === 'COVER'
+                  ? 'active'
+                  : 'pending',
+          },
+          {
+            number: 1,
+            label: 'Tờ trình dự toán',
+            description:
+              'Kế thừa Phiếu trình ký, bổ sung số văn bản, căn cứ và giá.',
+            status:
+              approvedTTs.length > 0
+                ? 'completed'
+                : hasTT ||
+                    (showForm === 'TT_DUTOAN' &&
+                      draftStep === 'DOCUMENT')
+                  ? 'active'
+                  : 'pending',
+          },
+          {
+            number: 2,
+            label: 'Quyết định dự toán',
+            description: 'Kế thừa Tờ trình đã duyệt và ghép phụ lục khái toán.',
+            status: hasApprovedQD
+              ? 'completed'
+              : hasQD || showForm === 'QD_DUTOAN' || approvedTTs.length > 0
+                ? 'active'
+                : 'pending',
+          },
+        ]}
+      />
+
       {showForm && (
-        <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
-          <div className={`px-6 py-4 border-b flex items-center justify-between ${showForm === 'TT_DUTOAN' ? 'bg-blue-50' : 'bg-purple-50'}`}>
-            <h3 className={`text-lg font-semibold ${showForm === 'TT_DUTOAN' ? 'text-blue-900' : 'text-purple-900'}`}>
-              {showForm === 'TT_DUTOAN' ? 'Tạo Tờ trình dự toán' : 'Tạo Quyết định dự toán'}
-            </h3>
-            <div className="flex gap-2">
-              {showForm === 'TT_DUTOAN' && (
-                <LibraryPicker
-                  libraryType="DUTOAN_TT" onSelect={handleLibraryTT} onSaveToLibrary={() => setSaveTTOpen(true)}
-                />
-              )}
-              {showForm === 'QD_DUTOAN' && (
-                <LibraryPicker
-                  libraryType="DUTOAN_QD" onSelect={handleLibraryQD} onSaveToLibrary={() => setSaveQDOpen(true)}
-                />
-              )}
-            </div>
+        <div className="rounded-2xl border bg-white shadow-sm">
+          <div
+            className={`rounded-t-2xl border-b px-4 py-4 sm:px-6 ${
+              showForm === 'TT_DUTOAN' ? 'bg-blue-50' : 'bg-purple-50'
+            }`}
+          >
+            <h2 className="font-semibold text-gray-900">
+              {showForm === 'TT_DUTOAN' && draftStep === 'COVER'
+                ? '0. Mẫu phiếu trình ký phê duyệt dự toán'
+                : `${
+                    editingDoc
+                      ? editingDoc.status === 'REJECTED'
+                        ? 'Sửa và gửi lại '
+                        : 'Chỉnh sửa '
+                      : 'Tạo '
+                  }${
+                    typeLabels[showForm]
+                  }`}
+            </h2>
+            <p className="mt-1 text-xs text-slate-600">
+              {showForm === 'TT_DUTOAN' && draftStep === 'COVER'
+                ? 'Hoàn thành bước này trước khi mở nội dung Tờ trình.'
+                : 'Dữ liệu được điền trực tiếp vào file Word mẫu ở khung bên phải.'}
+            </p>
           </div>
-          <div className="p-6 space-y-4">
-            {showForm === 'TT_DUTOAN' ? (
-              <>
-                <div className="grid grid-cols-2 gap-4">
-                  <input className="inp" placeholder="Số tờ trình" value={ttData.SoToTrinh} onChange={e => setTtData({...ttData, SoToTrinh: e.target.value})} />
-                  <input className="inp" placeholder="Địa danh" value={ttData.DiaDanh} onChange={e => setTtData({...ttData, DiaDanh: e.target.value})} />
-                  <input className="inp" placeholder="Ngày" value={ttData.Ngay} onChange={e => setTtData({...ttData, Ngay: e.target.value})} />
-                  <input className="inp" placeholder="Tháng" value={ttData.Thang} onChange={e => setTtData({...ttData, Thang: e.target.value})} />
-                  <input className="inp" placeholder="Năm" value={ttData.Nam} onChange={e => setTtData({...ttData, Nam: e.target.value})} />
-                  <input className="inp" placeholder="Chủ đầu tư" value={ttData.ChuDauTu} onChange={e => setTtData({...ttData, ChuDauTu: e.target.value})} />
-                  <input className="inp" placeholder="Tên dự án" value={ttData.TenDuAn} onChange={e => setTtData({...ttData, TenDuAn: e.target.value})} />
-                  <input className="inp" placeholder="Tên gói thầu *" value={ttData.TenGoiThau} onChange={e => setTtData({...ttData, TenGoiThau: e.target.value})} />
-                  <input className="inp" placeholder="Đơn vị trình" value={ttData.DonViTrinh} onChange={e => setTtData({...ttData, DonViTrinh: e.target.value})} />
-                  <input className="inp" placeholder="Đơn vị mua sắm" value={ttData.DonViMuaSam} onChange={e => setTtData({...ttData, DonViMuaSam: e.target.value})} />
-                  <input className="inp" placeholder="Phòng ban" value={ttData.PhongBanThuocDonViTrinh} onChange={e => setTtData({...ttData, PhongBanThuocDonViTrinh: e.target.value})} />
-                  <input className="inp" placeholder="Viết tắt phòng ban" value={ttData.VietTatPhongBanThuocDonViTrinh} onChange={e => setTtData({...ttData, VietTatPhongBanThuocDonViTrinh: e.target.value})} />
-                  <input className="inp col-span-2" placeholder="Nguồn vốn" value={ttData.NguonVon} onChange={e => setTtData({...ttData, NguonVon: e.target.value})} />
-                  <input className="inp" placeholder="Địa điểm" value={ttData.DiaDiemThucHien} onChange={e => setTtData({...ttData, DiaDiemThucHien: e.target.value})} />
-                  <input className="inp" placeholder="Thời gian" value={ttData.ThoiGianThucHien} onChange={e => setTtData({...ttData, ThoiGianThucHien: e.target.value})} />
-                  <input className="inp" placeholder="Dự toán bằng số" value={ttData.DuToanBangSo} onChange={e => setTtData({...ttData, DuToanBangSo: e.target.value})} />
-                  <input className="inp" placeholder="Dự toán bằng chữ" value={ttData.DuToanBangChu} onChange={e => setTtData({...ttData, DuToanBangChu: e.target.value})} />
-                  <textarea className="inp col-span-2 min-h-[60px]" placeholder="Văn bản pháp lý liên quan" value={ttData.TenCacVanBanPhapLyLienQuan} onChange={e => setTtData({...ttData, TenCacVanBanPhapLyLienQuan: e.target.value})} />
-                </div>
-                <div className="flex gap-2 justify-end">
-                  <button onClick={resetForm} className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300 text-sm">Hủy</button>
-                  <button onClick={handleCreateTT} disabled={submitting} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium">
-                    {submitting ? '...' : 'Tạo & Gửi duyệt'}
+          <div className="space-y-5 p-3 sm:p-5 2xl:p-6">
+            <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.08fr)_minmax(420px,0.92fr)] 2xl:gap-6 2xl:grid-cols-[minmax(0,1fr)_minmax(520px,0.95fr)]">
+              <div className="space-y-6">
+                {showForm === 'QD_DUTOAN' && !editingDoc && (
+                  <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+                    <label className="mb-2 block text-sm font-medium text-blue-900">
+                      Tờ trình dự toán đã duyệt
+                    </label>
+                    <select
+                      value={selectedTTId}
+                      onChange={(event) =>
+                        selectApprovedTT(event.target.value)
+                      }
+                      className={INPUT_CLASS}
+                    >
+                      <option value="">— Chọn văn bản nguồn —</option>
+                      {approvedTTs.map((proposal) => (
+                        <option key={proposal.id} value={proposal.id}>
+                          {firstValue(
+                            proposal.data,
+                            'SoVanBan',
+                            'SoToTrinh',
+                            'soToTrinh',
+                          ) || 'Tờ trình'}{' '}
+                          — {packageNames(proposal.data || {})}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-xs text-blue-700">
+                      Hệ thống liên kết bằng ID văn bản nguồn và sao chép toàn
+                      bộ gói thầu, căn cứ, thuyết minh, nguồn vốn.
+                    </p>
+                  </div>
+                )}
+
+                {showForm === 'TT_DUTOAN' && draftStep === 'COVER' ? (
+                  <DuToanCoverForm
+                    value={ttData}
+                    onChange={setTtData}
+                    projectName={selectedProjectName}
+                  />
+                ) : (
+                  <DuToanForm
+                    value={showForm === 'TT_DUTOAN' ? ttData : qdData}
+                    onChange={
+                      showForm === 'TT_DUTOAN' ? setTtData : setQdData
+                    }
+                    file={showForm === 'TT_DUTOAN' ? ttFile : qdFile}
+                    onFileChange={
+                      showForm === 'TT_DUTOAN' ? setTtFile : setQdFile
+                    }
+                    sourceAttachmentName={
+                      showForm === 'QD_DUTOAN' && selectedTTId
+                        ? approvedTTs.find((item) => item.id === selectedTTId)
+                            ?.data?.khaiToanAttachment?.originalName ||
+                          approvedTTs.find((item) => item.id === selectedTTId)
+                            ?.data?.FileKhaiToanDinhKem
+                        : undefined
+                    }
+                    packagesReadOnly={showForm === 'QD_DUTOAN'}
+                    projectName={selectedProjectName}
+                  />
+                )}
+              </div>
+
+              <WorkflowDocxPreview
+                documents={duToanDocxPreviewDocuments(
+                  showForm,
+                  showForm === 'TT_DUTOAN' ? ttData : qdData,
+                  draftStep,
+                )}
+              />
+            </div>
+
+            <div className="sticky bottom-3 z-20 flex flex-col-reverse gap-2 rounded-xl border border-slate-200 bg-white/95 p-3 shadow-lg backdrop-blur sm:flex-row sm:justify-end">
+              {showForm === 'TT_DUTOAN' &&
+                draftStep === 'DOCUMENT' &&
+                !editingDoc && (
+                  <button
+                    type="button"
+                    onClick={() => setDraftStep('COVER')}
+                    disabled={submitting}
+                    className="min-h-10 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 sm:mr-auto"
+                  >
+                    ← Quay lại bước 0
                   </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="mb-4 p-3 bg-blue-50 rounded-lg">
-                  <label className="block text-sm font-medium mb-2">Liên kết Tờ trình đã duyệt</label>
-                  <select className="inp w-full" value={selectedTTId} onChange={e => handleSelectTT(e.target.value)}>
-                    <option value="">-- Chọn Tờ trình --</option>
-                    {approvedTTs.map(tt => (
-                      <option key={tt.id} value={tt.id}>{tt.data?.SoToTrinh || 'Tờ trình dự toán'} — {tt.data?.TenGoiThau}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <input className="inp" placeholder="Số quyết định" value={qdData.SoQuyetDinh} onChange={e => setQdData({...qdData, SoQuyetDinh: e.target.value})} />
-                  <input className="inp" placeholder="Chủ đầu tư" value={qdData.ChuDauTu} onChange={e => setQdData({...qdData, ChuDauTu: e.target.value})} />
-                  <input className="inp" placeholder="Tên gói thầu" value={qdData.TenGoiThau} onChange={e => setQdData({...qdData, TenGoiThau: e.target.value})} />
-                  <input className="inp" placeholder="Đơn vị mua sắm" value={qdData.DonViMuaSam} onChange={e => setQdData({...qdData, DonViMuaSam: e.target.value})} />
-                  <input className="inp" placeholder="Dự toán bằng số" value={qdData.DuToanBangSo} onChange={e => setQdData({...qdData, DuToanBangSo: e.target.value})} />
-                  <input className="inp" placeholder="Dự toán bằng chữ" value={qdData.DuToanBangChu} onChange={e => setQdData({...qdData, DuToanBangChu: e.target.value})} />
-                </div>
-                <div className="flex gap-2 justify-end">
-                  <button onClick={resetForm} className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300 text-sm">Hủy</button>
-                  <button onClick={handleCreateQD} disabled={submitting} className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 text-sm font-medium">
-                    {submitting ? '...' : 'Tạo & Gửi duyệt'}
-                  </button>
-                </div>
-              </>
-            )}
+                )}
+              <button
+                type="button"
+                onClick={resetForm}
+                disabled={submitting}
+                className="min-h-10 rounded-xl bg-gray-100 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-200"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  showForm === 'TT_DUTOAN' && draftStep === 'COVER'
+                    ? continueFromCover()
+                    : saveDocument(showForm)
+                }
+                disabled={submitting}
+                className={`min-h-10 rounded-xl px-5 py-2 text-sm font-semibold text-white shadow-sm disabled:opacity-50 ${
+                  showForm === 'TT_DUTOAN'
+                    ? 'bg-blue-600 hover:bg-blue-700'
+                    : 'bg-purple-600 hover:bg-purple-700'
+                }`}
+              >
+                {showForm === 'TT_DUTOAN' && draftStep === 'COVER'
+                  ? 'Tiếp tục: 1. Tờ trình dự toán'
+                  : submitting
+                  ? 'Đang lưu...'
+                  : editingDoc
+                    ? editingDoc.status === 'REJECTED'
+                      ? 'Lưu và gửi lại'
+                      : 'Lưu chỉnh sửa'
+                    : 'Tạo và gửi duyệt'}
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Search */}
       <div className="relative">
-        <input type="text" placeholder="Tìm kiếm..."
-          className="w-full px-4 py-2.5 pl-10 bg-white border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-200"
-          value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
-        <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-        </svg>
+        <input
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+          placeholder="Tìm số văn bản, dự án hoặc gói thầu..."
+          className={`${INPUT_CLASS} bg-white pl-10`}
+        />
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+          ⌕
+        </span>
       </div>
 
-      {/* List */}
       {loading ? (
-        <div className="flex items-center justify-center h-48">
-          <div className="animate-spin h-8 w-8 border-4 border-primary-500 border-t-transparent rounded-full" />
+        <div className="flex h-48 items-center justify-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary-500 border-t-transparent" />
         </div>
       ) : filteredDocs.length === 0 ? (
-        <div className="bg-white rounded-xl p-12 text-center text-gray-400 border">
-          {selectedProject ? 'Chưa có tài liệu cho dự án này' : 'Chưa có tài liệu nào'}
+        <div className="rounded-xl border bg-white p-10 text-center text-gray-400">
+          Chưa có hồ sơ dự toán phù hợp.
         </div>
       ) : (
-        <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
-          <table className="w-full">
+        <div className="overflow-x-auto rounded-2xl border bg-white shadow-sm">
+          <table className="min-w-[980px] w-full">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Loại</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Thông tin</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Người tạo</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Trạng thái</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ngày</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Thao tác</th>
+                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">
+                  Loại
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">
+                  Số văn bản
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">
+                  Các gói thầu
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">
+                  Trạng thái
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">
+                  Ngày tạo
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">
+                  Thao tác
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filteredDocs.map(doc => (
-                <tr key={doc.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setDetailDoc(doc)}>
+              {filteredDocs.map((document) => (
+                <tr key={document.id} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 text-sm font-medium text-gray-800">
+                    {typeLabels[document.type as FormType] || document.type}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-gray-700">
+                    {firstValue(
+                      document.data,
+                      'SoVanBan',
+                      'soVanBan',
+                      'SoToTrinh',
+                      'soToTrinh',
+                      'SoQuyetDinh',
+                      'soQuyetDinh',
+                    ) || '—'}
+                  </td>
+                  <td className="max-w-[360px] px-4 py-3 text-sm text-gray-700">
+                    {packageNames(document.data || {}) || '—'}
+                  </td>
                   <td className="px-4 py-3">
-                    <span className={`text-xs font-medium px-2 py-1 rounded ${doc.type === 'TT_DUTOAN' ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'}`}>
-                      {typeLabels[doc.type]}
+                    <span
+                      className={`rounded-full px-2 py-1 text-xs ${
+                        statusColors[document.status] ||
+                        'bg-gray-100 text-gray-700'
+                      }`}
+                    >
+                      {statusLabels[document.status] || document.status}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-700">{doc.data?.TenGoiThau || doc.data?.SoToTrinh || doc.data?.SoQuyetDinh || '-'}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{doc.creator.name}</td>
-                  <td className="px-4 py-3">
-                    <span className={`text-xs px-2 py-1 rounded-full ${statusColors[doc.status]}`}>
-                      {statusLabels[doc.status]}
-                    </span>
-                    {doc.reviews?.[0]?.action === 'REJECT' && (
-                      <p className="text-xs text-red-500 mt-0.5">💬 {doc.reviews[0].comment}</p>
-                    )}
+                  <td className="px-4 py-3 text-sm text-gray-500">
+                    {format(new Date(document.createdAt), 'dd/MM/yyyy', {
+                      locale: vi,
+                    })}
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-500">{format(new Date(doc.createdAt), 'dd/MM/yyyy', { locale: vi })}</td>
-                  <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
-                    <div className="flex gap-1 flex-wrap">
-                      <button onClick={() => setDetailDoc(doc)} className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100">👁</button>
-                      <button onClick={() => handleDownload(doc.id)} className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">📥</button>
-                      {canApprove && doc.status === 'PENDING_APPROVAL' && (
-                        <>
-                          <button onClick={() => handleApprove(doc.id)} className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200">✅</button>
-                          {rejectingId === doc.id ? (
-                            <div className="flex gap-1 items-center">
-                              <input className="text-xs border rounded px-2 py-1 w-32" placeholder="Lý do..." value={rejectComment} onChange={e => setRejectComment(e.target.value)} />
-                              <button onClick={() => handleReject(doc.id)} className="text-xs px-2 py-1 bg-red-100 text-red-700 rounded">Gửi</button>
-                              <button onClick={() => setRejectingId(null)} className="text-xs px-2 py-1 bg-gray-100 rounded">Hủy</button>
-                            </div>
-                          ) : (
-                            <button onClick={() => setRejectingId(doc.id)} className="text-xs px-2 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200">🔄</button>
-                          )}
-                        </>
+                  <td className="px-4 py-3">
+                    <div className="flex flex-wrap gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewDocId(document.id)}
+                        className="rounded bg-blue-50 px-2 py-1 text-xs text-blue-700 hover:bg-blue-100"
+                      >
+                        Xem
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDownload(document.id)}
+                        className="rounded bg-gray-100 px-2 py-1 text-xs text-gray-700 hover:bg-gray-200"
+                      >
+                        DOCX
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDownloadCover(document.id)}
+                        className="rounded bg-cyan-50 px-2 py-1 text-xs text-cyan-700 hover:bg-cyan-100"
+                      >
+                        Phiếu trình ký
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleDownloadBundle(document.id)
+                        }
+                        className="rounded bg-indigo-50 px-2 py-1 text-xs text-indigo-700 hover:bg-indigo-100"
+                      >
+                        Tải bộ hồ sơ
+                      </button>
+                      {(document.data?.khaiToanAttachment ||
+                        document.data?._khaiToanAttachment) && (
+                        <button
+                          type="button"
+                          onClick={() => openKhaiToan(document.id)}
+                          className="rounded bg-amber-50 px-2 py-1 text-xs text-amber-700 hover:bg-amber-100"
+                        >
+                          Phụ lục
+                        </button>
                       )}
-                      {doc.status === 'REJECTED' && doc.createdBy === user?.id && (
-                        <button onClick={() => handleResubmit(doc)} className="text-xs px-2 py-1 bg-orange-100 text-orange-700 rounded hover:bg-orange-200">📤 Gửi lại</button>
+                      {(document.createdBy === user?.id ||
+                        user?.role === 'ADMIN') && (
+                        <label className="cursor-pointer rounded bg-amber-50 px-2 py-1 text-xs text-amber-700 hover:bg-amber-100">
+                          {document.data?.khaiToanAttachment ||
+                          document.data?._khaiToanAttachment
+                            ? 'Đổi phụ lục'
+                            : 'Tải phụ lục'}
+                          <input
+                            type="file"
+                            className="hidden"
+                            accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                            onChange={(event) => {
+                              const file = event.target.files?.[0];
+                              if (file) {
+                                void uploadAttachmentForExisting(
+                                  document.id,
+                                  file,
+                                );
+                              }
+                              event.target.value = '';
+                            }}
+                          />
+                        </label>
                       )}
+                      {canApprove &&
+                        document.status === 'PENDING_APPROVAL' && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleApprove(document.id)}
+                              className="rounded bg-green-100 px-2 py-1 text-xs text-green-700"
+                            >
+                              Duyệt
+                            </button>
+                            {rejectingId === document.id ? (
+                              <span className="flex gap-1">
+                                <input
+                                  value={rejectComment}
+                                  onChange={(event) =>
+                                    setRejectComment(event.target.value)
+                                  }
+                                  placeholder="Lý do..."
+                                  className="w-32 rounded border px-2 py-1 text-xs"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleReject(document.id)}
+                                  className="rounded bg-red-100 px-2 py-1 text-xs text-red-700"
+                                >
+                                  Gửi
+                                </button>
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setRejectingId(document.id)}
+                                className="rounded bg-red-100 px-2 py-1 text-xs text-red-700"
+                              >
+                                Làm lại
+                              </button>
+                            )}
+                          </>
+                        )}
+                      {document.status !== 'APPROVED' &&
+                        (document.createdBy === user?.id ||
+                          user?.role === 'ADMIN') && (
+                          <button
+                            type="button"
+                            onClick={() => startEditing(document)}
+                            className="rounded-lg bg-amber-100 px-2.5 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-200"
+                          >
+                            {document.status === 'REJECTED'
+                              ? 'Sửa & gửi lại'
+                              : 'Chỉnh sửa'}
+                          </button>
+                        )}
                     </div>
                   </td>
                 </tr>
@@ -456,18 +1176,6 @@ function ThietBiDuToanPageInner() {
         </div>
       )}
 
-      <style jsx>{`
-        .inp {
-          border: 1px solid #d1d5db;
-          border-radius: 0.5rem;
-          padding: 0.5rem 0.75rem;
-          font-size: 0.875rem;
-          outline: none;
-          transition: border-color 0.2s;
-          min-width: 0;
-        }
-        .inp:focus { border-color: #6366f1; box-shadow: 0 0 0 2px rgba(99,102,241,0.1); }
-      `}</style>
       <HistoryModal
         isOpen={showHistory}
         onClose={() => setShowHistory(false)}
@@ -475,26 +1183,11 @@ function ThietBiDuToanPageInner() {
         stepKey="phe_duyet_du_toan"
         title="Lịch sử Phê duyệt Dự toán"
       />
-      <SaveToLibraryModal
-        isOpen={saveTTOpen}
-        onClose={() => setSaveTTOpen(false)}
-        libraryType="DUTOAN_TT"
-        formData={ttData}
-        formFieldKeys={['SoToTrinh', 'DiaDanh', 'Ngay', 'Thang', 'Nam', 'ChuDauTu', 'TenDuAn', 'TenGoiThau', 'DonViTrinh', 'DonViMuaSam', 'PhongBanThuocDonViTrinh', 'NguonVon', 'DiaDiemThucHien', 'ThoiGianThucHien', 'DuToanBangSo', 'DuToanBangChu']}
-        onSave={() => setSaveTTOpen(false)}
-      />
-      <SaveToLibraryModal
-        isOpen={saveQDOpen}
-        onClose={() => setSaveQDOpen(false)}
-        libraryType="DUTOAN_QD"
-        formData={qdData}
-        formFieldKeys={['SoQuyetDinh', 'DiaDanh', 'ChuDauTu', 'TenGoiThau', 'DonViMuaSam', 'PhongBanThuocDonViTrinh', 'NguonVon', 'DiaDiemThucHien', 'ThoiGianThucHien', 'DuToanBangSo', 'DuToanBangChu']}
-        onSave={() => setSaveQDOpen(false)}
-      />
-      {detailDoc && (
+
+      {previewDocId && (
         <OnlyOfficePreview
-          documentId={detailDoc.id}
-          onClose={() => setDetailDoc(null)}
+          documentId={previewDocId}
+          onClose={() => setPreviewDocId(null)}
           type="document"
         />
       )}
@@ -503,16 +1196,451 @@ function ThietBiDuToanPageInner() {
         <ProjectChat
           projectId={selectedProject}
           module="DU_TOAN"
-          projectName={projects.find((p: any) => p.id === selectedProject)?.tenDuAn}
+          projectName={
+            projects.find((item: any) => item.id === selectedProject)
+              ?.tenDuAn
+          }
         />
       )}
     </div>
   );
 }
 
+function DuToanCoverForm({
+  value,
+  onChange,
+  projectName,
+}: {
+  value: DuToanFormData;
+  onChange: (value: DuToanFormData) => void;
+  projectName: string;
+}) {
+  const updatePackageName = (index: number, tenGoiThau: string) => {
+    onChange({
+      ...value,
+      TenDuAn: projectName,
+      packages: value.packages.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, tenGoiThau } : item,
+      ),
+    });
+  };
+
+  const removePackage = (index: number) => {
+    const packages = value.packages.filter(
+      (_, itemIndex) => itemIndex !== index,
+    );
+    onChange({
+      ...value,
+      TenDuAn: projectName,
+      packages: packages.length ? packages : [emptyPackage(packageId())],
+    });
+  };
+
+  return (
+    <WorkflowFormSection
+      title="0. Mẫu phiếu trình ký phê duyệt dự toán"
+      description="Màn hình này khớp đúng hai placeholder của file Word: TenDuAn và TenCacGoiThau."
+    >
+      <div className="space-y-5">
+        <Field label="Tên dự án (liên kết từ Quản lý dự án)">
+          <input
+            value={projectName}
+            readOnly
+            className={`${INPUT_CLASS} cursor-not-allowed bg-slate-100 font-medium text-slate-700`}
+          />
+        </Field>
+
+        <div>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-slate-800">
+                Danh sách gói thầu
+              </p>
+              <p className="mt-0.5 text-xs text-slate-500">
+                Khi xuất Word, các tên được nối theo đúng thứ tự bằng dấu phẩy.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() =>
+                onChange({
+                  ...value,
+                  TenDuAn: projectName,
+                  packages: [
+                    ...value.packages,
+                    emptyPackage(packageId()),
+                  ],
+                })
+              }
+              className="rounded-lg border border-primary-200 bg-white px-3 py-2 text-sm font-semibold text-primary-700 hover:bg-primary-50"
+            >
+              + Thêm gói thầu
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            {value.packages.map((item, index) => (
+              <div
+                key={item.id}
+                className="flex items-end gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3"
+              >
+                <div className="min-w-0 flex-1">
+                  <Field label={`Tên gói thầu ${index + 1}`}>
+                    <input
+                      value={item.tenGoiThau}
+                      onChange={(event) =>
+                        updatePackageName(index, event.target.value)
+                      }
+                      placeholder={`Ví dụ: Gói thầu ${index + 1}`}
+                      className={INPUT_CLASS}
+                    />
+                  </Field>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removePackage(index)}
+                  className="mb-0.5 rounded-lg px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
+                >
+                  Xóa
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs leading-5 text-blue-800">
+          Dữ liệu bước 0 được giữ nguyên và chuyển tiếp xuống Tờ trình; người
+          dùng không phải nhập lại tên dự án hoặc tên các gói thầu.
+        </div>
+      </div>
+    </WorkflowFormSection>
+  );
+}
+
+function DuToanForm({
+  value,
+  onChange,
+  file,
+  onFileChange,
+  sourceAttachmentName,
+  packagesReadOnly,
+  projectName,
+}: {
+  value: DuToanFormData;
+  onChange: (value: DuToanFormData) => void;
+  file: File | null;
+  onFileChange: (file: File | null) => void;
+  sourceAttachmentName?: string;
+  packagesReadOnly: boolean;
+  projectName: string;
+}) {
+  const setField = (
+    key: Exclude<keyof DuToanFormData, 'canCu' | 'packages'>,
+    fieldValue: string,
+  ) => onChange({ ...value, [key]: fieldValue });
+
+  const updatePackage = (
+    index: number,
+    patch: Partial<ProcurementPackage>,
+  ) => {
+    if (packagesReadOnly) return;
+    onChange({
+      ...value,
+      packages: value.packages.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, ...patch } : item,
+      ),
+    });
+  };
+
+  const removePackage = (index: number) => {
+    if (packagesReadOnly) return;
+    const next = value.packages.filter(
+      (_, itemIndex) => itemIndex !== index,
+    );
+    onChange({
+      ...value,
+      packages: next.length ? next : [emptyPackage(packageId())],
+    });
+  };
+
+  return (
+    <>
+      <WorkflowFormSection
+        title="I. Mô tả tóm tắt dự án/Dự toán mua sắm"
+        description="Thông tin tổng quan được dùng chung cho Phiếu trình ký, Tờ trình và Quyết định."
+      >
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <Field label="Số văn bản">
+            <input
+              value={value.SoVanBan}
+              onChange={(event) =>
+                setField('SoVanBan', event.target.value)
+              }
+              placeholder="Số tờ trình / số quyết định"
+              className={INPUT_CLASS}
+            />
+          </Field>
+          <Field label="Ngày ban hành">
+            <input
+              type="date"
+              value={value.NgayBanHanh}
+              onChange={(event) =>
+                setField('NgayBanHanh', event.target.value)
+              }
+              className={INPUT_CLASS}
+            />
+          </Field>
+          <div className="md:col-span-2">
+            <Field label="Tên dự án (liên kết từ Quản lý dự án)">
+              <input
+                value={projectName || value.TenDuAn}
+                readOnly
+                className={`${INPUT_CLASS} cursor-not-allowed bg-slate-100 font-medium text-slate-700`}
+              />
+            </Field>
+            <p className="mt-1.5 text-xs text-slate-500">
+              Trường <code>TenDuAn</code> được lấy trực tiếp từ dự án đang
+              chọn và không thể nhập lệch tên tại hồ sơ.
+            </p>
+          </div>
+          <Field label="Nguồn vốn">
+            <input
+              value={value.NguonVon}
+              onChange={(event) =>
+                setField('NguonVon', event.target.value)
+              }
+              className={INPUT_CLASS}
+            />
+          </Field>
+          <Field label="Năm thực hiện">
+            <input
+              value={value.NamThucHien}
+              onChange={(event) =>
+                setField('NamThucHien', event.target.value)
+              }
+              className={INPUT_CLASS}
+            />
+          </Field>
+          <div className="md:col-span-2">
+            <Field label="Mục tiêu, quy mô">
+              <textarea
+                rows={3}
+                value={value.MucTieuQuyMo}
+                onChange={(event) =>
+                  setField('MucTieuQuyMo', event.target.value)
+                }
+                className={INPUT_CLASS}
+              />
+            </Field>
+          </div>
+          <div className="md:col-span-2">
+            <Field label="Thuyết minh">
+              <textarea
+                rows={3}
+                value={value.ThuyetMinh}
+                onChange={(event) =>
+                  setField('ThuyetMinh', event.target.value)
+                }
+                className={INPUT_CLASS}
+              />
+            </Field>
+          </div>
+        </div>
+      </WorkflowFormSection>
+
+      <WorkflowFormSection
+        title="II. Căn cứ pháp lý"
+        description="Mỗi căn cứ là một mục độc lập và một paragraph riêng trong Word."
+      >
+        <LegalBasisField
+          value={value.canCu as LegalBasisSelection[]}
+          onChange={(canCu) => onChange({ ...value, canCu })}
+          label="Danh sách căn cứ"
+        />
+      </WorkflowFormSection>
+
+      <WorkflowFormSection
+        title="III. Nội dung xây dựng dự toán"
+        description="Có phụ lục chi tiết kèm theo; hệ thống tự sinh hàng bảng và dòng chi phí cho từng gói."
+      >
+        <div className="mb-3 flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700">
+              Các gói thầu
+            </h3>
+            <p className="mt-0.5 text-xs text-gray-500">
+              Hệ thống tự sinh <code>TenCacGoiThau</code>, tổng giá và các
+              hàng Word theo thứ tự dưới đây.
+            </p>
+          </div>
+          {!packagesReadOnly && (
+            <button
+              type="button"
+              onClick={() =>
+                onChange({
+                  ...value,
+                  packages: [
+                    ...value.packages,
+                    emptyPackage(packageId()),
+                  ],
+                })
+              }
+              className="rounded-lg border border-primary-200 px-3 py-1.5 text-sm font-medium text-primary-700 hover:bg-primary-50"
+            >
+              + Thêm gói thầu
+            </button>
+          )}
+        </div>
+        <div className="space-y-3">
+          {value.packages.map((item, index) => (
+            <div
+              key={item.id}
+              className="rounded-xl border border-gray-200 bg-gray-50 p-4"
+            >
+              <div className="mb-3 flex items-center justify-between">
+                <span className="text-sm font-semibold text-gray-800">
+                  Gói thầu {index + 1}
+                </span>
+                {!packagesReadOnly && (
+                  <button
+                    type="button"
+                    onClick={() => removePackage(index)}
+                    className="text-xs font-medium text-red-600 hover:text-red-700"
+                  >
+                    Xóa
+                  </button>
+                )}
+              </div>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <Field label="Tên gói thầu">
+                  <input
+                    value={item.tenGoiThau}
+                    disabled={packagesReadOnly}
+                    onChange={(event) =>
+                      updatePackage(index, {
+                        tenGoiThau: event.target.value,
+                      })
+                    }
+                    className={`${INPUT_CLASS} disabled:bg-gray-100 disabled:text-gray-600`}
+                  />
+                </Field>
+                <Field label="Giá dự toán gói thầu">
+                  <input
+                    inputMode="decimal"
+                    value={item.giaDuToanGoiThau}
+                    disabled={packagesReadOnly}
+                    onChange={(event) =>
+                      updatePackage(index, {
+                        giaDuToanGoiThau: formatMoney(event.target.value),
+                      })
+                    }
+                    placeholder="Ví dụ: 1.500.000.000"
+                    className={`${INPUT_CLASS} disabled:bg-gray-100 disabled:text-gray-600`}
+                  />
+                </Field>
+                <div className="md:col-span-2">
+                  <Field label="Công việc / nội dung">
+                    <textarea
+                      rows={2}
+                      value={item.congViec}
+                      disabled={packagesReadOnly}
+                      onChange={(event) =>
+                        updatePackage(index, {
+                          congViec: event.target.value,
+                        })
+                      }
+                      className={`${INPUT_CLASS} disabled:bg-gray-100 disabled:text-gray-600`}
+                    />
+                  </Field>
+                </div>
+                <div className="md:col-span-2">
+                  <Field label="Ghi chú">
+                    <input
+                      value={item.ghiChu}
+                      disabled={packagesReadOnly}
+                      onChange={(event) =>
+                        updatePackage(index, {
+                          ghiChu: event.target.value,
+                        })
+                      }
+                      className={`${INPUT_CLASS} disabled:bg-gray-100 disabled:text-gray-600`}
+                    />
+                  </Field>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </WorkflowFormSection>
+
+      <WorkflowFormSection
+        title="IV. Phụ lục khái toán"
+        description="File DOCX được ghép vào vị trí FileKhaiToanDinhKem trong Quyết định."
+      >
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+        <Field label="Phụ lục khái toán đính kèm (DOCX)">
+          <input
+            type="file"
+            accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            onChange={(event) => {
+              const selected = event.target.files?.[0] || null;
+              if (
+                selected &&
+                !selected.name.toLocaleLowerCase().endsWith('.docx')
+              ) {
+                toast.error('Phụ lục khái toán phải là file DOCX');
+                event.target.value = '';
+                onFileChange(null);
+                return;
+              }
+              onFileChange(selected);
+            }}
+            className="block w-full text-sm text-gray-700 file:mr-3 file:rounded-lg file:border-0 file:bg-amber-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-amber-800"
+          />
+        </Field>
+        {sourceAttachmentName && !file && (
+          <p className="mt-2 text-xs text-amber-800">
+            Đang kế thừa phụ lục từ Tờ trình: {sourceAttachmentName}. Chọn
+            file mới nếu muốn thay thế trong Quyết định.
+          </p>
+        )}
+        {file && (
+          <p className="mt-2 text-xs text-amber-800">
+            Sẽ tải lên sau khi tạo văn bản: {file.name}
+          </p>
+        )}
+        </div>
+      </WorkflowFormSection>
+    </>
+  );
+}
+
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs font-medium text-gray-600">
+        {label}
+      </span>
+      {children}
+    </label>
+  );
+}
+
 export default function ThietBiDuToanPage() {
   return (
-    <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="animate-spin h-8 w-8 border-4 border-green-500 border-t-transparent rounded-full" /></div>}>
+    <Suspense
+      fallback={
+        <div className="flex h-64 items-center justify-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-green-500 border-t-transparent" />
+        </div>
+      }
+    >
       <ThietBiDuToanPageInner />
     </Suspense>
   );

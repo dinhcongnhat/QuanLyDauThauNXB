@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuthStore } from '@/lib/store';
+import { api } from '@/lib/api';
 import { Sidebar } from '@/components/Sidebar';
 import { motion, AnimatePresence } from 'framer-motion';
 import NotificationPanel from '@/components/NotificationPanel';
@@ -10,7 +11,7 @@ import NotificationPanel from '@/components/NotificationPanel';
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { user, isLoading, hydrate } = useAuthStore();
+  const { user, isLoading, hydrate, setUser, logout } = useAuthStore();
   const [notifOpen, setNotifOpen] = useState(false);
 
   useEffect(() => {
@@ -23,6 +24,27 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [isLoading, user, router]);
 
+  useEffect(() => {
+    if (isLoading || !user) return;
+
+    let cancelled = false;
+    api
+      .getProfile()
+      .then((profile) => {
+        if (!cancelled) setUser(profile);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          logout();
+          router.replace('/login');
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoading, user?.id, logout, router, setUser]);
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -34,14 +56,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (!user) return null;
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex h-screen overflow-hidden bg-slate-50">
       <Sidebar onOpenNotifications={() => setNotifOpen(true)} />
-      <main className="flex-1 p-8 md:p-10 bg-[#f8fafc] overflow-y-auto relative">
+      <main className="relative h-screen min-w-0 flex-1 overflow-y-auto bg-[#f5f7fb] px-3 py-4 sm:px-4 lg:px-5 lg:py-5 xl:px-6 2xl:px-10 2xl:py-8">
         {/* Brand watermark */}
         <div
           aria-hidden="true"
           className="pointer-events-none select-none fixed inset-0 flex flex-col items-center justify-center"
-          style={{ left: '256px', zIndex: 0 }}
+          style={{ left: 'clamp(244px, 18vw, 272px)', zIndex: 0 }}
         >
           <img
             src="/logo.png"
@@ -50,7 +72,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               width: '280px',
               height: '280px',
               objectFit: 'contain',
-              opacity: 0.09,
+              opacity: 0.035,
               filter: 'blur(0.5px) grayscale(10%)',
               userSelect: 'none',
             }}
@@ -61,7 +83,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               fontSize: '16px',
               fontWeight: 700,
               color: '#8B0000',
-              opacity: 0.12,
+              opacity: 0.05,
               filter: 'blur(0.4px)',
               letterSpacing: '1.5px',
               textAlign: 'center',
@@ -80,6 +102,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -12 }}
             transition={{ duration: 0.2, ease: 'easeOut' }}
+            className="mx-auto w-full max-w-[1800px]"
             style={{ position: 'relative', zIndex: 1 }}
           >
             {children}

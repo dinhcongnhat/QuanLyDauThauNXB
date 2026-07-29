@@ -6,7 +6,35 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   app.enableCors({
-    origin: ['http://localhost:3000', 'http://demo.jtsc.vn'],
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+
+      try {
+        const { hostname } = new URL(origin);
+        const isLocal =
+          hostname === 'localhost' ||
+          hostname === '127.0.0.1' ||
+          hostname === '::1';
+        const isPrivateLan =
+          /^10\./.test(hostname) ||
+          /^192\.168\./.test(hostname) ||
+          /^172\.(1[6-9]|2\d|3[01])\./.test(hostname);
+        const isConfiguredDomain =
+          hostname === 'demo.jtsc.vn' ||
+          hostname === new URL(
+            process.env.APP_URL || 'http://localhost',
+          ).hostname;
+
+        callback(
+          isLocal || isPrivateLan || isConfiguredDomain
+            ? null
+            : new Error('Origin is not allowed by CORS'),
+          isLocal || isPrivateLan || isConfiguredDomain,
+        );
+      } catch {
+        callback(new Error('Invalid request origin'), false);
+      }
+    },
     credentials: true,
   });
 

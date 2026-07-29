@@ -90,7 +90,10 @@ export function numberToVietnameseWords(num: number | string): string {
  * Pattern: key contains "BangSo" or specific money suffixes.
  */
 export function isMoneyField(key: string): boolean {
-  return /BangSo|GiaTri(?:TruocThue|SauThue)|ThueGTGT\d|DuToanBangSo|ChiPhi\dBangSo|GiaTriThanhToan|SoDeNghi|SoDuTamUng|DonGiaHD/i.test(key);
+  if (/BangChu/i.test(key)) return false;
+  return /BangSo|GiaDuToan|GiaGoiThau|TongGia|TongMucDauTu|GiaTri|ChiPhi|SoTien|ThanhTien|TienThue|ThueGTGT|SoDeNghi|SoDuTamUng|DonGia/i.test(
+    key,
+  );
 }
 
 /**

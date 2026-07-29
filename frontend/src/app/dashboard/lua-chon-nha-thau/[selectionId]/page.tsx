@@ -8,11 +8,19 @@ import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import { SmartFormField, FieldDef } from '@/components/SmartFormField';
+import { LegalBasisField } from '@/components/LegalBasisField';
 import { getFieldsForStep, ATTACHMENT_ONLY } from '@/lib/lcnt-field-defs';
 import { ZipDownloadModal } from '@/components/ZipDownloadModal';
 import { HistoryModal } from '@/components/HistoryModal';
 import { OnlyOfficeFilePreview } from '@/components/OnlyOfficeFilePreview';
 import { motion } from 'framer-motion';
+import {
+  getLCNTTemplateFieldKeys,
+  isBlankWorkflowValue,
+  mergeTemplateFields,
+  normalizeLegalBasisValue,
+  normalizeWorkflowData,
+} from '@/lib/workflow-template-api';
 
 const METHOD_LABELS: Record<string, string> = {
   CHI_DINH_THAU: 'Chỉ định thầu',
@@ -64,8 +72,9 @@ export default function LCNTProcessDetailPage() {
   const [previewPath, setPreviewPath] = useState<string | null>(null);
 
   // Step form data
-  const [stepFormData, setStepFormData] = useState<Record<string, string>>({});
+  const [stepFormData, setStepFormData] = useState<Record<string, any>>({});
   const [autoFillData, setAutoFillData] = useState<Record<string, any>>({});
+  const [templateFieldKeys, setTemplateFieldKeys] = useState<string[]>([]);
 
   // Approval
   const [showApprovalModal, setShowApprovalModal] = useState(false);
@@ -86,11 +95,9 @@ export default function LCNTProcessDetailPage() {
         const updatedStep = data.steps.find((s: any) => s.id === selectedStepId);
         if (updatedStep) {
           const rawData = (updatedStep.data || {}) as Record<string, any>;
-          const stringData: Record<string, string> = {};
-          for (const [k, v] of Object.entries(rawData)) {
-            if (k !== '_attachments') stringData[k] = String(v ?? '');
-          }
-          setStepFormData(stringData);
+          const normalizedData = normalizeWorkflowData(rawData);
+          delete normalizedData._attachments;
+          setStepFormData(normalizedData);
         }
       }
     } catch (err: any) { toast.error(err.message); }
@@ -130,29 +137,31 @@ export default function LCNTProcessDetailPage() {
     }
     setSelectedStepId(step.id);
     const rawData = (step.data || {}) as Record<string, any>;
-    const stringData: Record<string, string> = {};
-    for (const [k, v] of Object.entries(rawData)) {
-      if (k !== '_attachments') stringData[k] = String(v ?? '');
-    }
-    setStepFormData(stringData);
+    const normalizedData = normalizeWorkflowData(rawData);
+    delete normalizedData._attachments;
+    setStepFormData(normalizedData);
     setAutoFillData({});
+    const dynamicFields = await getLCNTTemplateFieldKeys(step.id).catch(
+      () => [],
+    );
+    setTemplateFieldKeys(dynamicFields);
 
     // Load auto-fill for NOT_STARTED or IN_PROGRESS steps to populate blank fields
     if (step.status !== 'COMPLETED') {
       try {
         const data = await api.getLCNTAutoFill(step.id);
         if (data && Object.keys(data).length > 0) {
-          setAutoFillData(data);
+          const normalizedAutoFill = normalizeWorkflowData(data);
+          setAutoFillData(normalizedAutoFill);
           
-          const mergedData = { ...stringData };
+          const mergedData = { ...normalizedData };
           let hasNewUpdates = false;
-          const keysToUpdate: Record<string, string> = {};
+          const keysToUpdate: Record<string, any> = {};
 
-          for (const [key, val] of Object.entries(data)) {
-            if (!mergedData[key] || mergedData[key].trim() === '') {
-              const strVal = String(val ?? '');
-              mergedData[key] = strVal;
-              keysToUpdate[key] = strVal;
+          for (const [key, val] of Object.entries(normalizedAutoFill)) {
+            if (isBlankWorkflowValue(mergedData[key])) {
+              mergedData[key] = val;
+              keysToUpdate[key] = val;
               hasNewUpdates = true;
             }
           }
@@ -167,9 +176,9 @@ export default function LCNTProcessDetailPage() {
           } else {
             setStepFormData(prev => {
               const merged = { ...prev };
-              for (const [key, val] of Object.entries(data)) {
-                if (!merged[key] || merged[key].trim() === '') {
-                  merged[key] = String(val ?? '');
+              for (const [key, val] of Object.entries(normalizedAutoFill)) {
+                if (isBlankWorkflowValue(merged[key])) {
+                  merged[key] = val;
                 }
               }
               return merged;
@@ -442,7 +451,10 @@ export default function LCNTProcessDetailPage() {
       {/* Step Detail */}
       {currentStep && (() => {
         const isAttachment = ATTACHMENT_ONLY.has(currentStep.stepKey);
-        const fields = getFieldsForStep(currentStep.stepKey, selection.procurementMethod);
+        const fields = mergeTemplateFields(
+          getFieldsForStep(currentStep.stepKey, selection.procurementMethod),
+          templateFieldKeys,
+        );
         const canEdit = currentStep.status !== 'COMPLETED';
         const canRequestApproval = currentStep.requiresApproval && currentStep.approvalStatus === 'NO_APPROVAL_REQUIRED';
         const canApproveStep = currentStep.approvalStatus === 'PENDING_APPROVAL';
@@ -538,25 +550,61 @@ export default function LCNTProcessDetailPage() {
 
                 const renderFields = (flds: FieldDef[]) => (
                   <div className="grid grid-cols-2 gap-4">
-                    {flds.map(f =>
-                      canEdit ? (
+                    {flds.map(f => {
+                      if (f.key === 'CanCu') {
+                        const legalBasis = normalizeLegalBasisValue(
+                          stepFormData.CanCu,
+                        );
+                        return canEdit ? (
+                          <div key={f.key} className="col-span-2">
+                            <LegalBasisField
+                              value={legalBasis}
+                              onChange={(value) =>
+                                setStepFormData({
+                                  ...stepFormData,
+                                  CanCu: value,
+                                })
+                              }
+                            />
+                          </div>
+                        ) : (
+                          <div key={f.key} className="col-span-2">
+                            <label className="block text-xs font-medium text-gray-500 mb-1">
+                              {f.label}
+                            </label>
+                            {legalBasis.length > 0 ? (
+                              <ol className="space-y-1 text-sm">
+                                {legalBasis.map((basis, index) => (
+                                  <li key={`${basis.legalDocumentId || 'manual'}-${index}`}>
+                                    {index + 1}. {basis.citationSnapshot}
+                                  </li>
+                                ))}
+                              </ol>
+                            ) : (
+                              <p className="text-sm">-</p>
+                            )}
+                          </div>
+                        );
+                      }
+
+                      return canEdit ? (
                         <SmartFormField
                           key={f.key}
                           field={f}
-                          value={stepFormData[f.key] || ''}
+                          value={String(stepFormData[f.key] ?? '')}
                           onChange={(key, val) => setStepFormData({ ...stepFormData, [key]: val })}
                           disabled={false}
                           isAutoFilled={!!autoFillData[f.key]}
-                          formData={stepFormData}
-                          onFormDataChange={setStepFormData}
+                          formData={stepFormData as Record<string, string>}
+                          onFormDataChange={(data) => setStepFormData(data)}
                         />
                       ) : (
                         <div key={f.key} className={f.type === 'textarea' ? 'col-span-2' : ''}>
                           <label className="block text-xs font-medium text-gray-500 mb-1">{f.label}</label>
-                          <p className="text-sm">{(currentStep.data as any)?.[f.key] || '-'}</p>
+                          <p className="text-sm">{String(stepFormData[f.key] ?? '') || '-'}</p>
                         </div>
-                      )
-                    )}
+                      );
+                    })}
                   </div>
                 );
 

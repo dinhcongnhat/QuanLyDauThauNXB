@@ -4,7 +4,12 @@ import { MinioService } from '../minio/minio.service';
 import { JwtService } from '@nestjs/jwt';
 import { ProcurementMethod, NotificationType } from '@prisma/client';
 import { NotificationService } from '../notifications/notification.service';
-import { generateContractorSelectionDocx, isAttachmentOnlyStep } from './lcnt-docx-generator';
+import {
+  generateContractorSelectionDocx,
+  getContractorSelectionTemplateFields,
+  isAttachmentOnlyStep,
+} from './lcnt-docx-generator';
+import { prepareWorkflowTemplateData } from '../utils/docx-template-renderer';
 
 // Steps requiring approval (they have DOCX templates)
 const APPROVAL_REQUIRED_STEPS = new Set([
@@ -135,10 +140,10 @@ const AUTO_FILL_MAPPINGS: Record<string, Array<{ fromStep: string; toStep: strin
 // Step definitions for each procurement method
 const CHI_DINH_THAU_STEPS = [
   { stepKey: 'cong_van_tham_gia', stepOrder: 1, title: 'Công văn xin tham gia của nhà thầu (Đính kèm)', requiresApproval: false },
-  { stepKey: 'thu_moi_hoan_thien', stepOrder: 2, title: 'Thư mời hoàn thiện hợp đồng', requiresApproval: false },
-  { stepKey: 'bien_ban_hoan_thien', stepOrder: 3, title: 'Biên bản hoàn thiện hợp đồng (biên bản thương thảo)', requiresApproval: false },
-  { stepKey: 'to_trinh_kqlcnt', stepOrder: 4, title: 'Tờ trình phê duyệt KQLCNT', requiresApproval: true },
-  { stepKey: 'quyet_dinh_kqlcnt', stepOrder: 5, title: 'Quyết định phê duyệt KQLCNT', requiresApproval: true },
+  { stepKey: 'thu_moi_hoan_thien', stepOrder: 2, title: 'Thư mời tham gia thương thảo hợp đồng', requiresApproval: false },
+  { stepKey: 'bien_ban_hoan_thien', stepOrder: 3, title: 'Biên bản thương thảo hợp đồng', requiresApproval: false },
+  { stepKey: 'to_trinh_kqlcnt', stepOrder: 4, title: 'Tờ trình phê duyệt kết quả lựa chọn nhà thầu', requiresApproval: true },
+  { stepKey: 'quyet_dinh_kqlcnt', stepOrder: 5, title: 'Quyết định phê duyệt kết quả lựa chọn nhà thầu', requiresApproval: true },
   { stepKey: 'hop_dong', stepOrder: 6, title: 'Hợp đồng', requiresApproval: true },
 ];
 
@@ -180,6 +185,164 @@ function getSteps(method: ProcurementMethod) {
     case ProcurementMethod.CHAO_HANG_CANH_TRANH: return CHAO_HANG_CANH_TRANH_STEPS;
     case ProcurementMethod.DAU_THAU_RONG_RAI: return DAU_THAU_RONG_RAI_STEPS;
   }
+}
+
+function asRecord(value: unknown): Record<string, any> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, any>
+    : {};
+}
+
+function firstMeaningful(...values: any[]): any {
+  return values.find((value) => {
+    if (value === undefined || value === null || value === '') return false;
+    if (Array.isArray(value)) return value.length > 0;
+    return true;
+  });
+}
+
+function formatTemplateDate(value: any): any {
+  if (!(value instanceof Date)) return value;
+  return `${value.getUTCDate()}/${value.getUTCMonth() + 1}/${value.getUTCFullYear()}`;
+}
+
+function buildWorkflowPayload(
+  selection: {
+    data: unknown;
+    tenGoiThau: string;
+    soHopDong?: string | null;
+    ngayKyHopDong?: Date | null;
+  },
+  qdDataValue: unknown,
+  stepDataSources: unknown[],
+): Record<string, any> {
+  const qdData = asRecord(qdDataValue);
+  const packageData = asRecord(selection.data);
+  const merged = Object.assign(
+    {},
+    qdData,
+    packageData,
+    ...stepDataSources.map(asRecord),
+  ) as Record<string, any>;
+
+  const legalBasis = firstMeaningful(
+    merged.CanCu,
+    merged.canCu,
+    merged.canCuPhapLy,
+    merged.CanCuVanBanPhapLy,
+    merged.TenCacVanBanPhapLyLienQuan,
+  );
+  const contractNumber = firstMeaningful(
+    merged.SoHopDong,
+    merged.MaSoHD,
+    merged.MaSoHopDong,
+    selection.soHopDong,
+  );
+  const contractDate = formatTemplateDate(firstMeaningful(
+    merged.NgayBanHanhHopDong,
+    merged.NgayBanHanhHopdong,
+    merged.ThoiGianKyHD,
+    merged.ThoiGianKyHopDong,
+    selection.ngayKyHopDong,
+  ));
+  const contractorName = firstMeaningful(
+    merged.TenNhaThau,
+    merged.NhaThau,
+    merged.TenNhaThauTrungThau,
+    merged.NhaThauTrungThau,
+  );
+  const contractValue = firstMeaningful(
+    merged.GiaGoiThau,
+    merged.GiaTriHopDongBangSo,
+    merged.GiaHDBangSo,
+    merged.GiaTrungThau,
+    merged.GiaGoiThauBangSo,
+    merged.giaGoiThau,
+    merged.giaDuToanGoiThau,
+  );
+
+  return prepareWorkflowTemplateData({
+    ...merged,
+    packages: [packageData],
+    goiThau: [packageData],
+    TenGoiThau: firstMeaningful(
+      merged.TenGoiThau,
+      merged.tenGoiThau,
+      selection.tenGoiThau,
+    ),
+    TenDuAn: firstMeaningful(merged.TenDuAn, merged.tenDuAn),
+    ChuDauTu: firstMeaningful(merged.ChuDauTu, merged.chuDauTu, merged.TenChuDauTu),
+    TenChuDauTu: firstMeaningful(merged.TenChuDauTu, merged.ChuDauTu, merged.chuDauTu),
+    CanCu: legalBasis,
+    canCu: legalBasis,
+    TenNhaThau: contractorName,
+    NhaThau: contractorName,
+    MSTNhaThau: firstMeaningful(
+      merged.MSTNhaThau,
+      merged.MaSoThueNhaThau,
+      merged.maSoThueNhaThau,
+    ),
+    GiaGoiThau: contractValue,
+    GiaGoiThauBangChu: firstMeaningful(
+      merged.GiaGoiThauBangChu,
+      merged.GiaTriHopDongBangChu,
+      merged.GiaHDBangChu,
+    ),
+    GiaDuToanGoiThau: firstMeaningful(
+      merged.GiaDuToanGoiThau,
+      merged.giaDuToanGoiThau,
+      merged.GiaGoiThauBangSo,
+      merged.giaGoiThau,
+    ),
+    SoHopDong: contractNumber,
+    MaSoHD: contractNumber,
+    NgayBanHanhHopDong: contractDate,
+    NgayBanHanhHopdong: contractDate,
+    ThoiGianLuaChonNhaThauGoiThau: firstMeaningful(
+      merged.ThoiGianLuaChonNhaThauGoiThau,
+      merged.ThoiGianLuaChonNhaThau,
+      merged.ThoiGianToChucLuaChonNhaThau,
+      merged.thoiGianToChuc,
+    ),
+  });
+}
+
+function parseContractDate(value: any): Date | undefined {
+  if (!value) return undefined;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+
+  const text = String(value).trim();
+  const vietnameseDate = text.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (vietnameseDate) {
+    const date = new Date(Date.UTC(
+      Number(vietnameseDate[3]),
+      Number(vietnameseDate[2]) - 1,
+      Number(vietnameseDate[1]),
+    ));
+    return Number.isNaN(date.getTime()) ? undefined : date;
+  }
+
+  const date = new Date(text);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+function getContractIdentity(dataValue: unknown): {
+  soHopDong?: string;
+  ngayKyHopDong?: Date;
+} {
+  const data = asRecord(dataValue);
+  const rawNumber = firstMeaningful(data.SoHopDong, data.MaSoHD, data.MaSoHopDong);
+  const rawDate = firstMeaningful(
+    data.NgayBanHanh,
+    data.NgayBanHanhHopDong,
+    data.NgayBanHanhHopdong,
+    data.ThoiGianKyHD,
+    data.ThoiGianKyHopDong,
+  );
+  return {
+    soHopDong: rawNumber === undefined ? undefined : String(rawNumber).trim(),
+    ngayKyHopDong: parseContractDate(rawDate),
+  };
 }
 
 /**
@@ -355,8 +518,48 @@ export class ContractorSelectionService {
 
   // ====================== AUTO FILL LOGIC ======================
 
-  /** Get auto-fill data from previous completed steps + parent KHLCNT data */
-  async getAutoFillData(selectionId: string, nextStepKey: string, procurementMethod: ProcurementMethod): Promise<Record<string, any>> {
+  /**
+   * Auto-fill follows the persisted workflow order, not a hard-coded pair of
+   * steps: QĐ KHLCNT -> package snapshot -> every previous COMPLETED step.
+   */
+  async getAutoFillData(
+    selectionId: string,
+    nextStepKey: string,
+    _procurementMethod: ProcurementMethod,
+  ): Promise<Record<string, any>> {
+    const selection = await this.prisma.contractorSelection.findUnique({
+      where: { id: selectionId },
+      include: {
+        qdKhlcnt: { select: { data: true } },
+        steps: { orderBy: { stepOrder: 'asc' } },
+      },
+    });
+    if (!selection) throw new NotFoundException('Không tìm thấy quy trình LCNT');
+
+    const targetStep = selection.steps.find((item) => item.stepKey === nextStepKey);
+    if (!targetStep) throw new NotFoundException('Không tìm thấy bước trong quy trình LCNT');
+
+    const previousCompletedData = selection.steps
+      .filter(
+        (item) =>
+          item.stepOrder < targetStep.stepOrder
+          && item.status === 'COMPLETED'
+          && item.data,
+      )
+      .map((item) => item.data);
+
+    return buildWorkflowPayload(
+      selection,
+      selection.qdKhlcnt?.data,
+      previousCompletedData,
+    );
+  }
+
+  /**
+   * Kept temporarily for reading the mapping history while older records are
+   * being migrated. Runtime auto-fill uses the ordered implementation above.
+   */
+  private async getAutoFillDataLegacy(selectionId: string, nextStepKey: string, procurementMethod: ProcurementMethod): Promise<Record<string, any>> {
     const mappings = AUTO_FILL_MAPPINGS[procurementMethod] || [];
     const autoFill: Record<string, any> = {};
 
@@ -495,6 +698,33 @@ export class ContractorSelectionService {
     );
   }
 
+  async getTemplateFieldsForStep(stepId: string) {
+    const step = await this.prisma.procurementStep.findUnique({
+      where: { id: stepId },
+      include: { contractorSelection: { select: { procurementMethod: true } } },
+    });
+    if (!step) throw new NotFoundException('Không tìm thấy bước');
+
+    if (isAttachmentOnlyStep(step.stepKey)) {
+      return {
+        stepKey: step.stepKey,
+        procurementMethod: step.contractorSelection.procurementMethod,
+        templateName: null,
+        fields: [] as string[],
+      };
+    }
+
+    const template = await getContractorSelectionTemplateFields(
+      step.contractorSelection.procurementMethod,
+      step.stepKey,
+    );
+    return {
+      stepKey: step.stepKey,
+      procurementMethod: step.contractorSelection.procurementMethod,
+      ...template,
+    };
+  }
+
   // ====================== LIST / GET ======================
 
   async getApprovedQDKHLCNT(projectId?: string) {
@@ -584,19 +814,59 @@ export class ContractorSelectionService {
 
   // ====================== CREATE ======================
 
-  async createSelection(userId: string, qdKhlcntId: string, goiThauIndex: number, projectId?: string) {
+  async createSelection(
+    userId: string,
+    qdKhlcntId: string,
+    goiThauIndex?: number,
+    projectId?: string,
+    packageId?: string,
+  ) {
     const doc = await this.prisma.document.findUnique({ where: { id: qdKhlcntId } });
     if (!doc || doc.type !== 'QD_KHLCNT' || doc.status !== 'APPROVED') {
       throw new BadRequestException('QĐ KHLCNT không hợp lệ hoặc chưa được phê duyệt');
     }
 
-    const data = doc.data as any;
-    const goiThau = data?.goiThau?.[goiThauIndex];
+    const data = asRecord(doc.data);
+    const packages = Array.isArray(data.goiThau)
+      ? data.goiThau
+      : (Array.isArray(data.packages) ? data.packages : []);
+    let resolvedIndex = Number.isInteger(goiThauIndex) ? Number(goiThauIndex) : -1;
+    let matchedPackageId = false;
+    if (packageId) {
+      const indexById = packages.findIndex((item: any) =>
+        String(item?.id || item?.packageId || '') === packageId,
+      );
+      if (indexById >= 0) {
+        resolvedIndex = indexById;
+        matchedPackageId = true;
+      }
+    }
+    if (resolvedIndex < 0) {
+      throw new BadRequestException(
+        packageId
+          ? `Không tìm thấy gói thầu có mã "${packageId}" và không có goiThauIndex hợp lệ`
+          : 'Vui lòng chọn gói thầu bằng packageId hoặc goiThauIndex',
+      );
+    }
+
+    const goiThau = packages[resolvedIndex];
     if (!goiThau) {
       throw new BadRequestException('Gói thầu không tồn tại');
     }
+    const resolvedPackageId = String(
+      firstMeaningful(
+        goiThau.id,
+        goiThau.packageId,
+        matchedPackageId ? packageId : undefined,
+      ) || '',
+    ) || null;
 
-    const htlc = (goiThau.hinhThucLuaChon || '').toLowerCase().replace(/_/g, ' ');
+    const rawProcurementMethod = String(firstMeaningful(
+      goiThau.hinhThucLuaChonNhaThau,
+      goiThau.hinhThucLuaChon,
+      goiThau.procurementMethod,
+    ) || '');
+    const htlc = rawProcurementMethod.toLowerCase().replace(/_/g, ' ');
     let method: ProcurementMethod;
     if (htlc.includes('chi dinh') || htlc.includes('chỉ định')) {
       method = ProcurementMethod.CHI_DINH_THAU;
@@ -605,11 +875,11 @@ export class ContractorSelectionService {
     } else if (htlc.includes('đấu thầu rộng') || htlc.includes('dau thau rong') || htlc.includes('dau thau')) {
       method = ProcurementMethod.DAU_THAU_RONG_RAI;
     } else {
-      throw new BadRequestException(`Không xác định được hình thức LCNT: "${goiThau.hinhThucLuaChon}". Vui lòng kiểm tra lại.`);
+      throw new BadRequestException(`Không xác định được hình thức LCNT: "${rawProcurementMethod}". Vui lòng kiểm tra lại.`);
     }
 
     const existing = await this.prisma.contractorSelection.findUnique({
-      where: { qdKhlcntId_goiThauIndex: { qdKhlcntId, goiThauIndex } },
+      where: { qdKhlcntId_goiThauIndex: { qdKhlcntId, goiThauIndex: resolvedIndex } },
     });
     if (existing) {
       throw new BadRequestException('Đã tồn tại quy trình LCNT cho gói thầu này');
@@ -620,8 +890,9 @@ export class ContractorSelectionService {
     const selection = await this.prisma.contractorSelection.create({
       data: {
         qdKhlcntId,
-        goiThauIndex,
-        tenGoiThau: goiThau.tenGoiThau || `Gói thầu ${goiThauIndex + 1}`,
+        goiThauIndex: resolvedIndex,
+        packageId: resolvedPackageId,
+        tenGoiThau: goiThau.tenGoiThau || `Gói thầu ${resolvedIndex + 1}`,
         procurementMethod: method,
         data: goiThau,
         createdBy: userId,
@@ -649,7 +920,7 @@ export class ContractorSelectionService {
           projectId,
           stepKey: 'lcnt',
           action: 'CREATE_LCNT',
-          message: `Khởi tạo quy trình Lựa chọn nhà thầu cho gói thầu "${goiThau.tenGoiThau || `Gói thầu ${goiThauIndex + 1}`}"`,
+          message: `Khởi tạo quy trình Lựa chọn nhà thầu cho gói thầu "${goiThau.tenGoiThau || `Gói thầu ${resolvedIndex + 1}`}"`,
           userId,
         }
       });
@@ -675,13 +946,36 @@ export class ContractorSelectionService {
     const existingData = (step.data as any) || {};
     const updatedData = { ...existingData, ...data };
 
-    const res = await this.prisma.procurementStep.update({
-      where: { id: stepId },
-      data: {
-        data: updatedData,
-        status: step.status === 'NOT_STARTED' ? 'IN_PROGRESS' : step.status,
-        ...(needsReset ? { approvalStatus: 'NO_APPROVAL_REQUIRED' } : {}),
-      },
+    const contractIdentity = step.stepKey === 'hop_dong'
+      ? getContractIdentity(updatedData)
+      : {};
+
+    const res = await this.prisma.$transaction(async (tx) => {
+      const updatedStep = await tx.procurementStep.update({
+        where: { id: stepId },
+        data: {
+          data: updatedData,
+          status: step.status === 'NOT_STARTED' ? 'IN_PROGRESS' : step.status,
+          ...(needsReset ? { approvalStatus: 'NO_APPROVAL_REQUIRED' } : {}),
+        },
+      });
+
+      if (step.stepKey === 'hop_dong'
+        && (contractIdentity.soHopDong || contractIdentity.ngayKyHopDong)) {
+        await tx.contractorSelection.update({
+          where: { id: step.contractorSelectionId },
+          data: {
+            ...(contractIdentity.soHopDong
+              ? { soHopDong: contractIdentity.soHopDong }
+              : {}),
+            ...(contractIdentity.ngayKyHopDong
+              ? { ngayKyHopDong: contractIdentity.ngayKyHopDong }
+              : {}),
+          } as any,
+        });
+      }
+
+      return updatedStep;
     });
 
     await this.writeLog(step.contractorSelectionId, 'UPDATE_STEP', `Cập nhật dữ liệu bước "${step.title}"`, userId);
@@ -950,9 +1244,30 @@ export class ContractorSelectionService {
       throw new BadRequestException('Bước đang bị từ chối. Vui lòng chỉnh sửa và trình lại.');
     }
 
-    const updated = await this.prisma.procurementStep.update({
-      where: { id: stepId },
-      data: { status: 'COMPLETED', completedAt: new Date() },
+    const contractIdentity = step.stepKey === 'hop_dong'
+      ? getContractIdentity(step.data)
+      : {};
+    if (step.stepKey === 'hop_dong' && !contractIdentity.soHopDong) {
+      throw new BadRequestException('Vui lòng nhập Số hợp đồng trước khi hoàn thành bước Hợp đồng');
+    }
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const updatedStep = await tx.procurementStep.update({
+        where: { id: stepId },
+        data: { status: 'COMPLETED', completedAt: new Date() },
+      });
+      if (step.stepKey === 'hop_dong') {
+        await tx.contractorSelection.update({
+          where: { id: step.contractorSelectionId },
+          data: {
+            soHopDong: contractIdentity.soHopDong,
+            ...(contractIdentity.ngayKyHopDong
+              ? { ngayKyHopDong: contractIdentity.ngayKyHopDong }
+              : {}),
+          } as any,
+        });
+      }
+      return updatedStep;
     });
 
     const stepData = await this.getStep(stepId);
@@ -1009,10 +1324,20 @@ export class ContractorSelectionService {
 
   // ====================== DOCX ======================
 
-  async generateStepDocx(stepId: string): Promise<Buffer> {
+  async generateStepDocx(
+    stepId: string,
+    draftData?: Record<string, any>,
+  ): Promise<Buffer> {
     const step = await this.prisma.procurementStep.findUnique({
       where: { id: stepId },
-      include: { contractorSelection: { include: { qdKhlcnt: true } } },
+      include: {
+        contractorSelection: {
+          include: {
+            qdKhlcnt: { select: { data: true } },
+            steps: { orderBy: { stepOrder: 'asc' } },
+          },
+        },
+      },
     });
     if (!step) throw new NotFoundException('Không tìm thấy bước');
     if (isAttachmentOnlyStep(step.stepKey)) {
@@ -1020,11 +1345,23 @@ export class ContractorSelectionService {
     }
 
     const selection = step.contractorSelection;
-    const qdData = (selection.qdKhlcnt.data as any) || {};
-    const goiThauData = (selection.data as any) || {};
-    const stepData = (step.data as any) || {};
-
-    const docxData = buildLcntDocxPayload(stepData, goiThauData, qdData, selection.tenGoiThau);
+    const previousCompletedData = selection.steps
+      .filter(
+        (item) =>
+          item.stepOrder < step.stepOrder
+          && item.status === 'COMPLETED'
+          && item.data,
+      )
+      .map((item) => item.data);
+    const currentStepData = {
+      ...asRecord(step.data),
+      ...asRecord(draftData),
+    };
+    const docxData = buildWorkflowPayload(
+      selection,
+      selection.qdKhlcnt.data,
+      [...previousCompletedData, currentStepData],
+    );
 
     return generateContractorSelectionDocx(
       selection.procurementMethod,
@@ -1224,10 +1561,10 @@ export class ContractorSelectionService {
   getStepDocFilename(stepKey: string, tenGoiThau: string): string {
     const labels: Record<string, string> = {
       cong_van_tham_gia: 'Công văn xin tham gia',
-      thu_moi_hoan_thien: 'Thư mời thương thảo hợp đồng',
-      bien_ban_hoan_thien: 'Biên bản hoàn thiện hợp đồng',
-      to_trinh_kqlcnt: 'Tờ trình phê duyệt KQLCNT',
-      quyet_dinh_kqlcnt: 'Quyết định phê duyệt KQLCNT',
+      thu_moi_hoan_thien: 'Thư mời tham gia thương thảo hợp đồng',
+      bien_ban_hoan_thien: 'Biên bản thương thảo hợp đồng',
+      to_trinh_kqlcnt: 'Tờ trình phê duyệt kết quả lựa chọn nhà thầu',
+      quyet_dinh_kqlcnt: 'Quyết định phê duyệt kết quả lựa chọn nhà thầu',
       hop_dong: 'Hợp đồng',
       thong_tin_to_chuyen_gia: 'Thông tin tổ chuyên gia',
       san_pham_hsmt: 'Sản phẩm HSMT',

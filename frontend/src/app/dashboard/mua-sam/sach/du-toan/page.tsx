@@ -8,8 +8,6 @@ import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import { useSearchParams } from 'next/navigation';
-import { LibraryPicker, SaveToLibraryModal } from '@/components/LibraryPicker';
-import { SavedValue } from '@/lib/document-library-types';
 import { HistoryModal } from '@/components/HistoryModal';
 import { OnlyOfficePreview } from '@/components/OnlyOfficePreview';
 import { ProjectChat } from '@/components/ProjectChat';
@@ -38,6 +36,7 @@ function SachDuToanPageInner() {
   const [selectedProject, setSelectedProject] = useState<string>(searchParams.get('project') || '');
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [editingDoc, setEditingDoc] = useState<Doc | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectComment, setRejectComment] = useState('');
   const [detailDoc, setDetailDoc] = useState<Doc | null>(null);
@@ -46,8 +45,6 @@ function SachDuToanPageInner() {
   const [autoFilling, setAutoFilling] = useState(false);
   const [autoFillInfo, setAutoFillInfo] = useState<any>(null);
   const [datSachCompleted, setDatSachCompleted] = useState(false);
-  const [saveTTOpen, setSaveTTOpen] = useState(false);
-  const [saveQDOpen, setSaveQDOpen] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
 
   const checkDatSachStatus = useCallback(async (projId: string) => {
@@ -80,7 +77,13 @@ function SachDuToanPageInner() {
     setLoading(true);
     try {
       const [data, projectList] = await Promise.all([
-        api.getDocumentsByType(['TT_DUTOAN', 'QD_DUTOAN'], selectedProject || undefined),
+        api.getDocumentsByType(
+          ['TT_DUTOAN', 'QD_DUTOAN'],
+          selectedProject || undefined,
+          1,
+          100,
+          PROJ_TYPE,
+        ),
         api.getProjects(),
       ]);
       const documentsList = Array.isArray(data) ? data : ((data as any)?.documents || []);
@@ -131,49 +134,46 @@ function SachDuToanPageInner() {
     finally { setAutoFilling(false); }
   };
 
-  const handleLibraryTT = (val: SavedValue) => {
-    const d = val.duLieu || {};
-    setTtData(prev => ({
-      ...prev,
-      // Library keys -> form keys
-      SoToTrinh: d.soToTrinh || d.SoToTrinh || prev.SoToTrinh,
-      DiaDanh: d.diaDanh || d.DiaDanh || prev.DiaDanh,
-      ChuDauTu: d.chuDauTu || d.ChuDauTu || prev.ChuDauTu,
-      TenDuAn: d.tenDuAn || d.TenDuAn || prev.TenDuAn,
-      DonViTrinh: d.donViTrinh || d.DonViTrinh || prev.DonViTrinh,
-      NguonVon: d.nguonVon || d.NguonVon || prev.NguonVon,
-      DiaDiemThucHien: d.diaDiemThucHien || d.DiaDiemThucHien || prev.DiaDiemThucHien,
-      ThoiGianThucHien: d.thoiGianThucHien || d.ThoiGianThucHien || prev.ThoiGianThucHien,
-      DuToanBangSo: d.tongMucDauTu || d.tongMucDauTu || prev.DuToanBangSo,
-      DuToanBangChu: d.duToanBangChu || d.DuToanBangChu || prev.DuToanBangChu,
-    }));
-  };
-
-  const handleLibraryQD = (val: SavedValue) => {
-    const d = val.duLieu || {};
-    setQdData(prev => ({
-      ...prev,
-      SoQuyetDinh: d.soQuyetDinh || d.SoQuyetDinh || prev.SoQuyetDinh,
-      DiaDanh: d.diaDanh || d.DiaDanh || prev.DiaDanh,
-      ChuDauTu: d.chuDauTu || d.ChuDauTu || prev.ChuDauTu,
-      NguonVon: d.nguonVon || d.NguonVon || prev.NguonVon,
-      DiaDiemThucHien: d.diaDiemThucHien || d.DiaDiemThucHien || prev.DiaDiemThucHien,
-      DuToanBangSo: d.tongMucDauTu || prev.DuToanBangSo,
-      DuToanBangChu: d.duToanBangChu || prev.DuToanBangChu,
-    }));
-  };
-
   const approvedTTs = docs.filter(d => d.type === 'TT_DUTOAN' && d.status === 'APPROVED');
   const hasApprovedTT = approvedTTs.length > 0;
   const hasQD = docs.some(d => d.type === 'QD_DUTOAN');
+  const isDecisionForm = editingDoc
+    ? editingDoc.type === 'QD_DUTOAN'
+    : hasApprovedTT;
+
+  const closeForm = () => {
+    setShowForm(false);
+    setEditingDoc(null);
+  };
+
+  const startEditing = (doc: Doc) => {
+    setEditingDoc(doc);
+    if (doc.projectId) setSelectedProject(doc.projectId);
+    if (doc.type === 'QD_DUTOAN') {
+      setQdData(current => ({ ...current, ...(doc.data || {}) }));
+    } else {
+      setTtData(current => ({ ...current, ...(doc.data || {}) }));
+    }
+    setShowForm(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   const handleCreateTT = async () => {
     if (!selectedProject) { toast.error('Chọn dự án'); return; }
     setSubmitting(true);
     try {
-      await api.createDocument('TT_DUTOAN', ttData, undefined, undefined, selectedProject);
-      toast.success('Đã tạo Tờ trình dự toán');
-      setShowForm(false);
+      if (editingDoc) {
+        await api.resubmitDocument(editingDoc.id, ttData);
+        toast.success(
+          editingDoc.status === 'REJECTED'
+            ? 'Đã sửa và gửi lại Tờ trình dự toán'
+            : 'Đã lưu chỉnh sửa Tờ trình dự toán',
+        );
+      } else {
+        await api.createDocument('TT_DUTOAN', ttData, undefined, undefined, selectedProject);
+        toast.success('Đã tạo Tờ trình dự toán');
+      }
+      closeForm();
       fetchData();
     } catch (err: any) { toast.error(err.message); }
     finally { setSubmitting(false); }
@@ -183,9 +183,18 @@ function SachDuToanPageInner() {
     if (!selectedProject) { toast.error('Chọn dự án'); return; }
     setSubmitting(true);
     try {
-      await api.createDocument('QD_DUTOAN', qdData, undefined, undefined, selectedProject);
-      toast.success('Đã tạo Quyết định dự toán');
-      setShowForm(false);
+      if (editingDoc) {
+        await api.resubmitDocument(editingDoc.id, qdData);
+        toast.success(
+          editingDoc.status === 'REJECTED'
+            ? 'Đã sửa và gửi lại Quyết định dự toán'
+            : 'Đã lưu chỉnh sửa Quyết định dự toán',
+        );
+      } else {
+        await api.createDocument('QD_DUTOAN', qdData, undefined, undefined, selectedProject);
+        toast.success('Đã tạo Quyết định dự toán');
+      }
+      closeForm();
       fetchData();
     } catch (err: any) { toast.error(err.message); }
     finally { setSubmitting(false); }
@@ -229,13 +238,13 @@ function SachDuToanPageInner() {
   });
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="mx-auto max-w-[1800px] space-y-4 2xl:space-y-6">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Phê duyệt dự toán</h1>
           <p className="text-gray-500 mt-1 text-sm">Thầu Sách — Dữ liệu từ GDN + PCDI sẽ được auto-fill</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {selectedProject && (
             <button
               onClick={() => setShowHistory(true)}
@@ -254,7 +263,7 @@ function SachDuToanPageInner() {
             </div>
           )}
           {canCreate && !showForm && !hasQD && (
-            <button onClick={() => setShowForm(true)}
+            <button onClick={() => { setEditingDoc(null); setShowForm(true); }}
               disabled={!datSachCompleted}
               className="px-4 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium disabled:bg-gray-300 disabled:cursor-not-allowed disabled:text-gray-500">
               {!datSachCompleted ? '🔒 Tạo Dự toán' : hasApprovedTT ? '+ Tạo Quyết định Dự toán' : '+ Tạo Tờ trình Dự toán'}
@@ -316,18 +325,16 @@ function SachDuToanPageInner() {
 
       {/* Create Form */}
       {showForm && (
-        <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
-          <div className="px-6 py-4 bg-green-50 border-b flex items-center justify-between">
+        <div className="rounded-2xl border bg-white shadow-sm">
+          <div className="flex flex-col gap-3 rounded-t-2xl border-b bg-green-50 px-4 py-4 sm:flex-row sm:items-center sm:justify-between lg:px-6">
             <h3 className="text-lg font-semibold text-green-900">
-              {hasApprovedTT ? 'Tạo Quyết định Dự toán' : 'Tạo Tờ trình Dự toán'}
+              {editingDoc
+                ? `${editingDoc.status === 'REJECTED' ? 'Sửa và gửi lại' : 'Chỉnh sửa'} ${isDecisionForm ? 'Quyết định Dự toán' : 'Tờ trình Dự toán'}`
+                : isDecisionForm
+                  ? 'Tạo Quyết định Dự toán'
+                  : 'Tạo Tờ trình Dự toán'}
             </h3>
             <div className="flex gap-2 items-center">
-              <LibraryPicker
-                libraryType="THONG_TIN_TO_CHUC"
-                module={hasApprovedTT ? 'DUTOAN_QD' : 'DUTOAN_TT'}
-                onSelect={hasApprovedTT ? handleLibraryQD : handleLibraryTT}
-                onSaveToLibrary={() => hasApprovedTT ? setSaveQDOpen(true) : setSaveTTOpen(true)}
-              />
               {selectedProject && (
                 <button
                   onClick={handleAutoFill}
@@ -339,38 +346,40 @@ function SachDuToanPageInner() {
               )}
             </div>
           </div>
-          <div className="p-6 space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              {hasApprovedTT ? (
+          <div className="space-y-4 p-4 lg:p-6">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              {isDecisionForm ? (
                 <input className="inp" placeholder="Số quyết định" value={qdData.SoQuyetDinh} onChange={e => setQdData({...qdData, SoQuyetDinh: e.target.value})} />
               ) : (
                 <input className="inp" placeholder="Số tờ trình" value={ttData.SoToTrinh} onChange={e => setTtData({...ttData, SoToTrinh: e.target.value})} />
               )}
-              <input className="inp" placeholder="Địa danh" value={hasApprovedTT ? qdData.DiaDanh : ttData.DiaDanh} onChange={e => hasApprovedTT ? setQdData({...qdData, DiaDanh: e.target.value}) : setTtData({...ttData, DiaDanh: e.target.value})} />
-              <input className="inp" placeholder="Chủ đầu tư" value={hasApprovedTT ? qdData.ChuDauTu : ttData.ChuDauTu} onChange={e => hasApprovedTT ? setQdData({...qdData, ChuDauTu: e.target.value}) : setTtData({...ttData, ChuDauTu: e.target.value})} />
-              {!hasApprovedTT && (
+              <input className="inp" placeholder="Địa danh" value={isDecisionForm ? qdData.DiaDanh : ttData.DiaDanh} onChange={e => isDecisionForm ? setQdData({...qdData, DiaDanh: e.target.value}) : setTtData({...ttData, DiaDanh: e.target.value})} />
+              <input className="inp" placeholder="Chủ đầu tư" value={isDecisionForm ? qdData.ChuDauTu : ttData.ChuDauTu} onChange={e => isDecisionForm ? setQdData({...qdData, ChuDauTu: e.target.value}) : setTtData({...ttData, ChuDauTu: e.target.value})} />
+              {!isDecisionForm && (
                 <input className="inp" placeholder="Tên dự án" value={ttData.TenDuAn} onChange={e => setTtData({...ttData, TenDuAn: e.target.value})} />
               )}
-              <input className="inp" placeholder="Tên gói thầu" value={hasApprovedTT ? qdData.TenGoiThau : ttData.TenGoiThau} onChange={e => hasApprovedTT ? setQdData({...qdData, TenGoiThau: e.target.value}) : setTtData({...ttData, TenGoiThau: e.target.value})} />
-              {!hasApprovedTT && (
+              <input className="inp" placeholder="Tên gói thầu" value={isDecisionForm ? qdData.TenGoiThau : ttData.TenGoiThau} onChange={e => isDecisionForm ? setQdData({...qdData, TenGoiThau: e.target.value}) : setTtData({...ttData, TenGoiThau: e.target.value})} />
+              {!isDecisionForm && (
                 <input className="inp" placeholder="Đơn vị trình" value={ttData.DonViTrinh} onChange={e => setTtData({...ttData, DonViTrinh: e.target.value})} />
               )}
-              <input className="inp" placeholder="Đơn vị mua sắm" value={hasApprovedTT ? qdData.DonViMuaSam : ttData.DonViMuaSam} onChange={e => hasApprovedTT ? setQdData({...qdData, DonViMuaSam: e.target.value}) : setTtData({...ttData, DonViMuaSam: e.target.value})} />
-              <input className="inp" placeholder="Nguồn vốn" value={hasApprovedTT ? qdData.NguonVon : ttData.NguonVon} onChange={e => hasApprovedTT ? setQdData({...qdData, NguonVon: e.target.value}) : setTtData({...ttData, NguonVon: e.target.value})} />
-              <input className="inp" placeholder="Địa điểm thực hiện" value={hasApprovedTT ? qdData.DiaDiemThucHien : ttData.DiaDiemThucHien} onChange={e => hasApprovedTT ? setQdData({...qdData, DiaDiemThucHien: e.target.value}) : setTtData({...ttData, DiaDiemThucHien: e.target.value})} />
-              <input className="inp" placeholder="Thời gian thực hiện" value={hasApprovedTT ? qdData.ThoiGianThucHien : ttData.ThoiGianThucHien} onChange={e => hasApprovedTT ? setQdData({...qdData, ThoiGianThucHien: e.target.value}) : setTtData({...ttData, ThoiGianThucHien: e.target.value})} />
-              <input className="inp" placeholder="Dự toán bằng số (auto-fill)" value={hasApprovedTT ? qdData.DuToanBangSo : ttData.DuToanBangSo} onChange={e => hasApprovedTT ? setQdData({...qdData, DuToanBangSo: e.target.value}) : setTtData({...ttData, DuToanBangSo: e.target.value})} style={{backgroundColor: (hasApprovedTT ? qdData.DuToanBangSo : ttData.DuToanBangSo) ? '#f0fdf4' : undefined}} />
-              <input className="inp" placeholder="Dự toán bằng chữ" value={hasApprovedTT ? qdData.DuToanBangChu : ttData.DuToanBangChu} onChange={e => hasApprovedTT ? setQdData({...qdData, DuToanBangChu: e.target.value}) : setTtData({...ttData, DuToanBangChu: e.target.value})} />
+              <input className="inp" placeholder="Đơn vị mua sắm" value={isDecisionForm ? qdData.DonViMuaSam : ttData.DonViMuaSam} onChange={e => isDecisionForm ? setQdData({...qdData, DonViMuaSam: e.target.value}) : setTtData({...ttData, DonViMuaSam: e.target.value})} />
+              <input className="inp" placeholder="Nguồn vốn" value={isDecisionForm ? qdData.NguonVon : ttData.NguonVon} onChange={e => isDecisionForm ? setQdData({...qdData, NguonVon: e.target.value}) : setTtData({...ttData, NguonVon: e.target.value})} />
+              <input className="inp" placeholder="Địa điểm thực hiện" value={isDecisionForm ? qdData.DiaDiemThucHien : ttData.DiaDiemThucHien} onChange={e => isDecisionForm ? setQdData({...qdData, DiaDiemThucHien: e.target.value}) : setTtData({...ttData, DiaDiemThucHien: e.target.value})} />
+              <input className="inp" placeholder="Thời gian thực hiện" value={isDecisionForm ? qdData.ThoiGianThucHien : ttData.ThoiGianThucHien} onChange={e => isDecisionForm ? setQdData({...qdData, ThoiGianThucHien: e.target.value}) : setTtData({...ttData, ThoiGianThucHien: e.target.value})} />
+              <input className="inp" placeholder="Dự toán bằng số (auto-fill)" value={isDecisionForm ? qdData.DuToanBangSo : ttData.DuToanBangSo} onChange={e => isDecisionForm ? setQdData({...qdData, DuToanBangSo: e.target.value}) : setTtData({...ttData, DuToanBangSo: e.target.value})} style={{backgroundColor: (isDecisionForm ? qdData.DuToanBangSo : ttData.DuToanBangSo) ? '#f0fdf4' : undefined}} />
+              <input className="inp" placeholder="Dự toán bằng chữ" value={isDecisionForm ? qdData.DuToanBangChu : ttData.DuToanBangChu} onChange={e => isDecisionForm ? setQdData({...qdData, DuToanBangChu: e.target.value}) : setTtData({...ttData, DuToanBangChu: e.target.value})} />
             </div>
-            <div className="flex gap-2 justify-end">
-              <button onClick={() => setShowForm(false)} className="px-4 py-2 bg-gray-200 rounded-lg text-sm">Hủy</button>
-              <button onClick={() => hasApprovedTT ? setSaveQDOpen(true) : setSaveTTOpen(true)}
-                className="px-4 py-2 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-100 text-sm">
-                Lưu vào thư viện
-              </button>
-              <button onClick={hasApprovedTT ? handleCreateQD : handleCreateTT} disabled={submitting}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm font-medium">
-                {submitting ? '...' : 'Tạo & Gửi duyệt'}
+            <div className="sticky bottom-3 z-10 flex flex-col-reverse gap-2 rounded-xl border border-slate-200 bg-white/95 p-3 shadow-lg backdrop-blur sm:flex-row sm:justify-end">
+              <button onClick={closeForm} className="min-h-10 rounded-xl bg-gray-200 px-4 py-2 text-sm font-semibold">Hủy</button>
+              <button onClick={isDecisionForm ? handleCreateQD : handleCreateTT} disabled={submitting}
+                className="min-h-10 rounded-xl bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50">
+                {submitting
+                  ? 'Đang lưu...'
+                  : editingDoc
+                    ? editingDoc.status === 'REJECTED'
+                      ? 'Lưu và gửi lại'
+                      : 'Lưu chỉnh sửa'
+                    : 'Tạo & Gửi duyệt'}
               </button>
             </div>
           </div>
@@ -397,8 +406,8 @@ function SachDuToanPageInner() {
           {selectedProject ? 'Dự án này chưa có dữ liệu dự toán.' : 'Chưa có tài liệu nào.'}
         </div>
       ) : (
-        <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
-          <table className="w-full">
+        <div className="overflow-x-auto rounded-2xl border bg-white shadow-sm">
+          <table className="w-full min-w-[900px]">
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Loại</th>
@@ -427,6 +436,15 @@ function SachDuToanPageInner() {
                     <div className="flex items-center gap-1.5">
                       <button onClick={() => setDetailDoc(doc)} className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100">👁 Xem</button>
                       <button onClick={() => handleDownloadDocx(doc.id)} className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">📥 Tải</button>
+                      {doc.status !== 'APPROVED' &&
+                        (doc.createdBy === user?.id || user?.role === 'ADMIN') && (
+                          <button
+                            onClick={() => startEditing(doc)}
+                            className="min-h-8 rounded-lg bg-orange-100 px-2.5 py-1 text-xs font-semibold text-orange-700 hover:bg-orange-200"
+                          >
+                            {doc.status === 'REJECTED' ? 'Sửa & gửi lại' : 'Chỉnh sửa'}
+                          </button>
+                        )}
                       {canApprove && doc.status === 'PENDING_APPROVAL' && (
                         <>
                           <button onClick={() => handleApprove(doc.id)} className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200">✅</button>
@@ -459,24 +477,6 @@ function SachDuToanPageInner() {
         }
         .inp:focus { border-color: #6366f1; box-shadow: 0 0 0 2px rgba(99,102,241,0.1); }
       `}</style>
-
-      <SaveToLibraryModal
-        isOpen={saveTTOpen}
-        onClose={() => setSaveTTOpen(false)}
-        libraryType="DUTOAN_TT"
-        formData={ttData}
-        formFieldKeys={['SoToTrinh', 'DiaDanh', 'ChuDauTu', 'TenDuAn', 'TenGoiThau', 'DonViTrinh', 'DonViMuaSam', 'PhongBanThuocDonViTrinh', 'NguonVon', 'DiaDiemThucHien', 'ThoiGianThucHien', 'DuToanBangSo', 'DuToanBangChu']}
-        onSave={() => setSaveTTOpen(false)}
-      />
-
-      <SaveToLibraryModal
-        isOpen={saveQDOpen}
-        onClose={() => setSaveQDOpen(false)}
-        libraryType="DUTOAN_QD"
-        formData={qdData}
-        formFieldKeys={['SoQuyetDinh', 'DiaDanh', 'ChuDauTu', 'TenGoiThau', 'DonViMuaSam', 'PhongBanThuocDonViTrinh', 'NguonVon', 'DiaDiemThucHien', 'ThoiGianThucHien', 'DuToanBangSo', 'DuToanBangChu']}
-        onSave={() => setSaveQDOpen(false)}
-      />
 
       <HistoryModal
         isOpen={showHistory}

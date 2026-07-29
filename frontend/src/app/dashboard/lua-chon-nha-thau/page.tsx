@@ -518,10 +518,18 @@ function LuaChonNhaThauPageInner() {
     } catch (err: any) { toast.error(err.message); }
   };
 
-  const handleCreateSelection = async (goiThauIndex: number) => {
+  const handleCreateSelection = async (
+    goiThauIndex: number,
+    packageId?: string,
+  ) => {
     if (!selectedQD) return;
     try {
-      const sel = await api.createContractorSelection(selectedQD.id, goiThauIndex, selectedProject || undefined);
+      const sel = await api.createContractorSelection(
+        selectedQD.id,
+        goiThauIndex,
+        selectedProject || undefined,
+        packageId,
+      );
       toast.success('Đã tạo quy trình lựa chọn nhà thầu');
       setSelections(prev => [...prev, sel]);
       router.push(`/dashboard/lua-chon-nha-thau/${sel.id}`);
@@ -666,11 +674,23 @@ function LuaChonNhaThauPageInner() {
   const filteredQD = qdList.filter(qd => {
     if (!searchTerm) return true;
     const d = qd.data || {};
-    const text = (d.tenDuAn || '') + ' ' + (d.soQuyetDinh || '') + ' ' + (d.chuDauTu || '');
+    const text = [
+      d.TenDuAn,
+      d.tenDuAn,
+      d.SoVanBan,
+      d.soVanBan,
+      d.SoQuyetDinh,
+      d.soQuyetDinh,
+      d.ChuDauTu,
+      d.chuDauTu,
+    ].filter(Boolean).join(' ');
     return text.toLowerCase().includes(searchTerm.toLowerCase());
   });
 
-  const goiThauList = selectedQD?.data?.goiThau || [];
+  const goiThauList =
+    selectedQD?.data?.packages ||
+    selectedQD?.data?.goiThau ||
+    [];
 
   if (loading) {
     return (
@@ -1002,31 +1022,84 @@ function LuaChonNhaThauPageInner() {
         <div className="space-y-4">
           <div className="bg-white rounded-xl shadow-sm border p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-1">
-              {selectedQD.data?.tenDuAn || 'QĐ phê duyệt KHLCNT'}
+              {selectedQD.data?.TenDuAn ||
+                selectedQD.data?.tenDuAn ||
+                'QĐ phê duyệt KHLCNT'}
             </h2>
             <p className="text-sm text-gray-500 mb-4">
-              Số QĐ: {selectedQD.data?.soQuyetDinh || '—'} | Ngày: {selectedQD.data?.ngayBanHanh ? format(new Date(selectedQD.data.ngayBanHanh), 'dd/MM/yyyy') : '—'}
+              Số QĐ:{' '}
+              {selectedQD.data?.SoVanBan ||
+                selectedQD.data?.soVanBan ||
+                selectedQD.data?.SoQuyetDinh ||
+                selectedQD.data?.soQuyetDinh ||
+                '—'}{' '}
+              | Ngày:{' '}
+              {selectedQD.data?.NgayBanHanh ||
+              selectedQD.data?.ngayBanHanh
+                ? format(
+                    new Date(
+                      selectedQD.data?.NgayBanHanh ||
+                        selectedQD.data?.ngayBanHanh,
+                    ),
+                    'dd/MM/yyyy',
+                  )
+                : '—'}
             </p>
 
             <h3 className="font-medium text-gray-800 mb-3">Danh sách gói thầu ({goiThauList.length})</h3>
             <div className="space-y-3">
               {goiThauList.map((gt: any, idx: number) => {
-                const existingSelection = selections.find(s => s.goiThauIndex === idx);
-                const method = (gt.hinhThucLuaChon || '').toLowerCase();
+                const packageId = String(gt.id || gt.packageId || '');
+                const existingSelection = selections.find(
+                  (selection) =>
+                    (packageId &&
+                      selection.packageId === packageId) ||
+                    selection.goiThauIndex === idx,
+                );
+                const method = String(
+                  gt.hinhThucLuaChonNhaThau ||
+                    gt.HinhThucLuaChonNhaThau ||
+                    gt.hinhThucLuaChon ||
+                    '',
+                ).toLowerCase();
                 let methodLabel = '';
                 if (method.includes('chỉ định') || method.includes('chi dinh')) methodLabel = 'Chỉ định thầu';
                 else if (method.includes('chào hàng') || method.includes('chao hang')) methodLabel = 'Chào hàng cạnh tranh';
                 else if (method.includes('đấu thầu rộng') || method.includes('dau thau rong')) methodLabel = 'Đấu thầu rộng rãi';
 
                 return (
-                  <div key={idx} className="border rounded-lg p-4 hover:border-primary-300 transition-colors">
+                  <div key={packageId || idx} className="border rounded-lg p-4 hover:border-primary-300 transition-colors">
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
-                        <p className="font-medium text-gray-900">Gói {idx + 1}: {gt.tenGoiThau || '—'}</p>
+                        <p className="font-medium text-gray-900">
+                          Gói {idx + 1}:{' '}
+                          {gt.tenGoiThau || gt.TenGoiThau || '—'}
+                        </p>
                         <div className="flex flex-wrap gap-2 mt-2 text-xs text-gray-500">
-                          <span>💰 {gt.giaGoiThau ? Number(gt.giaGoiThau).toLocaleString('vi-VN') + ' đ' : '—'}</span>
-                          <span>📋 {gt.hinhThucLuaChon || '—'}</span>
-                          <span>📄 {gt.loaiHopDong || '—'}</span>
+                          <span>
+                            💰{' '}
+                            {gt.giaDuToanGoiThau ||
+                            gt.GiaDuToanGoiThau ||
+                            gt.giaGoiThau ||
+                            gt.GiaGoiThau
+                              ? String(
+                                  gt.giaDuToanGoiThau ||
+                                    gt.GiaDuToanGoiThau ||
+                                    gt.giaGoiThau ||
+                                    gt.GiaGoiThau,
+                                ) + ' đ'
+                              : '—'}
+                          </span>
+                          <span>
+                            📋{' '}
+                            {gt.hinhThucLuaChonNhaThau ||
+                              gt.HinhThucLuaChonNhaThau ||
+                              gt.hinhThucLuaChon ||
+                              '—'}
+                          </span>
+                          <span>
+                            📄 {gt.loaiHopDong || gt.LoaiHopDong || '—'}
+                          </span>
                         </div>
                         {methodLabel && (
                           <span className="inline-flex items-center mt-2 px-2 py-0.5 rounded text-xs font-medium bg-indigo-50 text-indigo-600">
@@ -1041,7 +1114,13 @@ function LuaChonNhaThauPageInner() {
                             📂 Mở quy trình
                           </button>
                         ) : (
-                          <button onClick={() => handleCreateSelection(idx)}
+                          <button
+                            onClick={() =>
+                              handleCreateSelection(
+                                idx,
+                                packageId || undefined,
+                              )
+                            }
                             className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700">
                             ➕ Tạo quy trình LCNT
                           </button>

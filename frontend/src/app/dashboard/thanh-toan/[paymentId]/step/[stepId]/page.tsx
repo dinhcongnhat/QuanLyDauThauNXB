@@ -6,118 +6,88 @@ import { api } from '@/lib/api';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
-import { SmartFormField, FieldDef } from '@/components/SmartFormField';
+import { FieldDef } from '@/components/SmartFormField';
 import { GroupedFieldRenderer } from '@/components/GroupedFieldRenderer';
+import { WorkflowDocxPreview } from '@/components/WorkflowDocxPreview';
 import { HistoryModal } from '@/components/HistoryModal';
-import { LibraryPicker, SaveToLibraryModal } from '@/components/LibraryPicker';
-import { SavedValue } from '@/lib/document-library-types';
 import { ProjectChat } from '@/components/ProjectChat';
+import {
+  getPaymentTemplateFieldKeys,
+  isBlankWorkflowValue,
+  mergeTemplateFields,
+  normalizeLegalBasisValue,
+  normalizeWorkflowData,
+} from '@/lib/workflow-template-api';
 
 // ====================== FIELD DEFINITIONS ======================
 // Mapped from template placeholders per step, per package type
 
-// Remove old FieldDef - now imported from SmartFormField
-
 // ---- GOI_THAU_TU_VAN ----
 const TU_VAN_FIELDS: Record<string, FieldDef[]> = {
   ban_giao_san_pham: [
-    { key: 'ChuDauTu', label: 'Chủ đầu tư' },
-    { key: 'NhaThau', label: 'Nhà thầu' },
+    { key: 'SanPhamGoiThau', label: 'Sản phẩm gói thầu' },
     { key: 'TenGoiThau', label: 'Tên gói thầu' },
     { key: 'TenDuAn', label: 'Tên dự án' },
-    { key: 'MaSoHopDong', label: 'Mã số hợp đồng' },
-    { key: 'ThoiGianKyHopDong', label: 'Thời gian ký hợp đồng', type: 'date' },
-    { key: 'ThoiGianBBBG', label: 'Thời gian bàn giao', type: 'date' },
-    { key: 'TenSanPhamBanGiao', label: 'Tên sản phẩm bàn giao' },
-    { key: 'SoLuongSanPhamBanCung', label: 'Số lượng sản phẩm bàn cung' },
-    { key: 'TenDaiDienBGChuDauTu', label: 'Tên đại diện bàn giao CDT' },
-    { key: 'ChucVuDaiDienBGChuDauTu', label: 'Chức vụ đại diện BG CĐT' },
-    { key: 'TenDaiDienBGNhaThau', label: 'Tên đại diện bàn giao nhà thầu' },
-    { key: 'ChucVuDaiDienBGNhaThau', label: 'Chức vụ đại diện BG NT' },
-    { key: 'SoLuongBBBGMoiBenGiu', label: 'Số lượng BBBG mỗi bên giữ' },
-    { key: 'TongSoLuongBBBG', label: 'Tổng số lượng BBBG' },
+    { key: 'SoHopDong', label: 'Số hợp đồng' },
+    { key: 'NgayBanHanhHopDong', label: 'Ngày ban hành hợp đồng', type: 'date' },
+    { key: 'TenNhaThau', label: 'Tên nhà thầu', group: 'nt' },
+    { key: 'NgayBanHanh', label: 'Ngày ban hành', type: 'date' },
+    { key: 'DaiDienNhaThau', label: 'Đại diện nhà thầu', group: 'nt' },
+    { key: 'ChucVuNhaThau', label: 'Chức vụ đại diện nhà thầu', group: 'nt' },
+    { key: 'DonViSanPhamGoiThau', label: 'Đơn vị sản phẩm gói thầu' },
+    { key: 'SoLuongSanPhamGoiThau', label: 'Số lượng sản phẩm gói thầu' },
+    { key: 'HinhThucSanPhamGoiThau', label: 'Hình thức sản phẩm gói thầu' },
   ],
   nghiem_thu_san_pham: [
-    { key: 'ChuDauTu', label: 'Chủ đầu tư' },
-    { key: 'NhaThau', label: 'Nhà thầu' },
+    { key: 'SoHopDong', label: 'Số hợp đồng' },
+    { key: 'NgayBanHanhHopDong', label: 'Ngày ban hành hợp đồng', type: 'date' },
+    { key: 'TenNhaThau', label: 'Tên nhà thầu', group: 'nt' },
     { key: 'TenGoiThau', label: 'Tên gói thầu' },
     { key: 'TenDuAn', label: 'Tên dự án' },
-    { key: 'MaSoHopDong', label: 'Mã số hợp đồng' },
-    { key: 'ThoiGianKyHopDong', label: 'Thời gian ký hợp đồng', type: 'date' },
-    { key: 'ThoiGianNghiemThu', label: 'Thời gian nghiệm thu', type: 'date' },
-    { key: 'DaiDienChuDauTu', label: 'Đại diện chủ đầu tư' },
-    { key: 'ChucVuDaiDienChuDauTu', label: 'Chức vụ đại diện CĐT' },
-    { key: 'DiaChiChuDauTu', label: 'Địa chỉ CĐT' },
-    { key: 'DienThoaiChuDauTu', label: 'Điện thoại CĐT' },
-    { key: 'MaSoThueChuDauTu', label: 'Mã số thuế CĐT' },
-    { key: 'MaSoNganHangChuDauTu', label: 'Mã số ngân hàng CĐT' },
-    { key: 'ThongTinTaiKhoanChuDauTu', label: 'Thông tin tài khoản CĐT' },
+    { key: 'NgayBanHanh', label: 'Ngày ban hành', type: 'date' },
+    { key: 'DiaChiNhaThau', label: 'Địa chỉ nhà thầu', group: 'nt' },
     { key: 'DaiDienNhaThau', label: 'Đại diện nhà thầu' },
-    { key: 'ChucVuDaiDienNhaThau', label: 'Chức vụ đại diện NT' },
-    { key: 'DiaChiNhaThau', label: 'Địa chỉ nhà thầu' },
+    { key: 'ChucVuNhaThau', label: 'Chức vụ đại diện nhà thầu', group: 'nt' },
     { key: 'SoDienThoaiNhaThau', label: 'Số điện thoại nhà thầu' },
-    { key: 'MaSoThueNhaThau', label: 'MST nhà thầu' },
-    { key: 'ThongTinTaiKhoanNhaThau', label: 'TK nhà thầu' },
-    { key: 'SanPhamBG', label: 'Sản phẩm bàn giao' },
-    { key: 'SoLuongSanPham', label: 'Số lượng sản phẩm' },
-    { key: 'SoLuongBBNTCuaChuDauTu', label: 'Số lượng BBNT bên CĐT' },
-    { key: 'SoLuongBBNTCuaNhaThau', label: 'Số lượng BBNT bên NT' },
-    { key: 'TongSoLuongBBNT', label: 'Tổng số lượng BBNT' },
+    { key: 'MSTNhaThau', label: 'Mã số thuế nhà thầu', group: 'nt' },
+    { key: 'TaiKhoanNhaThau', label: 'Thông tin tài khoản nhà thầu', group: 'nt' },
+    { key: 'GiaGoiThau', label: 'Giá gói thầu', type: 'money' },
+    { key: 'GiaGoiThauBangChu', label: 'Giá gói thầu bằng chữ', type: 'money-words', linkedTo: 'GiaGoiThau' },
+    { key: 'SanPhamGoiThau', label: 'Sản phẩm gói thầu' },
+    { key: 'DonViSanPhamGoiThau', label: 'Đơn vị sản phẩm gói thầu' },
+    { key: 'SoLuongSanPhamGoiThau', label: 'Số lượng sản phẩm gói thầu' },
+    { key: 'HinhThucSanPhamGoiThau', label: 'Hình thức sản phẩm gói thầu' },
   ],
   mau_08a: [
-    { key: 'DiaDanh', label: 'Địa danh' },
-    { key: 'ChuDauTu', label: 'Chủ đầu tư' },
-    { key: 'NhaThau', label: 'Nhà thầu' },
+    { key: 'SoHopDong', label: 'Số hợp đồng' },
+    { key: 'NgayBanHanhHopDong', label: 'Ngày ban hành hợp đồng', type: 'date' },
+    { key: 'TenNhaThauGoiThau', label: 'Tên nhà thầu gói thầu', group: 'nt' },
+    { key: 'GiaGoiThau', label: 'Giá gói thầu', type: 'money' },
+    { key: 'TenNhaThau', label: 'Tên nhà thầu', group: 'nt' },
     { key: 'TenGoiThau', label: 'Tên gói thầu' },
     { key: 'TenDuAn', label: 'Tên dự án' },
-    { key: 'MaSoHopDong', label: 'Mã số hợp đồng' },
-    { key: 'ThoiGianKyHopDong', label: 'Thời gian ký hợp đồng', type: 'date' },
-    { key: 'ThoiGianNghiemThu', label: 'Thời gian nghiệm thu', type: 'date' },
-    { key: 'Ngay', label: 'Ngày', type: 'date' },
-    { key: 'Thang', label: 'Tháng' },
-    { key: 'Nam', label: 'Năm' },
-    { key: 'So', label: 'Số' },
-    { key: 'MaDonVi', label: 'Mã đơn vị' },
-    { key: 'MaHieu', label: 'Mã hiệu' },
-    { key: 'MaNguon', label: 'Mã nguồn' },
-    { key: 'GiaHDBangSo', label: 'Giá HĐ bằng số', type: 'money' },
-    { key: 'GiaHDBangChu', label: 'Giá HĐ bằng chữ', type: 'money-words' },
-    { key: 'DonGiaHDBangSo', label: 'Đơn giá HĐ bằng số', type: 'money' },
-    { key: 'GiaTriThanhToanTamUng', label: 'Giá trị thanh toán tạm ứng', type: 'money' },
-    { key: 'GiaTriThanhToanTrucTiep', label: 'Giá trị thanh toán trực tiếp', type: 'money' },
-    { key: 'SoDeNghiThanhToanKyNay', label: 'Số đề nghị thanh toán kỳ này', type: 'money' },
-    { key: 'SoDuTamUngKyTruoc', label: 'Số dư tạm ứng kỳ trước', type: 'money' },
+    { key: 'GiaGoiThauChuaThue', label: 'Giá gói thầu chưa thuế', type: 'money' },
+    { key: 'ThueGoiThau', label: 'Thuế gói thầu', type: 'money' },
+    { key: 'GiaGoiThauBangChu', label: 'Giá gói thầu bằng chữ', type: 'money-words', linkedTo: 'GiaGoiThau' },
   ],
   thanh_ly_hop_dong: [
-    { key: 'ChuDauTu', label: 'Chủ đầu tư' },
-    { key: 'NhaThau', label: 'Nhà thầu' },
     { key: 'TenGoiThau', label: 'Tên gói thầu' },
     { key: 'TenDuAn', label: 'Tên dự án' },
-    { key: 'MaSoHD', label: 'Mã số hợp đồng' },
-    { key: 'ThoiGianKyHD', label: 'Thời gian ký HĐ', type: 'date' },
-    { key: 'ThoiGianBBBG', label: 'Thời gian BBBG', type: 'date' },
-    { key: 'ThoiGianBBNT', label: 'Thời gian BBNT', type: 'date' },
-    { key: 'Ngay', label: 'Ngày', type: 'date' },
-    { key: 'thang', label: 'Tháng' },
-    { key: 'nam', label: 'Năm' },
-    { key: 'DaiDienChuDauTu', label: 'Đại diện CĐT' },
-    { key: 'ChucVuDaiDienChuDauTu', label: 'Chức vụ đại diện CĐT' },
-    { key: 'DiaChiChuDauTu', label: 'Địa chỉ CĐT' },
-    { key: 'DienThoaiChuDauTu', label: 'Điện thoại CĐT' },
-    { key: 'MaSoThueChuDauTu', label: 'MST CĐT' },
-    { key: 'ThongTinTaiKhoanChuDauTu', label: 'TK CĐT' },
+    { key: 'SoHieuVanBan', label: 'Số hiệu văn bản' },
+    { key: 'SoHopDong', label: 'Số hợp đồng' },
+    { key: 'NgayBanHanhHopDong', label: 'Ngày ban hành hợp đồng', type: 'date' },
+    { key: 'TenNhaThau', label: 'Tên nhà thầu', group: 'nt' },
+    { key: 'NgayBanHanhBienBanNghiemThu', label: 'Ngày biên bản nghiệm thu', type: 'date' },
+    { key: 'NgayBanHanh', label: 'Ngày ban hành', type: 'date' },
+    { key: 'DiaChiNhaThau', label: 'Địa chỉ nhà thầu', group: 'nt' },
     { key: 'DaiDienNhaThau', label: 'Đại diện NT' },
-    { key: 'ChucVuDaiDienNhaThau', label: 'Chức vụ đại diện NT' },
-    { key: 'DiaChiNhaThau', label: 'Địa chỉ NT' },
-    { key: 'DienThoaiNhaThau', label: 'Điện thoại NT' },
-    { key: 'MaSoThueNhaThau', label: 'MST NT' },
-    { key: 'ThongTinTaiKhoanNhaThau', label: 'TK NT' },
-    { key: 'GiaTriThanhLyBangSo', label: 'Giá trị thanh lý bằng số', type: 'money' },
-    { key: 'GiaTriThanhLyBangChu', label: 'Giá trị thanh lý bằng chữ', type: 'money-words' },
-    { key: 'SoTienTamUngBangSo', label: 'Số tiền tạm ứng bằng số', type: 'money' },
-    { key: 'SoLuongBBTLHDBenA', label: 'Số lượng BBTLHD bên A' },
-    { key: 'SoLuongBBTLHDBenB', label: 'Số lượng BBTLHD bên B' },
-    { key: 'TongSoLuongBBTLHD', label: 'Tổng số lượng BBTLHD' },
+    { key: 'ChucVuNhaThau', label: 'Chức vụ đại diện nhà thầu', group: 'nt' },
+    { key: 'SoDienThoaiNhaThau', label: 'Số điện thoại nhà thầu', group: 'nt' },
+    { key: 'MSTNhaThau', label: 'Mã số thuế nhà thầu', group: 'nt' },
+    { key: 'TaiKhoanNhaThau', label: 'Thông tin tài khoản nhà thầu', group: 'nt' },
+    { key: 'SoLuongSanPhamGoiThau', label: 'Số lượng sản phẩm gói thầu' },
+    { key: 'SanPhamGoiThau', label: 'Sản phẩm gói thầu' },
+    { key: 'GiaGoiThau', label: 'Giá gói thầu', type: 'money' },
   ],
 };
 
@@ -683,46 +653,35 @@ export default function PaymentStepPage() {
   const [payment, setPayment] = useState<any>(null);
   const [step, setStep] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [formData, setFormData] = useState<Record<string, string>>({});
+  const [formData, setFormData] = useState<Record<string, any>>({});
   const [autoFillData, setAutoFillData] = useState<Record<string, any>>({});
+  const [templateFieldKeys, setTemplateFieldKeys] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadGhiChu, setUploadGhiChu] = useState('');
   const [showHistory, setShowHistory] = useState(false);
-  const [showSaveLibraryModal, setShowSaveLibraryModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleSelectLibraryValue = (savedValue: SavedValue) => {
-    const data = savedValue.duLieu || {};
-    const newFormData = { ...formData };
-    for (const [key, value] of Object.entries(data)) {
-      const valStr = String(value ?? '');
-      newFormData[key] = valStr;
-      if (key === 'MaSoHopDong') {
-        newFormData['MaSoHD'] = valStr;
-      } else if (key === 'ThoiGianKyHopDong') {
-        newFormData['ThoiGianKyHD'] = valStr;
-      } else if (key === 'DiaDanh') {
-        newFormData['Diadanh'] = valStr;
-        newFormData['diaDanh'] = valStr;
-      }
-    }
-    setFormData(newFormData);
-    toast.success('Đã điền thông tin từ thư viện văn bản');
-  };
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const stepData = await api.getPaymentStep(stepId);
+      const [stepData, dynamicFields] = await Promise.all([
+        api.getPaymentStep(stepId),
+        getPaymentTemplateFieldKeys(stepId).catch(() => []),
+      ]);
       setStep(stepData);
       setPayment(stepData.payment);
+      setTemplateFieldKeys(dynamicFields);
 
       const rawData = (stepData.data || {}) as Record<string, any>;
-      const stringData: Record<string, string> = {};
-      for (const [k, v] of Object.entries(rawData)) {
-        if (k !== '_attachments') stringData[k] = String(v ?? '');
+      const normalizedData = normalizeWorkflowData(rawData);
+      const stringData: Record<string, any> = {};
+      for (const [k, v] of Object.entries(normalizedData)) {
+        if (k !== '_attachments') {
+          stringData[k] =
+            k === 'CanCu' ? normalizeLegalBasisValue(v) : String(v ?? '');
+        }
       }
       setFormData(stringData);
     } catch (err: any) { toast.error(err.message); }
@@ -736,24 +695,32 @@ export default function PaymentStepPage() {
     if (!step || step.status === 'COMPLETED') return;
     api.getPaymentAutoFill(stepId).then(async (data) => {
       if (!data || Object.keys(data).length === 0) return;
-      setAutoFillData(data);
+      const normalizedAutoFill = normalizeWorkflowData(data);
+      setAutoFillData(normalizedAutoFill);
       setFormData(prev => {
         const merged = { ...prev };
-        for (const [key, val] of Object.entries(data)) {
-          if (!merged[key] || merged[key].trim() === '') {
-            merged[key] = String(val ?? '');
+        for (const [key, val] of Object.entries(normalizedAutoFill)) {
+          if (isBlankWorkflowValue(merged[key])) {
+            merged[key] =
+              key === 'CanCu'
+                ? normalizeLegalBasisValue(val)
+                : String(val ?? '');
           }
         }
         return merged;
       });
       // Persist auto-fill data to DB immediately so it's available for DOCX generation
       try {
-        const keysToUpdate: Record<string, string> = {};
-        for (const [key, val] of Object.entries(data)) {
-          const rawData = (step.data || {}) as Record<string, any>;
-          const rawVal = String(rawData[key] ?? '');
-          if (!rawVal || rawVal.trim() === '') {
-            keysToUpdate[key] = String(val ?? '');
+        const keysToUpdate: Record<string, any> = {};
+        const currentData = normalizeWorkflowData(
+          (step.data || {}) as Record<string, any>,
+        );
+        for (const [key, val] of Object.entries(normalizedAutoFill)) {
+          if (isBlankWorkflowValue(currentData[key])) {
+            keysToUpdate[key] =
+              key === 'CanCu'
+                ? normalizeLegalBasisValue(val)
+                : String(val ?? '');
           }
         }
         if (Object.keys(keysToUpdate).length > 0) {
@@ -764,7 +731,10 @@ export default function PaymentStepPage() {
   }, [stepId, step]);
 
   const packageType = payment?.contractPackageType || '';
-  const stepFields = ALL_STEP_FIELDS[packageType]?.[step?.stepKey] || [];
+  const stepFields = mergeTemplateFields(
+    ALL_STEP_FIELDS[packageType]?.[step?.stepKey] || [],
+    templateFieldKeys,
+  );
   const isAttachment = step ? ATTACHMENT_ONLY.has(step.stepKey) : false;
   const attachmentsRaw: any[] = (step?.data)?._attachments || [];
   const attachments = attachmentsRaw.map((att: any) => typeof att === 'string' ? { path: att, fileName: displayFilename(att), ghiChu: '' } : att);
@@ -887,7 +857,7 @@ export default function PaymentStepPage() {
   const tenGoiThau = payment.contractorSelection?.tenGoiThau || 'N/A';
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto max-w-[1800px] space-y-4 2xl:space-y-6">
       <input ref={fileInputRef} type="file" className="hidden" onChange={handleUpload}
         accept=".doc,.docx,.pdf,.xlsx,.xls,.jpg,.jpeg,.png,.zip,.rar" />
 
@@ -902,7 +872,7 @@ export default function PaymentStepPage() {
             {PACKAGE_TYPE_LABELS[packageType] || packageType}
           </span>
         </div>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">{step.title}</h1>
             <div className="flex items-center gap-2 mt-1 flex-wrap">
@@ -935,21 +905,6 @@ export default function PaymentStepPage() {
         </div>
       </div>
 
-      {/* Document Library Integration */}
-      {stepFields.length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border p-4 flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-semibold text-gray-900">Thư viện văn bản thanh toán</h3>
-            <p className="text-xs text-gray-500">Sử dụng hoặc lưu lại mẫu điền thông tin đối tác/dự án cho thanh toán</p>
-          </div>
-          <LibraryPicker
-            libraryType="THANH_TOAN"
-            onSelect={handleSelectLibraryValue}
-            onSaveToLibrary={() => setShowSaveLibraryModal(true)}
-          />
-        </div>
-      )}
-
       {/* Auto-fill notice */}
       {Object.keys(autoFillData).length > 0 && step.status === 'NOT_STARTED' && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
@@ -964,16 +919,31 @@ export default function PaymentStepPage() {
       )}
 
       {/* Form fields */}
-      {stepFields.length > 0 && (
-        <GroupedFieldRenderer
-          fields={stepFields}
-          formData={formData}
-          autoFillData={autoFillData}
-          canEdit={canEdit}
-          onChange={(key, val) => setFormData({ ...formData, [key]: val })}
-          onFormDataChange={setFormData}
-        />
-      )}
+      {stepFields.length > 0 && (() => {
+        return (
+          <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(420px,0.9fr)] 2xl:gap-6 2xl:grid-cols-[minmax(0,1.2fr)_minmax(520px,0.8fr)]">
+            <GroupedFieldRenderer
+              fields={stepFields}
+              formData={formData}
+              autoFillData={autoFillData}
+              canEdit={canEdit}
+              onChange={(key, val) =>
+                setFormData({ ...formData, [key]: val })
+              }
+              onFormDataChange={setFormData}
+            />
+            <WorkflowDocxPreview
+              documents={[
+                {
+                  id: step.stepKey,
+                  label: step.title,
+                  loadPreview: () => api.previewPaymentStepPdf(stepId, formData),
+                },
+              ]}
+            />
+          </div>
+        );
+      })()}
 
       {/* Attachment section (for attachment-only steps or general attachments) */}
       {(isAttachment || true) && (
@@ -1017,11 +987,11 @@ export default function PaymentStepPage() {
       )}
 
       {/* Action buttons */}
-      <div className="flex items-center gap-3 flex-wrap">
+      <div className="sticky bottom-3 z-20 flex flex-col gap-2 rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-lg backdrop-blur sm:flex-row sm:flex-wrap sm:items-center">
         {/* Save */}
         {canEdit && stepFields.length > 0 && (
           <button onClick={handleSave} disabled={saving}
-            className="px-5 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:opacity-50 font-medium text-sm">
+            className="min-h-10 w-full rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50 sm:w-auto">
             {saving ? '⏳ Đang lưu...' : '💾 Lưu thông tin'}
           </button>
         )}
@@ -1029,7 +999,7 @@ export default function PaymentStepPage() {
         {/* Download DOCX (auto-generated on save) */}
         {!isAttachment && dataEntries.length > 0 && (
           <button onClick={handleDownloadDocx}
-            className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-sm">
+            className="min-h-10 w-full rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 sm:w-auto">
             📥 Tải DOCX
           </button>
         )}
@@ -1037,7 +1007,7 @@ export default function PaymentStepPage() {
         {/* Complete */}
         {canComplete && (
           <button onClick={handleComplete}
-            className="px-5 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium text-sm">
+            className="min-h-10 w-full rounded-xl bg-green-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-green-700 sm:w-auto">
             ✅ Hoàn thành bước
           </button>
         )}
@@ -1045,7 +1015,7 @@ export default function PaymentStepPage() {
         {/* Reopen */}
         {step.status === 'COMPLETED' && (
           <button onClick={handleReopen}
-            className="px-5 py-2.5 bg-amber-500 text-white rounded-lg hover:bg-amber-600 font-medium text-sm">
+            className="min-h-10 w-full rounded-xl bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 sm:w-auto">
             🔄 Mở lại để chỉnh sửa
           </button>
         )}
@@ -1057,15 +1027,6 @@ export default function PaymentStepPage() {
         stepKey="payment"
         title="Lịch sử Thanh toán"
       />
-      <SaveToLibraryModal
-        isOpen={showSaveLibraryModal}
-        onClose={() => setShowSaveLibraryModal(false)}
-        libraryType="THANH_TOAN"
-        formData={formData}
-        formFieldKeys={stepFields.map((f: any) => f.key)}
-        onSave={() => toast.success('Đã lưu mẫu thanh toán vào thư viện')}
-      />
-
       {payment?.projectId && (
         <ProjectChat
           projectId={payment.projectId}
