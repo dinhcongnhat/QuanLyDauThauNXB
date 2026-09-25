@@ -10,13 +10,14 @@ import { vi } from 'date-fns/locale';
 import { useSearchParams } from 'next/navigation';
 import { HistoryModal } from '@/components/HistoryModal';
 import { OnlyOfficePreview } from '@/components/OnlyOfficePreview';
-import { ProjectChat } from '@/components/ProjectChat';
+import { ApproverSelect } from '@/components/ApproverSelect';
 
 const PROJ_TYPE = 'THAU_SACH';
 
 const statusLabels: Record<DocStatus, string> = {
   DRAFT: 'Bản nháp',
   PENDING_APPROVAL: 'Chờ phê duyệt',
+  COMPLETED: 'Hoàn thành',
   APPROVED: 'Đã phê duyệt',
   REJECTED: 'Cần làm lại',
 };
@@ -24,6 +25,7 @@ const statusLabels: Record<DocStatus, string> = {
 const statusColors: Record<DocStatus, string> = {
   DRAFT: 'bg-gray-100 text-gray-700',
   PENDING_APPROVAL: 'bg-yellow-100 text-yellow-700',
+  COMPLETED: 'bg-blue-100 text-blue-700',
   APPROVED: 'bg-green-100 text-green-700',
   REJECTED: 'bg-red-100 text-red-700',
 };
@@ -46,6 +48,7 @@ function SachDuToanPageInner() {
   const [autoFillInfo, setAutoFillInfo] = useState<any>(null);
   const [datSachCompleted, setDatSachCompleted] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [selectedApproverId, setSelectedApproverId] = useState('');
 
   const checkDatSachStatus = useCallback(async (projId: string) => {
     if (!projId) { setDatSachCompleted(false); return; }
@@ -134,7 +137,9 @@ function SachDuToanPageInner() {
     finally { setAutoFilling(false); }
   };
 
-  const approvedTTs = docs.filter(d => d.type === 'TT_DUTOAN' && d.status === 'APPROVED');
+  const approvedTTs = docs.filter(
+    d => d.type === 'TT_DUTOAN' && ['COMPLETED', 'APPROVED'].includes(d.status),
+  );
   const hasApprovedTT = approvedTTs.length > 0;
   const hasQD = docs.some(d => d.type === 'QD_DUTOAN');
   const isDecisionForm = editingDoc
@@ -144,6 +149,7 @@ function SachDuToanPageInner() {
   const closeForm = () => {
     setShowForm(false);
     setEditingDoc(null);
+    setSelectedApproverId('');
   };
 
   const startEditing = (doc: Doc) => {
@@ -181,17 +187,33 @@ function SachDuToanPageInner() {
 
   const handleCreateQD = async () => {
     if (!selectedProject) { toast.error('Chọn dự án'); return; }
+    if (!selectedApproverId) {
+      toast.error('Vui lòng chọn người phê duyệt');
+      return;
+    }
     setSubmitting(true);
     try {
       if (editingDoc) {
-        await api.resubmitDocument(editingDoc.id, qdData);
+        const saved = await api.resubmitDocument(editingDoc.id, qdData);
+        await api.submitApproval({
+          targetType: 'DOCUMENT',
+          targetId: saved.id,
+          approverId: selectedApproverId,
+        });
         toast.success(
           editingDoc.status === 'REJECTED'
             ? 'Đã sửa và gửi lại Quyết định dự toán'
             : 'Đã lưu chỉnh sửa Quyết định dự toán',
         );
       } else {
-        await api.createDocument('QD_DUTOAN', qdData, undefined, undefined, selectedProject);
+        await api.createDocument(
+          'QD_DUTOAN',
+          qdData,
+          undefined,
+          selectedApproverId,
+          selectedProject,
+          approvedTTs[0]?.id,
+        );
         toast.success('Đã tạo Quyết định dự toán');
       }
       closeForm();
@@ -369,6 +391,13 @@ function SachDuToanPageInner() {
               <input className="inp" placeholder="Dự toán bằng số (auto-fill)" value={isDecisionForm ? qdData.DuToanBangSo : ttData.DuToanBangSo} onChange={e => isDecisionForm ? setQdData({...qdData, DuToanBangSo: e.target.value}) : setTtData({...ttData, DuToanBangSo: e.target.value})} style={{backgroundColor: (isDecisionForm ? qdData.DuToanBangSo : ttData.DuToanBangSo) ? '#f0fdf4' : undefined}} />
               <input className="inp" placeholder="Dự toán bằng chữ" value={isDecisionForm ? qdData.DuToanBangChu : ttData.DuToanBangChu} onChange={e => isDecisionForm ? setQdData({...qdData, DuToanBangChu: e.target.value}) : setTtData({...ttData, DuToanBangChu: e.target.value})} />
             </div>
+            {isDecisionForm && (
+              <ApproverSelect
+                value={selectedApproverId}
+                onChange={setSelectedApproverId}
+                disabled={submitting}
+              />
+            )}
             <div className="sticky bottom-3 z-10 flex flex-col-reverse gap-2 rounded-xl border border-slate-200 bg-white/95 p-3 shadow-lg backdrop-blur sm:flex-row sm:justify-end">
               <button onClick={closeForm} className="min-h-10 rounded-xl bg-gray-200 px-4 py-2 text-sm font-semibold">Hủy</button>
               <button onClick={isDecisionForm ? handleCreateQD : handleCreateTT} disabled={submitting}
@@ -494,13 +523,6 @@ function SachDuToanPageInner() {
         />
       )}
 
-      {selectedProject && (
-        <ProjectChat
-          projectId={selectedProject}
-          module="DU_TOAN"
-          projectName={projects.find((p: any) => p.id === selectedProject)?.tenDuAn}
-        />
-      )}
     </div>
   );
 }

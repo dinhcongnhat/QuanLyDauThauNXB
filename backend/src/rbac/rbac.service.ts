@@ -1,10 +1,14 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateRoleDto, UpdateRoleDto, CreatePermissionDto, UpdatePermissionDto, SetPermissionsDto, SetUserRolesDto } from './dto/rbac.dto';
+import { EffectivePermissionsService } from '../auth/effective-permissions.service';
 
 @Injectable()
 export class RbacService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private effectivePermissions: EffectivePermissionsService,
+  ) {}
 
   // ====================== Roles ======================
 
@@ -321,53 +325,56 @@ export class RbacService {
     return { message: 'Role removed from user' };
   }
 
-  // ====================== Effective Permissions ======================
-
-  async getEffectivePermissions(userId: string) {
+  async getUserDirectPermissions(userId: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
 
-    // Get legacy permissions
-    const legacyPerms = await this.prisma.rolePermission.findMany({
-      where: { role: user.role },
+    const rows = await this.prisma.userPermission.findMany({
+      where: { userId },
+      include: { permission: true },
+      orderBy: { permission: { key: 'asc' } },
     });
+    return rows.map((row) => row.permission);
+  }
 
-    // Get dynamic permissions from user's dynamic roles
-    const userDynamicRoles = await this.prisma.userDynamicRole.findMany({
-      where: { userId: user.id },
-      include: {
-        role: {
-          include: {
-            permissions: {
-              include: { permission: true },
-            },
-          },
-        },
-      },
-    });
-
-    const dynamicPermSet = new Set<string>();
-    const dynamicRoleNames: string[] = [];
-    for (const ur of userDynamicRoles) {
-      dynamicRoleNames.push(ur.role.name);
-      for (const rp of ur.role.permissions) {
-        dynamicPermSet.add(rp.permission.key);
-      }
+  async setUserDirectPermissions(userId: string, dto: SetPermissionsDto) {
+    const [user, permissions] = await Promise.all([
+      this.prisma.user.findUnique({ where: { id: userId } }),
+      this.prisma.permission.findMany({
+        where: { id: { in: dto.permissionIds }, isActive: true },
+      }),
+    ]);
+    if (!user) throw new NotFoundException('User not found');
+    if (permissions.length !== new Set(dto.permissionIds).size) {
+      throw new BadRequestException('One or more permission IDs are invalid');
     }
 
+    await this.prisma.$transaction([
+      this.prisma.userPermission.deleteMany({ where: { userId } }),
+      this.prisma.userPermission.createMany({
+        data: permissions.map((permission) => ({
+          userId,
+          permId: permission.id,
+        })),
+      }),
+    ]);
+    return this.getUserDirectPermissions(userId);
+  }
+
+  // ====================== Effective Permissions ======================
+
+  async getEffectivePermissions(userId: string) {
+    const resolved = await this.effectivePermissions.resolve(userId);
+
     return {
-      userId: user.id,
-      email: user.email,
-      legacyRole: user.role,
-      dynamicRoles: dynamicRoleNames,
-      legacyPermissions: legacyPerms.map((p) => p.permissionKey),
-      dynamicPermissions: Array.from(dynamicPermSet),
-      effectivePermissions: [
-        ...new Set([
-          ...legacyPerms.map((p) => p.permissionKey),
-          ...Array.from(dynamicPermSet),
-        ]),
-      ],
+      userId: resolved.user.id,
+      email: resolved.user.email,
+      legacyRole: resolved.user.role,
+      dynamicRoles: resolved.dynamicRoles,
+      legacyPermissions: resolved.legacyPermissions,
+      dynamicPermissions: resolved.dynamicPermissions,
+      directPermissions: resolved.directPermissions,
+      effectivePermissions: resolved.effectivePermissions,
     };
   }
 }

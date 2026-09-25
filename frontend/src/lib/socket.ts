@@ -21,11 +21,13 @@ export interface NotificationEvent {
 
 type UnreadCountHandler = (count: number) => void;
 type NotificationHandler = (notification: NotificationEvent) => void;
+type ApprovalCountHandler = (count: number) => void;
 
 export function useSocket(
   onNotification?: NotificationHandler,
   onUnreadCount?: UnreadCountHandler,
   onDocumentUpdate?: (data: any) => void,
+  onApprovalCount?: ApprovalCountHandler,
 ) {
   const socketRef = useRef<Socket | null>(null);
 
@@ -61,9 +63,12 @@ export function useSocket(
     if (onDocumentUpdate) {
       socket.on('document:updated', onDocumentUpdate);
     }
+    if (onApprovalCount) {
+      socket.on('approval:count', onApprovalCount);
+    }
 
     socketRef.current = socket;
-  }, [onNotification, onUnreadCount, onDocumentUpdate]);
+  }, [onNotification, onUnreadCount, onDocumentUpdate, onApprovalCount]);
 
   useEffect(() => {
     connect();

@@ -6,9 +6,8 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { IsString, IsObject, IsOptional } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { RolesGuard } from '../auth/roles.guard';
-import { Roles } from '../auth/roles.decorator';
-import { Role } from '@prisma/client';
+import { PermissionsGuard } from '../auth/permissions.guard';
+import { RequirePermissions } from '../auth/permissions.decorator';
 import { PaymentService } from './payment.service';
 import { convertDocxToPdf } from '../utils/docx-to-pdf';
 import * as JSZip from 'jszip';
@@ -23,7 +22,11 @@ class UpdateStepDto {
 }
 
 @Controller('payment')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@RequirePermissions(
+  'feature:book-procurement',
+  'feature:equipment-procurement',
+)
 export class PaymentController {
   constructor(private readonly svc: PaymentService) {}
 
@@ -68,7 +71,6 @@ export class PaymentController {
   // ====================== CREATE ======================
 
   @Post()
-  @Roles(Role.ADMIN)
   async create(@Body() dto: CreatePaymentDto, @Request() req: any) {
     return this.svc.createPayment(req.user.sub, dto.contractorSelectionId, dto.projectId);
   }
@@ -86,7 +88,6 @@ export class PaymentController {
   }
 
   @Post('step/:stepId/update')
-  @Roles(Role.ADMIN)
   async updateStep(@Param('stepId') stepId: string, @Body() dto: UpdateStepDto, @Request() req: any) {
     return this.svc.updateStepData(stepId, dto.data, req.user.sub);
   }
@@ -94,13 +95,11 @@ export class PaymentController {
   // ====================== STEP COMPLETION ======================
 
   @Post('step/:stepId/complete')
-  @Roles(Role.ADMIN)
   async completeStep(@Param('stepId') stepId: string, @Request() req: any) {
     return this.svc.completeStep(stepId, req.user.sub);
   }
 
   @Post('step/:stepId/reopen')
-  @Roles(Role.ADMIN)
   async reopenStep(@Param('stepId') stepId: string, @Request() req: any) {
     return this.svc.reopenStep(stepId, req.user.sub);
   }
@@ -123,8 +122,14 @@ export class PaymentController {
   }
 
   @Post('step/:stepId/generate-docx')
-  async generateAndSaveDocx(@Param('stepId') stepId: string) {
-    const objectName = await this.svc.generateAndSaveDocx(stepId);
+  async generateAndSaveDocx(
+    @Param('stepId') stepId: string,
+    @Request() req: any,
+  ) {
+    const objectName = await this.svc.generateAndSaveDocx(
+      stepId,
+      req.user.sub,
+    );
     const url = await this.svc.getFileUrl(objectName);
     return { objectName, url };
   }
@@ -198,7 +203,6 @@ export class PaymentController {
 
   @Post('step/:stepId/upload')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 50 * 1024 * 1024 } }))
-  @Roles(Role.ADMIN)
   async uploadAttachment(
     @Param('stepId') stepId: string,
     @UploadedFile() file: Express.Multer.File,
@@ -216,7 +220,6 @@ export class PaymentController {
   }
 
   @Post('step/:stepId/delete-attachment')
-  @Roles(Role.ADMIN)
   async deleteAttachment(
     @Param('stepId') stepId: string,
     @Body() body: { path: string },

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { motion } from 'framer-motion';
+import { loadOnlyOfficeApi } from '@/lib/onlyoffice-loader';
 
 export type PreviewType = 'document' | 'gdn' | 'pcdi' | 'qd';
 
@@ -50,8 +51,9 @@ export function OnlyOfficePreview({ documentId, onClose, type = 'document' }: Pr
   const [mounted, setMounted] = useState(false);
   const editorRef = useRef<any>(null);
   const containerId = useRef<string>(`oo-editor-${documentId.slice(0, 8)}-${Date.now()}`);
-  const scriptLoaded = useRef(false);
   const [loading, setLoading] = useState(true);
+  const [slow, setSlow] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
   const [error, setError] = useState('');
   const [onlyofficeUrl, setOnlyofficeUrl] = useState('');
   const [editorConfig, setEditorConfig] = useState<any>(null);
@@ -80,23 +82,7 @@ export function OnlyOfficePreview({ documentId, onClose, type = 'document' }: Pr
         setOnlyofficeUrl(config.onlyofficeUrl);
         setEditorConfig(config.editorConfig);
 
-        // Load OnlyOffice script if not already loaded
-        if (!window.DocsAPI && !scriptLoaded.current) {
-          scriptLoaded.current = true;
-          await new Promise<void>((resolve, reject) => {
-            const script = document.createElement('script');
-            script.src = `${config.onlyofficeUrl}/web-apps/apps/api/documents/api.js`;
-            script.onload = () => resolve();
-            script.onerror = (e) => {
-              scriptLoaded.current = false; // allow retry
-              const srcUrl = (e as any)?.target?.src || config.onlyofficeUrl;
-              reject(new Error(
-                `TRÌNH DUYỆT CHẶN Script OnlyOffice hoặc không thể tải được script từ "${srcUrl}". Vui lòng tắt ad-blocker hoặc dùng nút "Tải DOCX" bên dưới để tải file.`
-              ));
-            };
-            document.head.appendChild(script);
-          });
-        }
+        await loadOnlyOfficeApi(config.onlyofficeUrl);
 
         if (destroyed) return;
 
@@ -106,9 +92,23 @@ export function OnlyOfficePreview({ documentId, onClose, type = 'document' }: Pr
             height: '100%',
             width: '100%',
             events: {
-              onAppReady: () => { if (!destroyed) setLoading(false); },
+              onAppReady: () => {
+                if (!destroyed) {
+                  setLoading(false);
+                  setSlow(false);
+                }
+              },
+              onDocumentReady: () => {
+                if (!destroyed) {
+                  setLoading(false);
+                  setSlow(false);
+                }
+              },
               onError: (e: any) => {
-                if (!destroyed) setError(e?.data?.message || 'Lỗi bất ngờ từ OnlyOffice');
+                if (!destroyed) {
+                  setError(e?.data?.message || 'Lỗi bất ngờ từ OnlyOffice');
+                  setLoading(false);
+                }
               },
             },
           });
@@ -123,15 +123,22 @@ export function OnlyOfficePreview({ documentId, onClose, type = 'document' }: Pr
       }
     };
 
+    setError('');
+    setLoading(true);
+    setSlow(false);
+    const slowTimer = window.setTimeout(() => {
+      if (!destroyed) setSlow(true);
+    }, 8_000);
     init();
 
     return () => {
       destroyed = true;
+      window.clearTimeout(slowTimer);
       if (editorRef.current?.destroyEditor) {
         try { editorRef.current.destroyEditor(); } catch {}
       }
     };
-  }, [documentId, type, mounted]);
+  }, [documentId, type, mounted, retryKey]);
 
   const handleDownload = async () => {
     try {
@@ -176,9 +183,19 @@ export function OnlyOfficePreview({ documentId, onClose, type = 'document' }: Pr
               <div className="text-center">
                 <div className="animate-spin h-8 w-8 border-4 border-green-500 border-t-transparent rounded-full mx-auto mb-3" />
                 <p className="text-gray-600 text-sm">Đang tải trình soạn thảo OnlyOffice...</p>
-                <p className="text-gray-400 text-xs mt-1">
-                  Nếu lâu quá, hãy kiểm tra ad-blocker có chặn domain OnlyOffice không.
-                </p>
+                {slow && (
+                  <>
+                    <p className="mt-2 text-xs text-amber-700">
+                      Máy chủ soạn thảo đang phản hồi chậm.
+                    </p>
+                    <button
+                      onClick={handleDownload}
+                      className="mt-3 rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700"
+                    >
+                      📥 Tải DOCX ngay
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           )}
@@ -196,7 +213,7 @@ export function OnlyOfficePreview({ documentId, onClose, type = 'document' }: Pr
                     📥 Tải DOCX
                   </button>
                   <button
-                    onClick={() => { setError(''); setLoading(true); scriptLoaded.current = false; }}
+                    onClick={() => setRetryKey(value => value + 1)}
                     className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200"
                   >
                     🔄 Thử lại

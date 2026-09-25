@@ -1,15 +1,22 @@
 import {
-  Controller, Get, Post, Param, Body, Query, Res, UseGuards, Request,
+  BadRequestException, Controller, Get, Post, Param, Body, Query, Res, UseGuards, Request,
   UseInterceptors, UploadedFile,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { IsString, IsOptional, IsEnum, IsObject } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { PermissionsGuard } from '../auth/permissions.guard';
+import { RequirePermissions } from '../auth/permissions.decorator';
 import { Public } from '../auth/public.decorator';
 import { DocumentsService } from './documents.service';
-import { DocType, ProcurementType } from '@prisma/client';
+import { ApprovalTargetType, DocType, ProcurementType } from '@prisma/client';
+import { ApprovalsService } from '../approvals/approvals.service';
 import { convertDocxToPdf } from '../utils/docx-to-pdf';
+import {
+  appendDocxAttachment,
+  validateDocxAttachmentForMerge,
+} from '../utils/docx-template-renderer';
 import * as JSZip from 'jszip';
 
 class CreateDocumentDto {
@@ -50,32 +57,60 @@ class DelegateDto {
 }
 
 @Controller('documents')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@RequirePermissions(
+  'feature:book-procurement',
+  'feature:equipment-procurement',
+)
 export class DocumentsController {
-  constructor(private readonly svc: DocumentsService) {}
+  constructor(
+    private readonly svc: DocumentsService,
+    private readonly approvals: ApprovalsService,
+  ) {}
 
   @Post()
   async create(@Body() dto: CreateDocumentDto, @Request() req: any) {
-    return this.svc.create(
+    const document = await this.svc.create(
       req.user.sub,
       dto.type,
       dto.data,
       dto.parentId,
-      dto.assignedTo,
+      undefined,
       dto.projectId,
       dto.sourceDocumentId,
     );
+    if (
+      dto.assignedTo
+      && (dto.type === DocType.QD_DUTOAN || dto.type === DocType.QD_KHLCNT)
+    ) {
+      await this.approvals.submit(req.user.sub, {
+        targetType: ApprovalTargetType.DOCUMENT,
+        targetId: document.id,
+        approverId: dto.assignedTo,
+      });
+      return this.svc.findOne(document.id);
+    }
+    return document;
   }
 
   @Post('create-du-toan-batch')
   async createDuToanBatch(@Body() dto: CreateDuToanBatchDto, @Request() req: any) {
-    return this.svc.createDuToanBatch(
+    const result = await this.svc.createDuToanBatch(
       req.user.sub,
       dto.ttData,
       dto.qdData,
-      dto.assignedTo,
+      undefined,
       dto.projectId,
     );
+    await this.approvals.submit(req.user.sub, {
+      targetType: ApprovalTargetType.DOCUMENT,
+      targetId: result.qdDoc.id,
+      approverId: dto.assignedTo,
+    });
+    return {
+      ttDoc: result.ttDoc,
+      qdDoc: await this.svc.findOne(result.qdDoc.id),
+    };
   }
 
   @Post('preview')
@@ -98,6 +133,44 @@ export class DocumentsController {
     res.set({
       'Content-Type': 'application/pdf',
       'Content-Disposition': 'inline; filename="preview.pdf"',
+      'Content-Length': buffer.length,
+      'Cache-Control': 'no-store, max-age=0',
+    });
+    res.end(buffer);
+  }
+
+  @Post('preview-pdf-with-attachment')
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: 50 * 1024 * 1024 } }),
+  )
+  async previewPdfWithAttachment(
+    @UploadedFile() file: Express.Multer.File,
+    @Body() body: { type?: string; data?: string },
+    @Res() res: Response,
+  ) {
+    if (!file) throw new BadRequestException('Chưa chọn phụ lục khái toán');
+    if (!file.originalname.toLocaleLowerCase().endsWith('.docx')) {
+      throw new BadRequestException('Phụ lục khái toán phải là tệp DOCX');
+    }
+    let data: Record<string, any>;
+    try {
+      data = JSON.parse(body.data || '{}');
+    } catch {
+      throw new BadRequestException('Dữ liệu biểu mẫu không hợp lệ');
+    }
+    try {
+      await validateDocxAttachmentForMerge(file.buffer);
+    } catch (error: any) {
+      throw new BadRequestException(
+        error?.message || 'Phụ lục DOCX không hợp lệ hoặc không thể ghép',
+      );
+    }
+    const document = await this.svc.generatePreviewDocx(body.type || '', data);
+    const merged = await appendDocxAttachment(document, file.buffer);
+    const buffer = convertDocxToPdf(merged);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': 'inline; filename="preview-with-appendix.pdf"',
       'Content-Length': buffer.length,
       'Cache-Control': 'no-store, max-age=0',
     });
@@ -274,12 +347,22 @@ export class DocumentsController {
 
   @Post(':id/approve')
   async approve(@Param('id') id: string, @Body() dto: ApproveDto, @Request() req: any) {
-    return this.svc.approve(id, req.user.sub, dto.comment);
+    return this.approvals.approveTarget(
+      ApprovalTargetType.DOCUMENT,
+      id,
+      req.user.sub,
+      dto.comment,
+    );
   }
 
   @Post(':id/reject')
   async reject(@Param('id') id: string, @Body() dto: RejectDto, @Request() req: any) {
-    return this.svc.reject(id, req.user.sub, dto.comment);
+    return this.approvals.rejectTarget(
+      ApprovalTargetType.DOCUMENT,
+      id,
+      req.user.sub,
+      dto.comment,
+    );
   }
 
   @Post(':id/resubmit')

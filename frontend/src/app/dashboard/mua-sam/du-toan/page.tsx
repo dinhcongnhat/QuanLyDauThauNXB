@@ -10,6 +10,8 @@ import { vi } from 'date-fns/locale';
 import { AnimatePresence, motion } from 'framer-motion';
 import { OnlyOfficePreview } from '@/components/OnlyOfficePreview';
 import { SmartFormField, FieldDef } from '@/components/SmartFormField';
+import { ApproverSelect } from '@/components/ApproverSelect';
+import { WorkflowArrowStepper } from '@/components/WorkflowDocumentUI';
 
 // ===== TT_DUTOAN Field Definitions =====
 const TT_CHUNG: FieldDef[] = [
@@ -101,6 +103,7 @@ const QD_TONGHOP: FieldDef[] = [
 const statusLabels: Record<DocStatus, string> = {
   DRAFT: 'Bản nháp',
   PENDING_APPROVAL: 'Chờ phê duyệt',
+  COMPLETED: 'Hoàn thành',
   APPROVED: 'Đã phê duyệt',
   REJECTED: 'Cần làm lại',
 };
@@ -108,6 +111,7 @@ const statusLabels: Record<DocStatus, string> = {
 const statusColors: Record<DocStatus, string> = {
   DRAFT: 'bg-gray-100 text-gray-700',
   PENDING_APPROVAL: 'bg-yellow-100 text-yellow-700',
+  COMPLETED: 'bg-blue-100 text-blue-700',
   APPROVED: 'bg-green-100 text-green-700',
   REJECTED: 'bg-red-100 text-red-700',
 };
@@ -134,6 +138,7 @@ export default function DuToanPage() {
 
   // For QD: select which approved TT to link from
   const [selectedTTId, setSelectedTTId] = useState('');
+  const [selectedApproverId, setSelectedApproverId] = useState('');
 
   // TT form state – matches FileMau/DuToan/Tờ trình placeholders
   const [ttData, setTtData] = useState({
@@ -173,7 +178,9 @@ export default function DuToanPage() {
   }, []);
 
   // Approved TT docs available for QD linking
-  const approvedTTs = docs.filter(d => d.type === 'TT_DUTOAN' && d.status === 'APPROVED');
+  const approvedTTs = docs.filter(
+    d => d.type === 'TT_DUTOAN' && ['COMPLETED', 'APPROVED'].includes(d.status),
+  );
   const hasApprovedTT = approvedTTs.length > 0;
 
   // When user selects a TT to link, auto-populate QD fields
@@ -215,6 +222,7 @@ export default function DuToanPage() {
   const resetForm = () => {
     setShowForm(null);
     setSelectedTTId('');
+    setSelectedApproverId('');
     setTtData({
       SoToTrinh: '', DiaDanh: '', Ngay: '', Thang: '', Nam: '',
       ChuDauTu: '', TenDuAn: '', TenGoiThau: '', DonViTrinh: '', DonViMuaSam: '',
@@ -243,7 +251,7 @@ export default function DuToanPage() {
     setSubmitting(true);
     try {
       await api.createDocument('TT_DUTOAN', ttData, undefined, undefined);
-      toast.success('Đã tạo Tờ trình dự toán và gửi duyệt');
+      toast.success('Đã tạo và hoàn thành Tờ trình dự toán');
       resetForm();
       fetchDocs();
     } catch (err: any) { toast.error(err.message); }
@@ -252,9 +260,17 @@ export default function DuToanPage() {
 
   const handleCreateQD = async () => {
     if (!selectedTTId) { toast.error('Vui lòng chọn Tờ trình dự toán để liên kết'); return; }
+    if (!selectedApproverId) { toast.error('Vui lòng chọn người phê duyệt'); return; }
     setSubmitting(true);
     try {
-      await api.createDocument('QD_DUTOAN', qdData, undefined, undefined);
+      await api.createDocument(
+        'QD_DUTOAN',
+        qdData,
+        undefined,
+        selectedApproverId,
+        undefined,
+        selectedTTId,
+      );
       toast.success('Đã tạo Quyết định dự toán và gửi duyệt');
       resetForm();
       fetchDocs();
@@ -282,10 +298,22 @@ export default function DuToanPage() {
   };
 
   const handleResubmit = async (doc: Doc) => {
+    if (doc.type === 'QD_DUTOAN' && !selectedApproverId) {
+      toast.error('Vui lòng chọn người phê duyệt');
+      return;
+    }
     try {
-      await api.resubmitDocument(doc.id, editingDoc?.data || doc.data);
-      toast.success('Đã gửi lại');
+      const updated = await api.resubmitDocument(doc.id, editingDoc?.data || doc.data);
+      if (doc.type === 'QD_DUTOAN') {
+        await api.submitApproval({
+          targetType: 'DOCUMENT',
+          targetId: updated.id,
+          approverId: selectedApproverId,
+        });
+      }
+      toast.success(doc.type === 'QD_DUTOAN' ? 'Đã gửi lại Quyết định' : 'Đã cập nhật hồ sơ');
       setEditingDoc(null);
+      setSelectedApproverId('');
       fetchDocs();
     } catch (err: any) { toast.error(err.message); }
   };
@@ -309,7 +337,7 @@ export default function DuToanPage() {
     } catch (err: any) { toast.error(err.message); }
   };
 
-  const canApprove = user?.role === 'ADMIN' || user?.canApprove === true;
+  const canApprove = user?.canApprove === true;
   const canCreate = user?.role === 'ADMIN' || user?.role === 'USER';
 
   if (loading) return <div className="flex items-center justify-center h-64"><div className="animate-spin h-8 w-8 border-4 border-primary-500 border-t-transparent rounded-full" /></div>;
@@ -341,6 +369,27 @@ export default function DuToanPage() {
           </div>
         )}
       </div>
+
+      <WorkflowArrowStepper
+        title="Luồng phê duyệt dự toán"
+        stages={[
+          {
+            number: 1,
+            label: 'Tờ trình dự toán',
+            description: 'Lập và hoàn thành hồ sơ đề nghị phê duyệt.',
+            status: hasApprovedTT ? 'completed' : showForm === 'TT_DUTOAN' ? 'active' : 'pending',
+            onClick: () => canCreate && setShowForm('TT_DUTOAN'),
+          },
+          {
+            number: 2,
+            label: 'Quyết định dự toán',
+            description: 'Kế thừa tờ trình và gửi phê duyệt.',
+            status: docs.some(d => d.type === 'QD_DUTOAN' && ['APPROVED', 'COMPLETED'].includes(d.status)) ? 'completed' : showForm === 'QD_DUTOAN' ? 'active' : 'pending',
+            disabled: !hasApprovedTT,
+            onClick: () => hasApprovedTT && canCreate && setShowForm('QD_DUTOAN'),
+          },
+        ]}
+      />
 
       {/* ===== TT_DUTOAN FORM ===== */}
       {showForm === 'TT_DUTOAN' && (
@@ -400,12 +449,11 @@ export default function DuToanPage() {
               <textarea className="inp min-h-[60px]" placeholder="Các nội dung khác" value={ttData.CacNoiDungKhac} onChange={e => setTtData({...ttData, CacNoiDungKhac: e.target.value})} />
             </div>
 
-            {/* Director selection */}
             <div className="flex gap-2 mt-6 justify-end">
               <button onClick={resetForm} className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">Hủy</button>
               <button onClick={handleCreateTT} disabled={submitting}
                 className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium">
-                {submitting ? 'Đang gửi...' : 'Tạo & Gửi duyệt'}
+                {submitting ? 'Đang lưu...' : 'Tạo & Hoàn thành'}
               </button>
             </div>
           </div>
@@ -478,6 +526,14 @@ export default function DuToanPage() {
             <div className="grid grid-cols-2 gap-4">
               <input className="inp" placeholder="Dự toán bằng số" value={qdData.DuToanBangSo} onChange={e => setQdData({...qdData, DuToanBangSo: e.target.value})} />
               <input className="inp" placeholder="Dự toán bằng chữ" value={qdData.DuToanBangChu} onChange={e => setQdData({...qdData, DuToanBangChu: e.target.value})} />
+            </div>
+
+            <div className="mt-6">
+              <ApproverSelect
+                value={selectedApproverId}
+                onChange={setSelectedApproverId}
+                disabled={submitting}
+              />
             </div>
 
             <div className="flex gap-2 mt-6 justify-end">
@@ -566,7 +622,7 @@ export default function DuToanPage() {
                   <div className="flex gap-1 flex-wrap">
                     <button onClick={() => handleDownload(doc.id)} className="text-xs px-2 py-1 bg-gray-100 text-gray-700 rounded hover:bg-gray-200">📥 DOCX</button>
                     <button onClick={() => setPreviewDocId(doc.id)} className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100">👁 Xem</button>
-                    {canApprove && doc.status === 'PENDING_APPROVAL' && (
+                    {canApprove && doc.status === 'PENDING_APPROVAL' && (doc as any).assignedTo === user?.id && (
                       <>
                         <button onClick={() => handleApprove(doc.id)} className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200">✅ Duyệt</button>
                         {rejectingId === doc.id ? (
@@ -582,7 +638,15 @@ export default function DuToanPage() {
                     )}
                     {doc.status === 'REJECTED' && doc.createdBy === user?.id && (
                       <>
-                        <button onClick={() => setEditingDoc({...doc, data: {...doc.data}})} className="text-xs px-2 py-1 bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200">✏️ Sửa</button>
+                        <button
+                          onClick={() => {
+                            setSelectedApproverId('');
+                            setEditingDoc({...doc, data: {...doc.data}});
+                          }}
+                          className="text-xs px-2 py-1 bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200"
+                        >
+                          ✏️ Sửa
+                        </button>
                         <button onClick={() => handleResubmit(doc)} className="text-xs px-2 py-1 bg-orange-100 text-orange-700 rounded hover:bg-orange-200">📤 Gửi lại</button>
                       </>
                     )}
@@ -717,11 +781,19 @@ export default function DuToanPage() {
                 );
               })}
             </div>
+            {editingDoc.type === 'QD_DUTOAN' && (
+              <div className="mt-5">
+                <ApproverSelect
+                  value={selectedApproverId}
+                  onChange={setSelectedApproverId}
+                />
+              </div>
+            )}
             <div className="flex gap-2 mt-6 justify-end">
               <button onClick={() => setEditingDoc(null)} className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg">Hủy</button>
               <button onClick={() => handleResubmit(editingDoc)}
                 className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700">
-                💾 Lưu & Gửi lại duyệt
+                {editingDoc.type === 'QD_DUTOAN' ? '💾 Lưu & Gửi lại duyệt' : '💾 Lưu thay đổi'}
               </button>
             </div>
           </div>

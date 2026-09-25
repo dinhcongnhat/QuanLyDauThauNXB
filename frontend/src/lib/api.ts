@@ -45,7 +45,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ tenDuAn, procurementType, memberIds }),
     }),
-  updateProject: (id: string, data: { status?: string; tenDuAn?: string }) =>
+  updateProject: (id: string, data: { status?: string; tenDuAn?: string; memberIds?: string[] }) =>
     request<any>(`/projects/${encodeURIComponent(id)}`, {
       method: 'PUT',
       body: JSON.stringify(data),
@@ -85,6 +85,8 @@ export const api = {
     }),
 
   // ── Chat ────────────────────────────────────────────────────
+  getChatConversations: () =>
+    request<any[]>('/chat/conversations'),
   getChatMessages: (projectId: string, module?: string, cursor?: string, limit?: number) => {
     const params = new URLSearchParams();
     if (module) params.set('module', module);
@@ -95,11 +97,56 @@ export const api = {
       `/chat/${encodeURIComponent(projectId)}/messages${qs ? `?${qs}` : ''}`,
     );
   },
-  sendChatMessage: (projectId: string, content: string, module?: string, type?: string, fileUrl?: string, fileName?: string, fileType?: string) =>
+  sendChatMessage: (
+    projectId: string,
+    data: {
+      content: string;
+      module?: string;
+      clientMessageId: string;
+      attachmentId?: string;
+      mentions?: Array<{
+        userId: string;
+        start: number;
+        length: number;
+        label: string;
+      }>;
+    },
+  ) =>
     request<any>(`/chat/${encodeURIComponent(projectId)}/messages`, {
       method: 'POST',
-      body: JSON.stringify({ content, module, type, fileUrl, fileName, fileType }),
+      body: JSON.stringify(data),
     }),
+  toggleChatReaction: (
+    projectId: string,
+    messageId: string,
+    emoji: string,
+  ) =>
+    request<any>(
+      `/chat/${encodeURIComponent(projectId)}/messages/${encodeURIComponent(messageId)}/reactions`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ emoji }),
+      },
+    ),
+  getChatMembers: (projectId: string) =>
+    request<any[]>(`/chat/${encodeURIComponent(projectId)}/members`),
+  getChatUnreadCount: (projectId: string, module?: string) =>
+    request<{ count: number }>(
+      `/chat/${encodeURIComponent(projectId)}/unread-count${
+        module ? `?module=${encodeURIComponent(module)}` : ''
+      }`,
+    ),
+  markChatRead: (projectId: string, module?: string, messageId?: string) =>
+    request<{ count: number }>(`/chat/${encodeURIComponent(projectId)}/read`, {
+      method: 'PUT',
+      body: JSON.stringify({ module, messageId }),
+    }),
+  getChatAttachmentUrl: (attachmentId: string) =>
+    request<any>(`/chat/attachments/${encodeURIComponent(attachmentId)}/url`),
+  getChatOnlyofficeConfig: (attachmentId: string) =>
+    request<any>(
+      `/chat/attachments/${encodeURIComponent(attachmentId)}/onlyoffice-config`,
+    ),
   uploadChatFile: async (projectId: string, file: File) => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
     const formData = new FormData();
@@ -110,9 +157,193 @@ export const api = {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       body: formData,
     });
-    if (!res.ok) throw new Error('Upload failed');
-    return res.json() as Promise<{ fileUrl: string; fileName: string; fileType: string; fileSize: number }>;
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({ message: 'Tải tệp thất bại' }));
+      throw new Error(error.message || 'Tải tệp thất bại');
+    }
+    return res.json() as Promise<{
+      id: string;
+      originalName: string;
+      mimeType: string;
+      size: number;
+      kind: 'IMAGE' | 'VIDEO' | 'OFFICE' | 'PDF' | 'FILE';
+      url: string;
+    }>;
   },
+
+  // ── Unified Approvals ───────────────────────────────────────
+  getApprovers: (q?: string) =>
+    request<any[]>(`/approvals/approvers${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+  submitApproval: (data: {
+    targetType: 'DAT_SACH_DECISION' | 'DOCUMENT' | 'PROCUREMENT_STEP';
+    targetId: string;
+    approverId: string;
+    comment?: string;
+  }) =>
+    request<any>('/approvals/submit', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  getApprovalRequests: (params: {
+    status?: 'PENDING' | 'APPROVED' | 'REJECTED';
+    targetType?: 'DAT_SACH_DECISION' | 'DOCUMENT' | 'PROCUREMENT_STEP';
+    q?: string;
+    page?: number;
+    limit?: number;
+  } = {}) => {
+    const search = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== '') search.set(key, String(value));
+    });
+    return request<any>(`/approvals${search.size ? `?${search.toString()}` : ''}`);
+  },
+  getApprovalRequest: (id: string) =>
+    request<any>(`/approvals/${encodeURIComponent(id)}`),
+  getApprovalPendingCount: () =>
+    request<{ count: number }>('/approvals/pending-count'),
+  approveRequest: (id: string, comment?: string) =>
+    request<any>(`/approvals/${encodeURIComponent(id)}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ comment }),
+    }),
+  rejectRequest: (id: string, comment: string) =>
+    request<any>(`/approvals/${encodeURIComponent(id)}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ comment }),
+    }),
+
+  createApprovalDossier: (data: {
+    workflowType: string;
+    projectId?: string;
+    targetType?: 'DAT_SACH_DECISION' | 'DOCUMENT' | 'PROCUREMENT_STEP';
+    targetId?: string;
+    title?: string;
+    context?: Record<string, unknown>;
+  }) =>
+    request<any>('/approval-dossiers', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  getApprovalDossier: (id: string) =>
+    request<any>(`/approval-dossiers/${encodeURIComponent(id)}`),
+  getAssignedApprovalDossiers: () =>
+    request<any[]>('/approval-dossiers'),
+  updateApprovalDossierItem: (
+    dossierId: string,
+    itemId: string,
+    data: Record<string, unknown>,
+    expectedVersion: number,
+    comment?: string,
+  ) =>
+    request<any>(
+      `/approval-dossiers/${encodeURIComponent(dossierId)}/items/${encodeURIComponent(itemId)}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ data, expectedVersion, comment }),
+      },
+    ),
+  uploadApprovalDossierItem: async (
+    dossierId: string,
+    itemId: string,
+    file: File,
+    expectedVersion: number,
+  ) => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('expectedVersion', String(expectedVersion));
+    const response = await fetch(
+      `${API_BASE}/approval-dossiers/${encodeURIComponent(dossierId)}/items/${encodeURIComponent(itemId)}/file`,
+      {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      },
+    );
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: 'Không thể tải tệp' }));
+      throw new Error(error.message || `HTTP ${response.status}`);
+    }
+    return response.json();
+  },
+  getApprovalDossierPreviewUrl: (dossierId: string, itemId: string) =>
+    `${API_BASE}/approval-dossiers/${encodeURIComponent(dossierId)}/items/${encodeURIComponent(itemId)}/preview-pdf`,
+  fetchApprovalDossierPreview: async (dossierId: string, itemId: string) => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const response = await fetch(
+      `${API_BASE}/approval-dossiers/${encodeURIComponent(dossierId)}/items/${encodeURIComponent(itemId)}/preview-pdf`,
+      { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+    );
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: 'Không thể tạo bản xem trước' }));
+      throw new Error(error.message || `HTTP ${response.status}`);
+    }
+    return response.blob();
+  },
+  downloadApprovalDossierItem: async (dossierId: string, itemId: string) => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const response = await fetch(
+      `${API_BASE}/approval-dossiers/${encodeURIComponent(dossierId)}/items/${encodeURIComponent(itemId)}/download`,
+      { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+    );
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: 'Không thể tải tài liệu' }));
+      throw new Error(error.message || `HTTP ${response.status}`);
+    }
+    return response.blob();
+  },
+  getApprovalDossierOnlyOfficeConfig: (dossierId: string, itemId: string) =>
+    request<any>(
+      `/approval-dossiers/${encodeURIComponent(dossierId)}/items/${encodeURIComponent(itemId)}/onlyoffice-config`,
+    ),
+  submitApprovalDossier: (
+    id: string,
+    data: { approverId: string; expectedVersion: number; comment?: string },
+  ) =>
+    request<any>(`/approval-dossiers/${encodeURIComponent(id)}/submit`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  resubmitApprovalDossier: (
+    id: string,
+    data: { approverId: string; expectedVersion: number; comment?: string },
+  ) =>
+    request<any>(`/approval-dossiers/${encodeURIComponent(id)}/resubmit`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  returnApprovalDossier: (
+    id: string,
+    data: { expectedVersion: number; comment?: string },
+  ) =>
+    request<any>(`/approval-dossiers/${encodeURIComponent(id)}/return`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  forwardApprovalRequest: (
+    id: string,
+    data: { approverId: string; expectedVersion: number; comment?: string },
+  ) =>
+    request<any>(`/approval-requests/${encodeURIComponent(id)}/forward`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  finalApproveRequest: (
+    id: string,
+    data: { expectedVersion: number; comment?: string },
+  ) =>
+    request<any>(`/approval-requests/${encodeURIComponent(id)}/final-approve`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  rejectDossierRequest: (
+    id: string,
+    data: { expectedVersion: number; comment: string },
+  ) =>
+    request<any>(`/approval-requests/${encodeURIComponent(id)}/reject`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
 
   // Auth
   login: (email: string, password: string) =>
@@ -265,6 +496,34 @@ export const api = {
     return response.blob();
   },
 
+  previewDocumentPdfWithAttachment: async (
+    type: string,
+    data: Record<string, any>,
+    file: File,
+  ) => {
+    const token =
+      typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    const formData = new FormData();
+    formData.append('type', type);
+    formData.append('data', JSON.stringify(data));
+    formData.append('file', file);
+    const response = await fetch(
+      `${API_BASE}/documents/preview-pdf-with-attachment`,
+      {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      },
+    );
+    if (!response.ok) {
+      const error = await response
+        .json()
+        .catch(() => ({ message: 'Không thể ghép phụ lục vào bản xem trước' }));
+      throw new Error(error.message || `HTTP ${response.status}`);
+    }
+    return response.blob();
+  },
+
   getUsersByRole: (role: string) =>
     request<any[]>(`/users/by-role/${encodeURIComponent(role)}`),
 
@@ -406,10 +665,10 @@ export const api = {
       body: JSON.stringify({ data }),
     }),
 
-  requestStepApproval: (stepId: string, comment?: string) =>
+  requestStepApproval: (stepId: string, comment?: string, approverId?: string) =>
     request<any>(`/contractor-selection/step/${encodeURIComponent(stepId)}/request-approval`, {
       method: 'POST',
-      body: JSON.stringify({ comment }),
+      body: JSON.stringify({ comment, approverId }),
     }),
 
   approveLCNTStep: (stepId: string, comment?: string) =>
@@ -933,4 +1192,11 @@ export const api = {
 
   removeUserRole: (userId: string, roleId: string) =>
     request<any>(`/rbac/users/${userId}/roles/${roleId}`, { method: 'DELETE' }),
+  getUserDirectPermissions: (userId: string) =>
+    request<Permission[]>(`/rbac/users/${encodeURIComponent(userId)}/direct-permissions`),
+  setUserDirectPermissions: (userId: string, permissionIds: string[]) =>
+    request<Permission[]>(
+      `/rbac/users/${encodeURIComponent(userId)}/direct-permissions`,
+      { method: 'PUT', body: JSON.stringify({ permissionIds }) },
+    ),
 };

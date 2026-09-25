@@ -83,10 +83,24 @@ function sentenceCase(value: string): string {
 
 function cleanOcrLine(value: string): string {
   return value
+    .normalize('NFC')
     .replace(/[|_]+/g, ' ')
     .replace(/\s+([,.;:])/g, '$1')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function normalizeCommonVietnameseOcrErrors(value: string): string {
+  return value
+    .normalize('NFC')
+    .replace(/\bquy định chỉ tiết\b/gi, 'Quy định chi tiết')
+    .replace(/\bluật đầu thầu\b/gi, 'Luật Đấu thầu')
+    .replace(/\bsửa đối\b/gi, 'Sửa đổi')
+    .replace(/\bb[ồổ] sung\b/gi, 'bổ sung')
+    .replace(/\bđầu thầu\b/gi, 'đấu thầu')
+    .replace(/\bnghiệp vu\b/gi, 'nghiệp vụ')
+    .replace(/\bchuyên m[oô]n\b/gi, 'chuyên môn')
+    .replace(/\bchứng chi\b/gi, 'chứng chỉ');
 }
 
 function isFieldLabel(value: string): boolean {
@@ -111,10 +125,12 @@ function normalizeDocumentNumber(value: string): string {
     .replace(/[–—]/g, '-')
     .toUpperCase();
   const parts = compact.split('/');
-  if (parts.length < 3) return compact;
 
   const normalizeDigits = (part: string) =>
     part.replace(/[OQ]/g, '0').replace(/[IL]/g, '1');
+  if (parts.length < 3) {
+    return [normalizeDigits(parts[0]), ...parts.slice(1)].join('/');
+  }
   const suffix = parts
     .slice(2)
     .join('/')
@@ -127,8 +143,8 @@ function normalizeDocumentNumber(value: string): string {
 
 function extractDocumentNumber(text: string): string {
   const patterns = [
-    /(?:Số|So)\s*[:：]?\s*([0-9OQIL]{1,4}\s*\/\s*[0-9OQIL]{4}\s*\/\s*[A-Za-zÀ-ỹĐđ0-9\-–—]+)/i,
-    /\b([0-9OQIL]{1,4}\s*\/\s*[0-9OQIL]{4}\s*\/\s*[A-Za-zÀ-ỹĐđ0-9\-–—]+)\b/i,
+    /(?:S[oốôóòỏõọơớờởỡợ]|5[oố])\s*[:：.]?\s*([0-9OQIL]{1,6}\s*\/\s*(?:[0-9OQIL]{4}\s*\/\s*)?[A-Za-zÀ-ỹĐđ0-9\-–—]{2,})/i,
+    /\b([0-9OQIL]{1,6}\s*\/\s*(?:[0-9OQIL]{4}\s*\/\s*)[A-Za-zÀ-ỹĐđ0-9\-–—]{2,})\b/i,
   ];
 
   for (const pattern of patterns) {
@@ -161,9 +177,9 @@ function toIsoDate(dayValue: string, monthValue: string, yearValue: string) {
 }
 
 function extractIssueDate(text: string): string {
-  const normalized = text.replace(/\s+/g, ' ');
+  const normalized = fold(text);
   const longDate = normalized.match(
-    /ng[aàáạảã]y\s*([0-9OQIL]{1,2})\s*th[aàáạảã]ng\s*([0-9OQIL]{1,2})\s*n[aăắằẵặẳ]m\s*([0-9OQIL]{4})/i,
+    /NGAY\s*([0-9OQIL]{1,2})\s*THANG\s*([0-9OQIL]{1,2})\s*NAM\s*([0-9OQIL]{4})/i,
   );
   if (longDate) return toIsoDate(longDate[1], longDate[2], longDate[3]);
 
@@ -303,12 +319,14 @@ function extractSummary(
     if (line.length >= 4) collected.push(line);
   }
 
-  return collected
-    .join(' ')
-    .replace(/([A-Za-zÀ-ỹĐđ])-\s+([A-Za-zÀ-ỹĐđ])/g, '$1$2')
-    .replace(/\s+/g, ' ')
-    .replace(/^[,.;:\-–—\s]+|[,;:\-–—\s]+$/g, '')
-    .trim();
+  return normalizeCommonVietnameseOcrErrors(
+    collected
+      .join(' ')
+      .replace(/([A-Za-zÀ-ỹĐđ])-\s+([A-Za-zÀ-ỹĐđ])/g, '$1$2')
+      .replace(/\s+/g, ' ')
+      .replace(/^[,.;:\-–—\s]+|[,;:\-–—\s]+$/g, '')
+      .trim(),
+  );
 }
 
 function inferField(summary: string): string {
@@ -346,7 +364,8 @@ export function parseVietnameseLegalDocumentOcr(
   rawText: string,
 ): LegalDocumentOcrResult {
   const normalizedText = rawText
-    .replace(/\r/g, '\n')
+    .normalize('NFC')
+    .replace(/\r\n?/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
   const lines = normalizedText
@@ -392,4 +411,61 @@ export function parseVietnameseLegalDocumentOcr(
   }
 
   return { fields, normalizedText, warnings, matchedFields };
+}
+
+export function mergeVietnameseLegalDocumentOcrResults(
+  primary: LegalDocumentOcrResult,
+  supplemental: LegalDocumentOcrResult,
+): LegalDocumentOcrResult {
+  const fields: LegalDocumentOcrFields = {
+    ...supplemental.fields,
+    ...primary.fields,
+  };
+
+  // The sparse pass focuses on the document header and is especially useful
+  // when handwritten digits are mixed into an otherwise printed document.
+  if (supplemental.fields.soHieu) {
+    fields.soHieu = supplemental.fields.soHieu;
+  }
+  if (supplemental.fields.ngayBanHanh) {
+    fields.ngayBanHanh = supplemental.fields.ngayBanHanh;
+  }
+  fields.tenCanCu = suggestName(
+    fields.hinhThucVanBan || '',
+    fields.soHieu || '',
+    fields.trichYeuNoiDung || '',
+  );
+
+  const matchedFields = Object.entries(fields)
+    .filter(([, value]) => Boolean(value))
+    .map(([key]) => key as keyof LegalDocumentInput);
+  const warnings: string[] = [];
+  if (!fields.soHieu) warnings.push('Chưa nhận diện được số hiệu văn bản.');
+  if (!fields.ngayBanHanh) warnings.push('Chưa nhận diện được ngày ban hành.');
+  if (!fields.coQuanBanHanh) {
+    warnings.push('Chưa nhận diện được cơ quan ban hành.');
+  }
+  if (!fields.hinhThucVanBan) {
+    warnings.push('Chưa nhận diện được hình thức văn bản.');
+  }
+  if (!fields.trichYeuNoiDung) {
+    warnings.push('Chưa nhận diện được trích yếu nội dung.');
+  }
+  if (!fields.linhVuc) {
+    warnings.push('Chưa suy luận được lĩnh vực; Admin cần chọn hoặc nhập lại.');
+  }
+
+  return {
+    fields,
+    matchedFields,
+    warnings,
+    normalizedText: [
+      primary.normalizedText,
+      supplemental.normalizedText
+        ? `--- OCR bổ sung vùng đầu trang ---\n${supplemental.normalizedText}`
+        : '',
+    ]
+      .filter(Boolean)
+      .join('\n\n'),
+  };
 }

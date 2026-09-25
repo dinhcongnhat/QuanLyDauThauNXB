@@ -14,12 +14,14 @@ import { ZipDownloadModal } from '@/components/ZipDownloadModal';
 import { HistoryModal } from '@/components/HistoryModal';
 import { OnlyOfficeFilePreview } from '@/components/OnlyOfficeFilePreview';
 import { motion } from 'framer-motion';
+import { WorkflowArrowStepper } from '@/components/WorkflowDocumentUI';
 import {
   getLCNTTemplateFieldKeys,
   isBlankWorkflowValue,
   mergeTemplateFields,
   normalizeLegalBasisValue,
-  normalizeWorkflowData,
+  normalizeWorkflowAttachments,
+  pickWorkflowFormData,
 } from '@/lib/workflow-template-api';
 
 const METHOD_LABELS: Record<string, string> = {
@@ -95,14 +97,21 @@ export default function LCNTProcessDetailPage() {
         const updatedStep = data.steps.find((s: any) => s.id === selectedStepId);
         if (updatedStep) {
           const rawData = (updatedStep.data || {}) as Record<string, any>;
-          const normalizedData = normalizeWorkflowData(rawData);
-          delete normalizedData._attachments;
-          setStepFormData(normalizedData);
+          const allowedFields = mergeTemplateFields(
+            getFieldsForStep(updatedStep.stepKey, data.procurementMethod),
+            templateFieldKeys,
+          );
+          setStepFormData(
+            pickWorkflowFormData(
+              rawData,
+              allowedFields.map((field) => field.key),
+            ),
+          );
         }
       }
     } catch (err: any) { toast.error(err.message); }
     finally { setLoading(false); }
-  }, [selectionId, selectedStepId]);
+  }, [selectionId, selectedStepId, templateFieldKeys]);
 
   // Load selection only on mount or selectionId change to avoid selectedStepId selection race conditions
   useEffect(() => {
@@ -120,14 +129,9 @@ export default function LCNTProcessDetailPage() {
     initLoad();
   }, [selectionId]);
 
-  // Load approvers
+  // Only accounts explicitly granted canApprove by Admin are selectable.
   useEffect(() => {
-    Promise.all([
-      api.getUsersByRole('DIRECTOR').catch(() => []),
-      api.getUsersByRole('HEAD_OF_DEPARTMENT').catch(() => []),
-    ]).then(([directors, heads]) => {
-      setApprovers([...directors, ...heads]);
-    });
+    api.getApprovers().then(setApprovers).catch(() => setApprovers([]));
   }, []);
 
   const handleSelectStep = async (step: ProcurementStep) => {
@@ -136,22 +140,31 @@ export default function LCNTProcessDetailPage() {
       return;
     }
     setSelectedStepId(step.id);
-    const rawData = (step.data || {}) as Record<string, any>;
-    const normalizedData = normalizeWorkflowData(rawData);
-    delete normalizedData._attachments;
-    setStepFormData(normalizedData);
-    setAutoFillData({});
     const dynamicFields = await getLCNTTemplateFieldKeys(step.id).catch(
       () => [],
     );
     setTemplateFieldKeys(dynamicFields);
+    const allowedFields = mergeTemplateFields(
+      getFieldsForStep(step.stepKey, selection?.procurementMethod || 'CHI_DINH_THAU'),
+      dynamicFields,
+    );
+    const rawData = (step.data || {}) as Record<string, any>;
+    const normalizedData = pickWorkflowFormData(
+      rawData,
+      allowedFields.map((field) => field.key),
+    );
+    setStepFormData(normalizedData);
+    setAutoFillData({});
 
     // Load auto-fill for NOT_STARTED or IN_PROGRESS steps to populate blank fields
     if (step.status !== 'COMPLETED') {
       try {
         const data = await api.getLCNTAutoFill(step.id);
         if (data && Object.keys(data).length > 0) {
-          const normalizedAutoFill = normalizeWorkflowData(data);
+          const normalizedAutoFill = pickWorkflowFormData(
+            data,
+            allowedFields.map((field) => field.key),
+          );
           setAutoFillData(normalizedAutoFill);
           
           const mergedData = { ...normalizedData };
@@ -241,11 +254,16 @@ export default function LCNTProcessDetailPage() {
 
   const handleRequestApproval = async () => {
     if (!selectedStepId) return;
+    if (!selectedApproverId) {
+      toast.error('Vui lòng chọn người phê duyệt');
+      return;
+    }
     try {
-      await api.requestStepApproval(selectedStepId, approvalComment);
-      toast.success('Đã trình lên Giám đốc/Trưởng phòng');
+      await api.requestStepApproval(selectedStepId, approvalComment, selectedApproverId);
+      toast.success('Đã gửi Quyết định đến người phê duyệt');
       setShowApprovalModal(false);
       setApprovalComment('');
+      setSelectedApproverId('');
       await loadSelection();
     } catch (err: any) { toast.error(err.message); }
   };
@@ -294,6 +312,27 @@ export default function LCNTProcessDetailPage() {
     } catch (err: any) { toast.error(err.message); }
   };
 
+  const handlePreviewGeneratedDocx = async (step: ProcurementStep) => {
+    setSaving(true);
+    try {
+      let objectPath = String((step as any).attachmentPath || '');
+      // Legacy generated paths embedded a long Vietnamese package title and
+      // can no longer be opened reliably by MinIO/OnlyOffice. Regenerate them
+      // once with the canonical short object key.
+      if (!objectPath.endsWith('/document.docx')) {
+        const generated = await api.generateLCNTDocx(step.id);
+        objectPath = generated.objectName;
+        await loadSelection();
+      }
+      if (!objectPath) throw new Error('Không tạo được file DOCX');
+      setPreviewPath(objectPath);
+    } catch (err: any) {
+      toast.error(err.message || 'Không thể xem file DOCX');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleUploadFile = async (file: File) => {
     if (!selectedStepId) return;
     setUploading(true);
@@ -336,8 +375,7 @@ export default function LCNTProcessDetailPage() {
   };
 
   const getAttachments = (step: ProcurementStep): any[] => {
-    const raw = (step.data as any)?._attachments || [];
-    return raw.map((att: any) => typeof att === 'string' ? { path: att, fileName: displayFilename(att), ghiChu: '' } : att);
+    return normalizeWorkflowAttachments((step.data as any)?._attachments);
   };
 
   if (loading) {
@@ -401,52 +439,21 @@ export default function LCNTProcessDetailPage() {
       </div>
 
       {/* Steps Timeline */}
-      <div className="bg-white rounded-xl shadow-sm border p-4">
-        <h3 className="text-sm font-semibold text-gray-700 mb-4">Tiến trình</h3>
-        <div className="flex items-center gap-1 overflow-x-auto pb-2">
-          {steps.map((step, idx) => {
-            const isActive = selectedStepId === step.id;
-            const isCompleted = step.status === 'COMPLETED';
-            const isInProgress = step.status === 'IN_PROGRESS';
-            const prevCompleted = idx === 0 || steps[idx - 1]?.status === 'COMPLETED';
-            const isDisabled = step.status === 'NOT_STARTED' && !prevCompleted;
-
-            return (
-              <div key={step.id} className="flex items-center">
-                <button
-                  onClick={() => !isDisabled && handleSelectStep(step)}
-                  disabled={isDisabled}
-                  className={`flex flex-col items-center px-3 py-2 rounded-lg text-xs transition-all min-w-[100px] ${
-                    isActive ? 'bg-indigo-50 border-2 border-indigo-400 text-indigo-700' :
-                    isDisabled ? 'opacity-40 cursor-not-allowed' :
-                    'hover:bg-gray-50 border border-gray-200'
-                  }`}
-                >
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center mb-1 text-xs font-bold ${
-                    isCompleted ? 'bg-green-500 text-white' :
-                    isInProgress ? 'bg-blue-500 text-white' :
-                    'bg-gray-200 text-gray-500'
-                  }`}>
-                    {isCompleted ? '✓' : step.stepOrder}
-                  </div>
-                  <span className="text-center leading-tight">{step.title}</span>
-                  <span className={`mt-1 px-2 py-0.5 rounded-full text-[10px] ${STEP_STATUS_COLORS[step.status]}`}>
-                    {STEP_STATUS_LABELS[step.status]}
-                  </span>
-                  {step.requiresApproval && (
-                    <span className={`mt-0.5 px-2 py-0.5 rounded-full text-[10px] ${APPROVAL_STATUS_COLORS[step.approvalStatus]}`}>
-                      {APPROVAL_STATUS_LABELS[step.approvalStatus]}
-                    </span>
-                  )}
-                </button>
-                {idx < steps.length - 1 && (
-                  <div className={`w-6 h-0.5 ${isCompleted ? 'bg-green-400' : 'bg-gray-200'}`} />
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      <WorkflowArrowStepper
+        title="Tiến trình LCNT"
+        stages={steps.map((step, idx) => {
+          const prevCompleted = idx === 0 || steps[idx - 1]?.status === 'COMPLETED';
+          return {
+            label: step.title,
+            number: step.stepOrder,
+            status: step.status === 'COMPLETED' ? 'completed' : step.status === 'IN_PROGRESS' ? 'active' : 'pending',
+            selected: selectedStepId === step.id,
+            disabled: step.status === 'NOT_STARTED' && !prevCompleted,
+            meta: `${STEP_STATUS_LABELS[step.status]}${step.requiresApproval ? ` · ${APPROVAL_STATUS_LABELS[step.approvalStatus]}` : ''}`,
+            onClick: () => handleSelectStep(step),
+          };
+        })}
+      />
 
       {/* Step Detail */}
       {currentStep && (() => {
@@ -460,7 +467,6 @@ export default function LCNTProcessDetailPage() {
         const canApproveStep = currentStep.approvalStatus === 'PENDING_APPROVAL';
         const canComplete = currentStep.status !== 'COMPLETED' && !canRequestApproval;
         const attachments = getAttachments(currentStep);
-        const dataEntries = Object.entries((currentStep.data || {}) as Record<string, any>).filter(([k]) => !k.startsWith('_'));
 
         return (
           <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
@@ -733,11 +739,20 @@ export default function LCNTProcessDetailPage() {
                     </button>
                   </>
                 )}
-                {!isAttachment && dataEntries.length > 0 && (
-                  <button onClick={handleDownloadDocx}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">
-                    📥 Tải DOCX
-                  </button>
+                {!isAttachment && (
+                  <>
+                    <button
+                      onClick={() => void handlePreviewGeneratedDocx(currentStep)}
+                      disabled={saving}
+                      className="px-4 py-2 bg-sky-600 text-white rounded-lg hover:bg-sky-700 text-sm disabled:opacity-50"
+                    >
+                      👁 Xem DOCX
+                    </button>
+                    <button onClick={handleDownloadDocx}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">
+                      📥 Tải DOCX
+                    </button>
+                  </>
                 )}
               </div>
             </div>
@@ -762,11 +777,11 @@ export default function LCNTProcessDetailPage() {
                '❌ Từ chối bước'}
             </h3>
             <p className="text-sm text-gray-500 mb-3">
-              {approvalMode === 'request' ? 'Gửi bước này lên Giám đốc/Trưởng phòng để phê duyệt.'
+              {approvalMode === 'request' ? 'Chọn một người có thẩm quyền để phê duyệt Quyết định.'
                : approvalMode === 'approve' ? 'Xác nhận phê duyệt bước này.'
                : 'Vui lòng nhập lý do từ chối.'}
             </p>
-            {approvalMode === 'request' && approvers.length > 0 && (
+            {approvalMode === 'request' && (
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-1">Chọn người phê duyệt</label>
                 <select
@@ -776,7 +791,7 @@ export default function LCNTProcessDetailPage() {
                   <option value="">-- Chọn người phê duyệt --</option>
                   {approvers.map((u: any) => (
                     <option key={u.id} value={u.id}>
-                      {u.name} ({u.role === 'DIRECTOR' ? 'Giám đốc' : 'Trưởng phòng'}{u.department ? ` - ${u.department}` : ''})
+                      {u.name}{u.position ? ` · ${u.position}` : ''}{u.department ? ` · ${u.department}` : ''}
                     </option>
                   ))}
                 </select>

@@ -29,7 +29,8 @@ export async function generateDuToanDocx(
   data: Record<string, any>,
 ): Promise<Buffer> {
   const templatePath = resolveFileMauPath('DuToan', TEMPLATES[docType]);
-  const renderData = docType === 'QD_DUTOAN' && data?.khaiToanAttachment?.objectPath
+  const attachment = data?.khaiToanAttachment ?? data?._khaiToanAttachment;
+  const renderData = attachment?.objectPath
     ? { ...data, FileKhaiToanDinhKem: '__KHAI_TOAN_SLOT__' }
     : data;
   return renderDocxTemplate(templatePath, renderData, {

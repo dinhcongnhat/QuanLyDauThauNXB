@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { useNotificationStore } from '@/lib/notifications';
 
 interface NotificationBellProps {
   onOpenNotifications: () => void;
@@ -8,24 +9,11 @@ interface NotificationBellProps {
 
 export default function NotificationBell({ onOpenNotifications }: NotificationBellProps) {
   const [mounted, setMounted] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(0);
   const initRef = useRef(false);
-
-  const loadUnreadCount = useCallback(async () => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
-    try {
-      const resp = await fetch('/api/notifications/unread-count', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (resp.ok) {
-        const data = await resp.json();
-        setUnreadCount(data.count || 0);
-      }
-    } catch (e) {
-      console.error('[NotificationBell] Unread count failed:', e);
-    }
-  }, []);
+  const unreadCount = useNotificationStore((state) => state.unreadCount);
+  const fetchUnreadCount = useNotificationStore(
+    (state) => state.fetchUnreadCount,
+  );
 
   const subscribePush = async () => {
     try {
@@ -76,7 +64,7 @@ export default function NotificationBell({ onOpenNotifications }: NotificationBe
     const token = localStorage.getItem('token');
     if (!token) return;
     try {
-      await loadUnreadCount();
+      await fetchUnreadCount();
     } catch (e) {
       console.error('[NotificationBell] Init failed:', e);
     }
@@ -84,7 +72,7 @@ export default function NotificationBell({ onOpenNotifications }: NotificationBe
     if (typeof window !== 'undefined' && 'serviceWorker' in navigator && 'Notification' in window) {
       subscribePush().catch((e: unknown) => console.error('[NotificationBell] Push subscribe failed:', e));
     }
-  }, [loadUnreadCount]);
+  }, [fetchUnreadCount]);
 
   useEffect(() => {
     setMounted(true);
@@ -109,9 +97,9 @@ export default function NotificationBell({ onOpenNotifications }: NotificationBe
   }, []);
 
   useEffect(() => {
-    const interval = setInterval(loadUnreadCount, 30000);
+    const interval = setInterval(fetchUnreadCount, 30000);
     return () => clearInterval(interval);
-  }, [loadUnreadCount]);
+  }, [fetchUnreadCount]);
 
   return (
     <button

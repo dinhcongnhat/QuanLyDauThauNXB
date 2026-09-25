@@ -3,9 +3,25 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
+import {
+  CheckCircle2,
+  Eye,
+  EyeOff,
+  FileCheck2,
+  Landmark,
+  LockKeyhole,
+  Mail,
+  ShieldCheck,
+} from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuthStore } from '@/lib/store';
 import toast from 'react-hot-toast';
+
+const systemCapabilities = [
+  { icon: FileCheck2, label: 'Quản lý hồ sơ và văn bản tập trung' },
+  { icon: CheckCircle2, label: 'Phê duyệt theo đúng quy trình nghiệp vụ' },
+  { icon: ShieldCheck, label: 'Phân quyền, bảo mật và truy vết đầy đủ' },
+];
 
 export default function LoginPage() {
   const router = useRouter();
@@ -31,119 +47,147 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex">
-      {/* Left side - branding */}
-      <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-primary-600 via-primary-700 to-primary-900 relative overflow-hidden">
-        <div className="absolute inset-0">
-          <div className="absolute top-20 left-10 w-72 h-72 bg-white/5 rounded-full" />
-          <div className="absolute bottom-20 right-10 w-96 h-96 bg-white/5 rounded-full" />
-          <div className="absolute top-1/2 left-1/3 w-40 h-40 bg-white/5 rounded-full" />
-        </div>
-        <div className="relative z-10 flex flex-col justify-center px-16 text-white">
-          <div className="mb-8">
-            <Image src="/logo.png" alt="Logo" width={72} height={72} priority className="drop-shadow-lg" />
+    <main className="min-h-screen bg-[#F7F7F8] lg:grid lg:grid-cols-[minmax(440px,0.9fr)_minmax(560px,1.1fr)]">
+      <section className="relative hidden min-h-screen overflow-hidden bg-primary-900 text-white lg:flex lg:flex-col lg:justify-between">
+        <div aria-hidden="true" className="absolute inset-y-0 right-0 w-px bg-white/15" />
+        <div aria-hidden="true" className="absolute -right-28 top-20 h-72 w-72 rounded-full border border-white/10" />
+        <div aria-hidden="true" className="absolute -right-16 top-32 h-48 w-48 rounded-full border border-white/10" />
+
+        <div className="relative z-10 px-12 pt-10 xl:px-16">
+          <div className="flex items-center gap-4 border-b border-white/15 pb-6">
+            <div className="flex h-16 w-16 items-center justify-center rounded-lg bg-white p-2 shadow-sm">
+              <Image src="/logo.png" alt="Biểu trưng Nhà xuất bản" width={52} height={52} priority />
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-white/65">Cơ quan chủ quản</p>
+              <p className="mt-1 max-w-sm text-sm font-semibold leading-snug text-white">
+                Nhà xuất bản Chính trị quốc gia Sự thật
+              </p>
+            </div>
           </div>
-          <h1 className="text-4xl font-bold mb-4 leading-tight">
-            Hệ thống<br />Quản lý Đấu thầu
+        </div>
+
+        <div className="relative z-10 px-12 py-12 xl:px-16">
+          <div className="mb-5 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-white/65">
+            <Landmark className="h-4 w-4" />
+            Nền tảng nghiệp vụ nội bộ
+          </div>
+          <h1 className="max-w-xl text-4xl font-semibold leading-[1.2] tracking-tight text-white xl:text-[42px]">
+            Hệ thống Quản lý Đấu thầu
           </h1>
-          <p className="text-lg text-white/80 mb-8 leading-relaxed max-w-md">
-            Quản lý quy trình mua sắm, phê duyệt dự toán và kế hoạch lựa chọn nhà thầu một cách hiệu quả.
+          <p className="mt-5 max-w-xl text-base leading-7 text-white/75">
+            Chuẩn hóa quy trình mua sắm, quản lý hồ sơ và phê duyệt văn bản trên một hệ thống thống nhất, an toàn.
           </p>
-          <div className="flex gap-6 text-sm text-white/60">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center">📋</div>
-              <span>Tờ trình & Quyết định</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center">✅</div>
-              <span>Phê duyệt trực tuyến</span>
-            </div>
-          </div>
-          <div className="flex gap-6 text-sm text-white/60 mt-3">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center">📄</div>
-              <span>Xuất DOCX tự động</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center">🔐</div>
-              <span>Phân quyền linh hoạt</span>
-            </div>
+
+          <div className="mt-10 space-y-4 border-t border-white/15 pt-8">
+            {systemCapabilities.map(({ icon: Icon, label }) => (
+              <div key={label} className="flex items-center gap-3 text-sm text-white/85">
+                <span className="flex h-8 w-8 items-center justify-center rounded-md bg-white/10">
+                  <Icon className="h-4 w-4" />
+                </span>
+                <span>{label}</span>
+              </div>
+            ))}
           </div>
         </div>
-      </div>
 
-      {/* Right side - login form */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center bg-gray-50 px-6">
-        <div className="w-full max-w-md">
-          {/* Mobile logo */}
-          <div className="lg:hidden text-center mb-8">
-            <div className="flex justify-center mb-3">
-              <Image src="/logo.png" alt="Logo" width={64} height={64} priority />
+        <p className="relative z-10 px-12 pb-8 text-xs text-white/45 xl:px-16">
+          Hệ thống dành cho cán bộ, viên chức và người dùng được cấp quyền.
+        </p>
+      </section>
+
+      <section className="flex min-h-screen items-center justify-center px-5 py-10 sm:px-8 lg:px-12">
+        <div className="w-full max-w-[440px]">
+          <div className="mb-8 flex items-center gap-3 lg:hidden">
+            <div className="flex h-14 w-14 items-center justify-center rounded-lg border border-[#E4E7EC] bg-white p-2">
+              <Image src="/logo.png" alt="Biểu trưng Nhà xuất bản" width={44} height={44} priority />
             </div>
-            <p className="text-gray-500 text-sm">Hệ thống Quản lý Đấu thầu</p>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-primary-800">Hệ thống QLĐT</p>
+              <p className="mt-0.5 text-xs leading-snug text-[#667085]">Nhà xuất bản Chính trị quốc gia Sự thật</p>
+            </div>
           </div>
 
-          <div className="bg-white rounded-2xl shadow-lg p-8 border border-gray-100">
-            <div className="mb-6">
-              <h2 className="text-2xl font-bold text-gray-900">Đăng nhập</h2>
-              <p className="text-gray-500 mt-1 text-sm">Vui lòng đăng nhập để tiếp tục</p>
+          <div className="rounded-lg border border-[#E4E7EC] bg-white p-6 shadow-[0_1px_3px_rgba(16,24,40,0.06)] sm:p-8">
+            <div className="mb-7">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary-700">Cổng nghiệp vụ nội bộ</p>
+              <h2 className="mt-2 text-2xl font-semibold text-[#1F2328]">Đăng nhập hệ thống</h2>
+              <p className="mt-2 text-sm text-[#667085]">Sử dụng tài khoản đã được cơ quan cấp để tiếp tục.</p>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-5">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Email</label>
+                <label htmlFor="email" className="mb-1.5 block text-sm font-medium text-[#344054]">
+                  Địa chỉ email
+                </label>
                 <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">📧</span>
+                  <Mail aria-hidden="true" className="absolute left-3 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-[#667085]" />
                   <input
+                    id="email"
+                    name="email"
                     type="email"
+                    autoComplete="username"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full border border-gray-200 rounded-xl pl-10 pr-4 py-3 focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none text-sm transition-all"
-                    placeholder="Nhập email của bạn"
+                    className="h-11 w-full rounded-md border border-[#D0D5DD] bg-white pl-10 pr-3 text-sm outline-none transition focus:border-primary-700 focus:ring-4 focus:ring-primary-100"
+                    placeholder="ten.nguoidung@donvi.vn"
                     required
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Mật khẩu</label>
+                <label htmlFor="password" className="mb-1.5 block text-sm font-medium text-[#344054]">
+                  Mật khẩu
+                </label>
                 <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">🔒</span>
+                  <LockKeyhole aria-hidden="true" className="absolute left-3 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-[#667085]" />
                   <input
+                    id="password"
+                    name="password"
                     type={showPassword ? 'text' : 'password'}
+                    autoComplete="current-password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full border border-gray-200 rounded-xl pl-10 pr-12 py-3 focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none text-sm transition-all"
+                    className="h-11 w-full rounded-md border border-[#D0D5DD] bg-white pl-10 pr-11 text-sm outline-none transition focus:border-primary-700 focus:ring-4 focus:ring-primary-100"
                     placeholder="Nhập mật khẩu"
                     required
                   />
-                  <button type="button" onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-sm">
-                    {showPassword ? '🙈' : '👁️'}
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((current) => !current)}
+                    className="absolute right-1.5 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-[#667085] hover:bg-[#F2F4F7] hover:text-[#344054]"
+                    aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                    aria-pressed={showPassword}
+                  >
+                    {showPassword ? <EyeOff className="h-[18px] w-[18px]" /> : <Eye className="h-[18px] w-[18px]" />}
                   </button>
                 </div>
               </div>
 
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-primary-600 text-white py-3 rounded-xl font-medium hover:bg-primary-700 disabled:opacity-50 transition-all text-sm shadow-lg shadow-primary-600/20 hover:shadow-primary-600/30"
-              >
+              <button type="submit" disabled={loading} className="btn-primary h-11 w-full">
                 {loading ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                    Đang xử lý...
-                  </span>
-                ) : 'Đăng nhập'}
+                  <>
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/35 border-t-white" />
+                    Đang xác thực...
+                  </>
+                ) : (
+                  'Đăng nhập'
+                )}
               </button>
             </form>
+
+            <div className="mt-6 flex items-start gap-2.5 border-t border-[#E4E7EC] pt-5 text-xs leading-5 text-[#667085]">
+              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary-700" />
+              <p>Không chia sẻ tài khoản. Mọi thao tác trên hệ thống được ghi nhận để bảo đảm an toàn và truy vết.</p>
+            </div>
           </div>
 
-          <p className="text-center text-xs text-gray-400 mt-6">
-            &copy; {new Date().getFullYear()} Hệ thống Quản lý Đấu thầu. All rights reserved.
+          <p className="mt-6 text-center text-xs text-[#667085]">
+            © {new Date().getFullYear()} Nhà xuất bản Chính trị quốc gia Sự thật
           </p>
         </div>
-      </div>
-    </div>
+      </section>
+    </main>
   );
 }

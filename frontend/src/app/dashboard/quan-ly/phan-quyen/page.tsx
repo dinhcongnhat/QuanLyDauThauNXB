@@ -20,6 +20,34 @@ const roleColors: Record<string, string> = {
   USER: 'bg-blue-100 text-blue-700',
 };
 
+const directPermissionDefinitions = [
+  {
+    key: 'feature:projects',
+    label: 'Quản lý dự án',
+    description: 'Hiển thị và cho phép truy cập chức năng quản lý dự án.',
+  },
+  {
+    key: 'feature:book-procurement',
+    label: 'Thầu sách',
+    description: 'Hiển thị các nghiệp vụ Đặt sách, Dự toán và KHLCNT cho thầu sách.',
+  },
+  {
+    key: 'feature:equipment-procurement',
+    label: 'Thầu thiết bị',
+    description: 'Hiển thị các nghiệp vụ Dự toán, KHLCNT và LCNT thiết bị.',
+  },
+  {
+    key: 'approval:review',
+    label: 'Duyệt và chuyển tiếp',
+    description: 'Được xem, sửa, trả lại và chuyển tiếp bộ hồ sơ được giao.',
+  },
+  {
+    key: 'approval:final',
+    label: 'Phê duyệt cuối',
+    description: 'Được chốt phê duyệt cuối cùng cho toàn bộ bộ hồ sơ.',
+  },
+] as const;
+
 export default function PermissionManagementPage() {
   const { user: currentUser } = useAuthStore();
   const isAdmin = currentUser?.role === 'ADMIN';
@@ -29,6 +57,9 @@ export default function PermissionManagementPage() {
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [allDirectPermissions, setAllDirectPermissions] = useState<Permission[]>([]);
+  const [directPermissionKeys, setDirectPermissionKeys] = useState<string[]>([]);
+  const [originalDirectPermissionKeys, setOriginalDirectPermissionKeys] = useState<string[]>([]);
 
   // Permission form state for selected user
   const [userPermissions, setUserPermissions] = useState({
@@ -64,10 +95,14 @@ export default function PermissionManagementPage() {
 
   useEffect(() => {
     fetchUsers();
+    api
+      .getAllPermissions()
+      .then(setAllDirectPermissions)
+      .catch((err: any) => toast.error(err.message || 'Không thể tải danh mục quyền'));
   }, [fetchUsers]);
 
   // Handle select user
-  const handleSelectUser = (user: User) => {
+  const handleSelectUser = async (user: User) => {
     setSelectedUser(user);
     setUserPermissions({
       canApprove: user.canApprove ?? false,
@@ -85,6 +120,20 @@ export default function PermissionManagementPage() {
     });
     setEditPosition(user.position || '');
     setOriginalPosition(user.position || '');
+    setDirectPermissionKeys([]);
+    setOriginalDirectPermissionKeys([]);
+    try {
+      const direct = await api.getUserDirectPermissions(user.id);
+      const keys = direct.map(permission => permission.key).sort();
+      setDirectPermissionKeys(keys);
+      setOriginalDirectPermissionKeys(keys);
+      const canApprove =
+        keys.includes('approval:review') || keys.includes('approval:final');
+      setUserPermissions(prev => ({ ...prev, canApprove }));
+      setOriginalPermissions(prev => ({ ...prev, canApprove }));
+    } catch (err: any) {
+      toast.error(err.message || 'Không thể tải quyền trực tiếp');
+    }
   };
 
   // Toggle permission
@@ -105,7 +154,17 @@ export default function PermissionManagementPage() {
   };
 
   // Check if there are changes
-  const hasChanges = JSON.stringify(userPermissions) !== JSON.stringify(originalPermissions) || editPosition !== originalPosition;
+  const hasChanges =
+    JSON.stringify(userPermissions) !== JSON.stringify(originalPermissions) ||
+    editPosition !== originalPosition ||
+    JSON.stringify([...directPermissionKeys].sort()) !==
+      JSON.stringify([...originalDirectPermissionKeys].sort());
+
+  const toggleDirectPermission = (key: string) => {
+    setDirectPermissionKeys(prev =>
+      prev.includes(key) ? prev.filter(item => item !== key) : [...prev, key],
+    );
+  };
 
   // Save permissions
   const handleSavePermissions = async () => {
@@ -113,9 +172,12 @@ export default function PermissionManagementPage() {
     setSaving(true);
     try {
       const updates: Record<string, any> = {};
+      const canApprove =
+        directPermissionKeys.includes('approval:review') ||
+        directPermissionKeys.includes('approval:final');
 
-      if (userPermissions.canApprove !== originalPermissions.canApprove) {
-        updates.canApprove = userPermissions.canApprove;
+      if (canApprove !== originalPermissions.canApprove) {
+        updates.canApprove = canApprove;
       }
       if (userPermissions.isInvestor !== originalPermissions.isInvestor) {
         updates.isInvestor = userPermissions.isInvestor;
@@ -134,9 +196,17 @@ export default function PermissionManagementPage() {
       if (userPermissions.role !== originalPermissions.role) {
         await api.updateUserRole(selectedUser.id, userPermissions.role);
       }
+      const directPermissionIds = directPermissionKeys.map(key => {
+        const permission = allDirectPermissions.find(item => item.key === key);
+        if (!permission) throw new Error(`Quyền ${key} chưa tồn tại trong hệ thống`);
+        return permission.id;
+      });
+      await api.setUserDirectPermissions(selectedUser.id, directPermissionIds);
 
       toast.success('Cập nhật quyền thành công');
-      setOriginalPermissions(userPermissions);
+      setUserPermissions(prev => ({ ...prev, canApprove }));
+      setOriginalPermissions({ ...userPermissions, canApprove });
+      setOriginalDirectPermissionKeys([...directPermissionKeys].sort());
       setOriginalPosition(editPosition);
       fetchUsers();
     } catch (err: any) {
@@ -340,6 +410,46 @@ export default function PermissionManagementPage() {
                   </div>
                 </div>
 
+                <div>
+                  <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                    <Shield className="w-4 h-4 text-primary-600" />
+                    Chức năng hiển thị và phê duyệt
+                  </h4>
+                  <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                    {directPermissionDefinitions.map(permission => {
+                      const checked = directPermissionKeys.includes(permission.key);
+                      return (
+                        <label
+                          key={permission.key}
+                          className={`flex cursor-pointer items-start gap-3 rounded-lg border-2 p-4 transition-all ${
+                            checked
+                              ? 'border-primary-600 bg-primary-50 shadow-sm'
+                              : 'border-gray-200 hover:border-gray-300'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleDirectPermission(permission.key)}
+                            className="mt-0.5 h-5 w-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                          />
+                          <span className="min-w-0">
+                            <span className="block text-sm font-semibold text-gray-900">
+                              {permission.label}
+                            </span>
+                            <span className="mt-1 block text-xs leading-5 text-gray-500">
+                              {permission.description}
+                            </span>
+                            <code className="mt-2 block text-[10px] text-gray-400">
+                              {permission.key}
+                            </code>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 {/* Quyền hạn đặc biệt */}
                 <div>
                   <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
@@ -347,31 +457,6 @@ export default function PermissionManagementPage() {
                     Quyền hạn đặc biệt
                   </h4>
                   <div className="space-y-3">
-                    {/* Quyền phê duyệt */}
-                    <label
-                      className={`flex items-start gap-4 p-4 rounded-lg border-2 cursor-pointer transition-all ${
-                        userPermissions.canApprove
-                          ? 'border-violet-500 bg-violet-50'
-                          : 'border-gray-200 hover:border-gray-300'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={userPermissions.canApprove}
-                        onChange={() => togglePermission('canApprove')}
-                        className="mt-0.5 w-5 h-5 text-violet-600 rounded border-gray-300 focus:ring-violet-500"
-                      />
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <p className="font-medium text-gray-900">Có quyền phê duyệt</p>
-                          <span className="px-2 py-0.5 text-xs bg-violet-100 text-violet-700 rounded">Phê duyệt</span>
-                        </div>
-                        <p className="text-sm text-gray-500 mt-1">
-                          Cho phép người dùng phê duyệt tài liệu, đề xuất mua sắm và các quy trình trong hệ thống
-                        </p>
-                      </div>
-                    </label>
-
                     {/* Chủ đầu tư */}
                     <label
                       className={`flex items-start gap-4 p-4 rounded-lg border-2 cursor-pointer transition-all ${

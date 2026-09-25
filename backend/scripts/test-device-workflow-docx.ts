@@ -78,7 +78,7 @@ const legalDocuments = [
     trichYeuNoiDung: 'Đấu thầu',
     ngayBanHanh: '2023-06-23',
     citation:
-      'Căn cứ Luật Đấu thầu số 22/2023/QH15, ngày 23/6/2023 của Quốc hội khóa XV, Kỳ họp thứ 5;',
+      'Căn cứ Luật số 22/2023/QH15 ngày 23 tháng 6 năm 2023 của Quốc hội khóa XV, Kỳ họp thứ 5 đấu thầu;',
   },
   {
     id: 'legal-57-2024-qh15',
@@ -91,7 +91,7 @@ const legalDocuments = [
       'sửa đổi, bổ sung một số điều của Luật Quy hoạch, Luật Đầu tư, Luật Đầu tư theo phương thức đối tác công tư và Luật Đấu thầu',
     ngayBanHanh: '2024-11-29',
     citation:
-      'Căn cứ Luật số 57/2024/QH15, ngày 29/11/2024 của Quốc hội sửa đổi, bổ sung một số điều của Luật Quy hoạch, Luật Đầu tư, Luật Đầu tư theo phương thức đối tác công tư và Luật Đấu thầu;',
+      'Căn cứ Luật số 57/2024/QH15 ngày 29 tháng 11 năm 2024 của Quốc hội sửa đổi, bổ sung một số điều của Luật Quy hoạch, Luật Đầu tư, Luật Đầu tư theo phương thức đối tác công tư và Luật Đấu thầu;',
   },
   {
     id: 'legal-90-2025-qh15',
@@ -104,7 +104,7 @@ const legalDocuments = [
       'sửa đổi, bổ sung một số điều của Luật Đấu thầu, Luật Đầu tư theo phương thức đối tác công tư, Luật Hải quan, Luật thuế giá trị gia tăng, Luật thuế xuất khẩu, thuế nhập khẩu, Luật Đầu tư, Luật Đầu tư công, Luật Quản lý, sử dụng tài sản công',
     ngayBanHanh: '2025-06-25',
     citation:
-      'Căn cứ Luật số 90/2025/QH15, ngày 25/6/2025 của Quốc hội sửa đổi, bổ sung một số điều của Luật Đấu thầu, Luật Đầu tư theo phương thức đối tác công tư, Luật Hải quan, Luật thuế giá trị gia tăng, Luật thuế xuất khẩu, thuế nhập khẩu, Luật Đầu tư, Luật Đầu tư công, Luật Quản lý, sử dụng tài sản công;',
+      'Căn cứ Luật số 90/2025/QH15 ngày 25 tháng 6 năm 2025 của Quốc hội sửa đổi, bổ sung một số điều của Luật Đấu thầu, Luật Đầu tư theo phương thức đối tác công tư, Luật Hải quan, Luật thuế giá trị gia tăng, Luật thuế xuất khẩu, thuế nhập khẩu, Luật Đầu tư, Luật Đầu tư công, Luật Quản lý, sử dụng tài sản công;',
   },
   {
     id: 'legal-214-2025-nd-cp',
@@ -117,13 +117,21 @@ const legalDocuments = [
       'quy định chi tiết một số điều và biện pháp thi hành Luật Đấu thầu về lựa chọn nhà thầu',
     ngayBanHanh: '2025-08-04',
     citation:
-      'Căn cứ Nghị định số 214/2025/NĐ-CP, ngày 04/8/2025 của Chính phủ quy định chi tiết một số điều và biện pháp thi hành Luật Đấu thầu về lựa chọn nhà thầu;',
+      'Căn cứ Nghị định số 214/2025/NĐ-CP ngày 04 tháng 8 năm 2025 của Chính phủ quy định chi tiết một số điều và biện pháp thi hành Luật Đấu thầu về lựa chọn nhà thầu;',
   },
 ];
 
 const data = {
   TenDuAn: 'Dự án đầu tư trang thiết bị công nghệ thông tin năm 2026',
   NgayBanHanh: '2026-07-29',
+  NgayKy: '2026-07-30',
+  NguoiSoanVanBan: 'Nguyễn Văn Soạn',
+  ThuTruongDonVi: 'Trần Văn Trưởng',
+  CanCuMoDau: 'Kế hoạch công tác và nhiệm vụ được giao năm 2026',
+  ThuyetMinh: 'Thuyết minh nhu cầu xây dựng dự toán mua sắm thiết bị.',
+  MucTieuQuyMo: 'Đầu tư đồng bộ hạ tầng công nghệ thông tin.',
+  NguonVon: 'Nguồn thu hoạt động sự nghiệp',
+  NamThucHien: '2026',
   TongMucDauTu: '100100000000',
   packages,
   canCu: legalDocuments.map((document) => ({
@@ -282,7 +290,7 @@ async function main() {
   });
   assert.strictEqual(
     exampleCitation,
-    'Căn cứ Luật Đấu thầu số 22/2023/QH15, ngày 23/6/2023 của Quốc hội khóa XV, Kỳ họp thứ 5;',
+    'Căn cứ Luật số 22/2023/QH15 ngày 23 tháng 6 năm 2023 của Quốc hội khóa XV, Kỳ họp thứ 5 đấu thầu;',
     'Công thức câu viện dẫn 22/2023/QH15 không đúng',
   );
   assert.strictEqual(
@@ -317,6 +325,16 @@ async function main() {
     plainText(duToanCoverXml).includes(joinedPackageNames),
     'Phiếu trình ký Dự toán không nhận TenCacGoiThau',
   );
+  assert.ok(
+    plainText(duToanCoverXml).includes(data.NguoiSoanVanBan)
+      && plainText(duToanCoverXml).includes(data.ThuTruongDonVi),
+    'Phiếu trình ký Dự toán không nhận người soạn hoặc thủ trưởng đơn vị',
+  );
+  assert.ok(
+    plainText(duToanCoverXml).includes('Ngày 30 tháng 7 năm 2026') &&
+      !plainText(duToanCoverXml).includes('2026-07-30'),
+    'Phiếu trình ký Dự toán không nhận hoặc định dạng sai NgayKy',
+  );
   await writeDocx(
     '01_Phieu_trinh_ky_Du_toan.docx',
     'Phiếu trình ký Dự toán',
@@ -327,9 +345,15 @@ async function main() {
   const duToanXml = await documentXml(duToan);
   assertRendered(duToanXml, 'Tờ trình Dự toán');
   assert.ok(
-    plainText(duToanXml).includes('29/7/2026') &&
+    plainText(duToanXml).includes('Ngày 29 tháng 7 năm 2026') &&
       !plainText(duToanXml).includes('2026-07-29'),
-    'Ngày ISO từ form web phải được đổi sang d/M/yyyy trong Word',
+    'NgayBanHanh phải được đổi sang "Ngày dd tháng M năm yyyy" trong Word',
+  );
+  assert.ok(
+    plainText(duToanXml).includes(
+      'Căn cứ Kế hoạch công tác và nhiệm vụ được giao năm 2026',
+    ),
+    'Tờ trình Dự toán không nhận căn cứ mở đầu',
   );
   for (const document of legalDocuments) {
     assert.strictEqual(
@@ -354,6 +378,34 @@ async function main() {
     '02_To_trinh_phe_duyet_Du_toan.docx',
     'Tờ trình Dự toán',
     duToan,
+  );
+  const proposalWithAttachment = await generateDuToanDocx('TT_DUTOAN', {
+    ...data,
+    khaiToanAttachment: {
+      objectPath: 'fixture/khai-toan.docx',
+      originalName: 'khai-toan.docx',
+    },
+  });
+  assert.ok(
+    plainText(await documentXml(proposalWithAttachment)).includes(
+      '__KHAI_TOAN_SLOT__',
+    ),
+    'Tờ trình Dự toán không giữ vị trí ghép phụ lục khái toán',
+  );
+  const mergedProposal = await appendDocxAttachment(
+    proposalWithAttachment,
+    await createAttachment(),
+  );
+  assert.ok(
+    plainText(await documentXml(mergedProposal)).includes(
+      'PHỤ LỤC KHÁI TOÁN KIỂM THỬ',
+    ),
+    'Nội dung file khái toán chưa được nối vào Tờ trình',
+  );
+  await writeDocx(
+    '02b_To_trinh_phe_duyet_Du_toan_kem_Phu_luc.docx',
+    'Tờ trình Dự toán kèm phụ lục khái toán',
+    mergedProposal,
   );
 
   const khlcnt = await generateKhlcntDocx('TT_KHLCNT', data);
@@ -386,6 +438,11 @@ async function main() {
   assert.ok(
     plainText(khlcntCoverXml).includes('Nguyễn Văn Soạn'),
     'Phiếu trình ký KHLCNT không nhận người soạn',
+  );
+  assert.ok(
+    plainText(khlcntCoverXml).includes('Ngày 30 tháng 7 năm 2026') &&
+      !plainText(khlcntCoverXml).includes('2026-07-30'),
+    'Phiếu trình ký KHLCNT không nhận hoặc định dạng sai NgayKy',
   );
   await writeDocx(
     '04_Phieu_trinh_ky_KHLCNT.docx',

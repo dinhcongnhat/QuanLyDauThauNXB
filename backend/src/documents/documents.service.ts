@@ -3,8 +3,6 @@ import { PrismaService } from '../prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
 import { DocType, DocStatus, Role, ProcurementType } from '@prisma/client';
 import { NotificationsGateway } from '../notifications/notifications.gateway';
-import { NotificationService } from '../notifications/notification.service';
-import { NotificationType } from '@prisma/client';
 import { generateBaoCaoKHLCNT } from './docx-generator';
 import {
   generateDuToanCoverDocx,
@@ -22,6 +20,7 @@ import {
   prepareWorkflowTemplateData,
   validateDocxAttachmentForMerge,
 } from '../utils/docx-template-renderer';
+import { getOnlyOfficeAppUrl } from '../utils/onlyoffice-url';
 import * as path from 'path';
 import * as JSZip from 'jszip';
 
@@ -45,17 +44,18 @@ export class DocumentsService {
   constructor(
     private prisma: PrismaService,
     private notifications: NotificationsGateway,
-    private notificationService: NotificationService,
     private jwtService: JwtService,
     private minio: MinioService,
   ) {}
 
   private getInitialStatus(type: DocType): DocStatus {
-    // All documents requiring approval go to PENDING_APPROVAL
-    // Approver is determined by canApprove flag, not by document type
-    const approvalTypes: DocType[] = [DocType.TT_DUTOAN, DocType.QD_DUTOAN, DocType.TT_KHLCNT, DocType.BC_KHLCNT, DocType.QD_KHLCNT];
-    if (approvalTypes.includes(type)) {
-      return DocStatus.PENDING_APPROVAL;
+    const supportingTypes: DocType[] = [
+      DocType.TT_DUTOAN,
+      DocType.TT_KHLCNT,
+      DocType.BC_KHLCNT,
+    ];
+    if (supportingTypes.includes(type)) {
+      return DocStatus.COMPLETED;
     }
     return DocStatus.DRAFT;
   }
@@ -145,8 +145,11 @@ export class DocumentsService {
       if (expectedSourceType && source.type !== expectedSourceType) {
         throw new BadRequestException(`Văn bản nguồn phải có loại ${expectedSourceType}`);
       }
-      if (source.status !== DocStatus.APPROVED) {
-        throw new BadRequestException('Văn bản nguồn chưa được phê duyệt');
+      if (
+        source.status !== DocStatus.COMPLETED
+        && source.status !== DocStatus.APPROVED
+      ) {
+        throw new BadRequestException('Văn bản nguồn chưa hoàn thành');
       }
       if (projectId && source.projectId && source.projectId !== projectId) {
         throw new BadRequestException('Văn bản nguồn không thuộc dự án đã chọn');
@@ -160,7 +163,9 @@ export class DocumentsService {
       && ([DocType.QD_DUTOAN, DocType.QD_KHLCNT] as DocType[]).includes(type)
       && !sourceDocumentId
     ) {
-      throw new BadRequestException('Phải chọn tờ trình đã duyệt làm văn bản nguồn');
+      throw new BadRequestException(
+        'Phải chọn Tờ trình đã hoàn thành làm văn bản nguồn',
+      );
     }
     if (
       projectType === ProcurementType.THAU_THIET_BI
@@ -225,40 +230,13 @@ export class DocumentsService {
     });
 
     await this.prisma.review.create({
-      data: { documentId: doc.id, userId, action: 'SUBMIT' },
+      data: {
+        documentId: doc.id,
+        userId,
+        action:
+          status === DocStatus.COMPLETED ? 'COMPLETE' : 'CREATE_DRAFT',
+      },
     });
-
-    // Notify approvers if document needs approval
-    if (status !== DocStatus.DRAFT) {
-      const docTypeLabels: Record<string, string> = {
-        [DocType.TT_DUTOAN]: 'Tờ trình dự toán',
-        [DocType.QD_DUTOAN]: 'Quyết định dự toán',
-        [DocType.TT_KHLCNT]: 'Tờ trình KHLCNT',
-        [DocType.BC_KHLCNT]: 'Báo cáo KHLCNT',
-        [DocType.QD_KHLCNT]: 'Quyết định KHLCNT',
-      };
-      // Find users with canApprove=true or ADMIN role
-      const approvers = await this.prisma.user.findMany({
-        where: {
-          OR: [
-            { role: 'ADMIN' },
-            { canApprove: true },
-          ],
-        },
-      });
-      if (approvers.length > 0) {
-        await Promise.all(
-          approvers.map((u) =>
-            this.notificationService.create(u.id, {
-              type: NotificationType.DOC_SUBMITTED,
-              title: 'Có tài liệu mới cần duyệt',
-              message: `${doc.creator.name} đã gửi ${docTypeLabels[type] || 'tài liệu'} "${(doc.data as any)?.TenDuAn || (doc.data as any)?.tenDuAn || ''}" chờ bạn phê duyệt.`,
-              link: '/dashboard',
-            }),
-          ),
-        );
-      }
-    }
 
     this.notifications.notifyDocumentUpdate(doc);
     return doc;
@@ -268,7 +246,7 @@ export class DocumentsService {
     userId: string,
     ttData: any,
     qdData: any,
-    assignedTo: string,
+    assignedTo?: string,
     projectId?: string,
   ) {
     let projectType: ProcurementType | null = null;
@@ -281,37 +259,39 @@ export class DocumentsService {
     // Workflow validation: Thầu Sách must complete Đặt sách first
     await this.validateWorkflowForDuToan(projectId!, projectType!);
 
-    const status = DocStatus.PENDING_DIRECTOR;
-
     const [ttDoc, qdDoc] = await this.prisma.$transaction(async (tx) => {
       const tt = await tx.document.create({
         data: {
           type: DocType.TT_DUTOAN,
-          status,
+          status: DocStatus.COMPLETED,
           data: prepareWorkflowTemplateData(ttData || {}),
           createdBy: userId,
-          assignedTo,
+          assignedTo: null,
           projectId,
           procurementType: projectType,
         },
         include: { creator: { select: { id: true, name: true, email: true, role: true } } },
       });
-      await tx.review.create({ data: { documentId: tt.id, userId, action: 'SUBMIT' } });
+      await tx.review.create({
+        data: { documentId: tt.id, userId, action: 'COMPLETE' },
+      });
 
       const qd = await tx.document.create({
         data: {
           type: DocType.QD_DUTOAN,
-          status,
+          status: DocStatus.DRAFT,
           data: prepareWorkflowTemplateData(qdData || {}),
           sourceDocumentId: tt.id,
           createdBy: userId,
-          assignedTo,
+          assignedTo: null,
           projectId,
           procurementType: projectType,
         },
         include: { creator: { select: { id: true, name: true, email: true, role: true } } },
       });
-      await tx.review.create({ data: { documentId: qd.id, userId, action: 'SUBMIT' } });
+      await tx.review.create({
+        data: { documentId: qd.id, userId, action: 'CREATE_DRAFT' },
+      });
 
       return [tt, qd];
     });
@@ -446,97 +426,11 @@ export class DocumentsService {
     });
   }
 
-  async approve(id: string, userId: string, comment?: string) {
-    const doc = await this.prisma.document.findUnique({ where: { id } });
-    if (!doc) throw new NotFoundException('Không tìm thấy tài liệu');
-
-    // Check if user has permission to approve (either assignedTo or ADMIN/canApprove)
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { role: true, canApprove: true },
-    });
-    const isAssigned = doc.assignedTo === userId;
-    if (!isAssigned && (!user || (user.role !== 'ADMIN' && user.canApprove !== true))) {
-      throw new ForbiddenException('Bạn không có quyền phê duyệt tài liệu.');
-    }
-
-    const isPending = doc.status === DocStatus.PENDING_APPROVAL ||
-                      doc.status === DocStatus.PENDING_HEAD ||
-                      doc.status === DocStatus.PENDING_DIRECTOR;
-    if (!isPending) {
-      throw new BadRequestException('Tài liệu không ở trạng thái chờ duyệt');
-    }
-
-    const updated = await this.prisma.document.update({
-      where: { id },
-      data: { status: DocStatus.APPROVED },
-      include: { creator: { select: { id: true, name: true, email: true, role: true } } },
-    });
-    await this.prisma.review.create({
-      data: { documentId: id, userId, action: 'APPROVE', comment },
-    });
-
-    // Notify document creator that their document was approved
-    await this.notificationService.create(doc.createdBy, {
-      type: NotificationType.DOC_APPROVED,
-      title: 'Tài liệu đã được phê duyệt',
-      message: `Tài liệu "${(updated.data as any)?.tenDuAn || ''}" của bạn đã được phê duyệt.`,
-      link: '/dashboard',
-    });
-
-    this.notifications.notifyDocumentUpdate(updated);
-    return updated;
-  }
-
-  async reject(id: string, userId: string, comment: string) {
-    const doc = await this.prisma.document.findUnique({ where: { id } });
-    if (!doc) throw new NotFoundException('Không tìm thấy tài liệu');
-
-    // Check if user has permission to reject
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { role: true, canApprove: true },
-    });
-    const isAssigned = doc.assignedTo === userId;
-    if (!isAssigned && (!user || (user.role !== 'ADMIN' && user.canApprove !== true))) {
-      throw new ForbiddenException('Bạn không có quyền từ chối tài liệu.');
-    }
-
-    const isPending = doc.status === DocStatus.PENDING_APPROVAL ||
-                      doc.status === DocStatus.PENDING_HEAD ||
-                      doc.status === DocStatus.PENDING_DIRECTOR;
-    if (!isPending) {
-      throw new BadRequestException('Tài liệu không ở trạng thái chờ duyệt');
-    }
-
-    const updated = await this.prisma.document.update({
-      where: { id },
-      data: { status: DocStatus.REJECTED },
-      include: { creator: { select: { id: true, name: true, email: true, role: true } } },
-    });
-    await this.prisma.review.create({
-      data: { documentId: id, userId, action: 'REJECT', comment },
-    });
-
-    await this.notificationService.create(doc.createdBy, {
-      type: NotificationType.DOC_REJECTED,
-      title: 'Tài liệu bị từ chối',
-      message: `Tài liệu "${(updated.data as any)?.tenDuAn || ''}" của bạn đã bị từ chối. Lý do: ${comment || 'Không có'}`.slice(0, 500),
-      link: '/dashboard',
-    });
-
-    this.notifications.notifyDocumentUpdate(updated);
-    return updated;
-  }
-
   async resubmit(id: string, userId: string, data?: any) {
     const doc = await this.prisma.document.findUnique({ where: { id } });
     if (!doc) throw new NotFoundException('Không tìm thấy tài liệu');
     const editableStatuses: DocStatus[] = [
       DocStatus.DRAFT,
-      DocStatus.PENDING_APPROVAL,
-      DocStatus.PENDING_HEAD,
-      DocStatus.PENDING_DIRECTOR,
       DocStatus.REJECTED,
     ];
     if (!editableStatuses.includes(doc.status)) {
@@ -586,35 +480,14 @@ export class DocumentsService {
       data: {
         documentId: id,
         userId,
-        action: isRejected ? 'RESUBMIT' : 'UPDATE_PENDING',
+        action:
+          newStatus === DocStatus.COMPLETED
+            ? 'COMPLETE'
+            : isRejected
+              ? 'UPDATE_AFTER_REJECTION'
+              : 'UPDATE_DRAFT',
       },
     });
-
-    // Keep reviewers informed when the content they are reviewing changes.
-    const approvers = await this.prisma.user.findMany({
-      where: {
-        OR: [
-          { role: 'ADMIN' },
-          { canApprove: true },
-        ],
-      },
-    });
-    if (approvers.length > 0) {
-      await Promise.all(
-        approvers.map((u) =>
-          this.notificationService.create(u.id, {
-            type: NotificationType.DOC_SUBMITTED,
-            title: isRejected
-              ? 'Có tài liệu gửi lại duyệt'
-              : 'Tài liệu chờ duyệt vừa được cập nhật',
-            message: `${updated.creator.name} đã ${
-              isRejected ? 'gửi lại' : 'cập nhật'
-            } tài liệu "${(updated.data as any)?.TenDuAn || (updated.data as any)?.tenDuAn || ''}" cần bạn duyệt.`,
-            link: '/dashboard',
-          }),
-        ),
-      );
-    }
 
     this.notifications.notifyDocumentUpdate(updated);
     return updated;
@@ -698,8 +571,39 @@ export class DocumentsService {
   }
 
   async generateDocx(id: string): Promise<Buffer> {
-    const doc = await this.prisma.document.findUniqueOrThrow({ where: { id } });
-    const d = doc.data as any;
+    const doc = await this.prisma.document.findUniqueOrThrow({
+      where: { id },
+      include: {
+        sourceDocument: { select: { data: true } },
+      },
+    });
+    const ownData = (doc.data as Record<string, any>) || {};
+    const sourceData =
+      (doc.sourceDocument?.data as Record<string, any>) || {};
+    const ownAttachment =
+      ownData.khaiToanAttachment ?? ownData._khaiToanAttachment;
+    const sourceAttachment =
+      sourceData.khaiToanAttachment ?? sourceData._khaiToanAttachment;
+    const hasOwnAttachmentOverride =
+      ownData.khaiToanAttachmentOverride === true
+      || String(ownAttachment?.objectPath || '').startsWith(
+        `documents/${doc.id}/`,
+      );
+    const attachment =
+      doc.type === DocType.QD_DUTOAN
+      && !hasOwnAttachmentOverride
+        ? sourceAttachment ?? ownAttachment
+        : ownAttachment ?? sourceAttachment;
+    const d = attachment?.objectPath
+      ? {
+          ...ownData,
+          khaiToanAttachment: attachment,
+          FileKhaiToanDinhKem:
+            attachment.originalName
+            ?? attachment.fileName
+            ?? ownData.FileKhaiToanDinhKem,
+        }
+      : ownData;
     let generated: Buffer;
     switch (doc.type) {
       case DocType.TT_DUTOAN:
@@ -712,7 +616,10 @@ export class DocumentsService {
         generated = await generateKhlcntDocx('TT_KHLCNT', d);
         break;
       case DocType.BC_KHLCNT:
-        generated = await generateBaoCaoKHLCNT({ ...d, ngayLap: new Date(d.ngayLap) });
+        generated = await generateBaoCaoKHLCNT({
+          ...d,
+          ngayLap: new Date(d.ngayLap),
+        } as any);
         break;
       case DocType.QD_KHLCNT:
         generated = await generateKhlcntDocx('QD_KHLCNT', d);
@@ -721,8 +628,12 @@ export class DocumentsService {
         throw new BadRequestException('Loại tài liệu không hỗ trợ');
     }
 
-    const attachment = d?.khaiToanAttachment ?? d?._khaiToanAttachment;
-    if (doc.type === DocType.QD_DUTOAN && attachment?.objectPath) {
+    if (
+      ([DocType.TT_DUTOAN, DocType.QD_DUTOAN] as DocType[]).includes(
+        doc.type,
+      )
+      && attachment?.objectPath
+    ) {
       const attachmentBuffer = await this.minio.download(attachment.objectPath);
       generated = await appendDocxAttachment(generated, attachmentBuffer);
     }
@@ -773,13 +684,19 @@ export class DocumentsService {
     const files: Array<{ filename: string; buffer: Buffer }> = [];
 
     if ([DocType.TT_DUTOAN, DocType.QD_DUTOAN].includes(document.type as any)) {
+      const proposalBuffer =
+        document.type === DocType.TT_DUTOAN
+          ? await this.generateDocx(id)
+          : document.sourceDocument?.id
+            ? await this.generateDocx(document.sourceDocument.id)
+            : await generateDuToanDocx('TT_DUTOAN', sourceData);
       files.push({
         filename: '0. Phiếu trình ký phê duyệt dự toán.docx',
         buffer: await generateDuToanCoverDocx(sourceData),
       });
       files.push({
         filename: '1. Tờ trình phê duyệt dự toán.docx',
-        buffer: await generateDuToanDocx('TT_DUTOAN', sourceData),
+        buffer: proposalBuffer,
       });
       if (document.type === DocType.QD_DUTOAN) {
         files.push({
@@ -863,7 +780,12 @@ export class DocumentsService {
     userId: string,
     file: { buffer: Buffer; originalname: string; mimetype: string; size: number },
   ) {
-    const document = await this.prisma.document.findUnique({ where: { id } });
+    const document = await this.prisma.document.findUnique({
+      where: { id },
+      include: {
+        sourceDocument: { select: { data: true } },
+      },
+    });
     if (!document) throw new NotFoundException('Không tìm thấy tài liệu');
     if (!([DocType.TT_DUTOAN, DocType.QD_DUTOAN] as DocType[]).includes(document.type)) {
       throw new BadRequestException('File khái toán chỉ áp dụng cho hồ sơ Dự toán');
@@ -875,10 +797,21 @@ export class DocumentsService {
     if (document.createdBy !== userId && user?.role !== Role.ADMIN) {
       throw new ForbiddenException('Bạn không có quyền thay file khái toán của tài liệu này');
     }
+    if (
+      document.type === DocType.QD_DUTOAN
+      && ([DocStatus.PENDING_APPROVAL, DocStatus.APPROVED] as DocStatus[])
+        .includes(document.status)
+    ) {
+      throw new BadRequestException(
+        'Không thể thay phụ lục khi Quyết định đang chờ duyệt hoặc đã được duyệt',
+      );
+    }
 
     const extension = path.extname(file.originalname).toLowerCase();
     if (extension !== '.docx') {
-      throw new BadRequestException('Phụ lục khái toán phải là file DOCX để nối vào Quyết định');
+      throw new BadRequestException(
+        'Phụ lục khái toán phải là file DOCX để ghép vào Tờ trình hoặc Quyết định',
+      );
     }
     try {
       await validateDocxAttachmentForMerge(file.buffer);
@@ -917,6 +850,9 @@ export class DocumentsService {
           data: {
             ...currentData,
             khaiToanAttachment: attachment,
+            ...(document.type === DocType.QD_DUTOAN
+              ? { khaiToanAttachmentOverride: true }
+              : {}),
             FileKhaiToanDinhKem: file.originalname,
           },
         },
@@ -928,6 +864,13 @@ export class DocumentsService {
     if (
       previousAttachment?.objectPath
       && previousAttachment.objectPath !== objectPath
+      && (
+        document.type !== DocType.QD_DUTOAN
+        || currentData.khaiToanAttachmentOverride === true
+        || String(previousAttachment.objectPath).startsWith(
+          `documents/${document.id}/`,
+        )
+      )
     ) {
       await this.minio.delete(previousAttachment.objectPath).catch(() => undefined);
     }
@@ -935,10 +878,30 @@ export class DocumentsService {
   }
 
   async getKhaiToanAttachmentUrl(id: string, userId: string) {
-    const document = await this.prisma.document.findUnique({ where: { id } });
+    const document = await this.prisma.document.findUnique({
+      where: { id },
+      include: {
+        sourceDocument: { select: { data: true } },
+      },
+    });
     if (!document) throw new NotFoundException('Không tìm thấy tài liệu');
     const data = (document.data as Record<string, any>) || {};
-    const attachment = data.khaiToanAttachment ?? data._khaiToanAttachment;
+    const sourceData =
+      (document.sourceDocument?.data as Record<string, any>) || {};
+    const ownAttachment =
+      data.khaiToanAttachment ?? data._khaiToanAttachment;
+    const sourceAttachment =
+      sourceData.khaiToanAttachment ?? sourceData._khaiToanAttachment;
+    const hasOwnAttachmentOverride =
+      data.khaiToanAttachmentOverride === true
+      || String(ownAttachment?.objectPath || '').startsWith(
+        `documents/${document.id}/`,
+      );
+    const attachment =
+      document.type === DocType.QD_DUTOAN
+      && !hasOwnAttachmentOverride
+        ? sourceAttachment ?? ownAttachment
+        : ownAttachment ?? sourceAttachment;
     if (!attachment?.objectPath) throw new NotFoundException('Chưa có file khái toán');
     if (
       document.createdBy !== userId
@@ -979,7 +942,7 @@ export class DocumentsService {
       { expiresIn: '1h' },
     );
 
-    const appUrl = process.env.APP_URL || 'http://demo.jtsc.vn';
+    const appUrl = getOnlyOfficeAppUrl();
     const onlyofficeUrl = process.env.ONLYOFFICE_URL || 'https://jtsconlyoffice.duckdns.org';
     const onlyofficeSecret = process.env.ONLYOFFICE_JWT_SECRET || '10122002';
 

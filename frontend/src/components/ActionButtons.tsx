@@ -58,8 +58,8 @@ export function ActionButtons({
   if (status === 'DRAFT' && isOwner && onSubmit) {
     buttons.push(
       <button key="submit" onClick={() => handleSimpleAction('submit', onSubmit)} disabled={loading === 'submit'}
-        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium">
-        {loading === 'submit' ? '...' : 'Gửi duyệt'}
+        className="btn-primary disabled:opacity-50">
+        {loading === 'submit' ? 'Đang gửi...' : 'Gửi duyệt'}
       </button>
     );
   }
@@ -68,8 +68,8 @@ export function ActionButtons({
   if (status === 'REJECTED' && isOwner && onResubmit) {
     buttons.push(
       <button key="resubmit" onClick={() => handleSimpleAction('resubmit', onResubmit)} disabled={loading === 'resubmit'}
-        className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 disabled:opacity-50 text-sm font-medium">
-        {loading === 'resubmit' ? '...' : 'Gửi lại'}
+        className="btn-secondary disabled:opacity-50">
+        {loading === 'resubmit' ? 'Đang gửi...' : 'Gửi lại'}
       </button>
     );
   }
@@ -79,8 +79,8 @@ export function ActionButtons({
     buttons.push(
       <button key="review" onClick={() => showComment === 'review' ? handleAction('review', onReview) : setShowComment('review')}
         disabled={loading === 'review'}
-        className="px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 disabled:opacity-50 text-sm font-medium">
-        {loading === 'review' ? '...' : 'Thẩm định'}
+        className="btn-secondary disabled:opacity-50">
+        {loading === 'review' ? 'Đang xử lý...' : 'Thẩm định'}
       </button>
     );
   }
@@ -92,8 +92,8 @@ export function ActionButtons({
       buttons.push(
         <button key="approve" onClick={() => showComment === 'approve' ? handleAction('approve', onApprove) : setShowComment('approve')}
           disabled={loading === 'approve'}
-          className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm font-medium">
-          {loading === 'approve' ? '...' : 'Phê duyệt'}
+          className="btn-primary disabled:opacity-50">
+          {loading === 'approve' ? 'Đang xử lý...' : 'Phê duyệt'}
         </button>
       );
     }
@@ -106,8 +106,8 @@ export function ActionButtons({
       buttons.push(
         <button key="reject" onClick={() => showComment === 'reject' ? handleAction('reject', onReject) : setShowComment('reject')}
           disabled={loading === 'reject'}
-          className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 text-sm font-medium">
-          {loading === 'reject' ? '...' : 'Từ chối'}
+          className="btn-danger disabled:opacity-50">
+          {loading === 'reject' ? 'Đang xử lý...' : 'Từ chối'}
         </button>
       );
     }
@@ -119,15 +119,15 @@ export function ActionButtons({
     <div className="space-y-3">
       <div className="flex items-center gap-2 flex-wrap">{buttons}</div>
       {showComment && (
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row">
           <input
             type="text"
             value={comment}
             onChange={(e) => setComment(e.target.value)}
             placeholder="Nhập nhận xét (tùy chọn)..."
-            className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary-500 outline-none"
+            className="input-field flex-1"
           />
-          <button onClick={() => setShowComment(null)} className="px-3 py-2 text-sm text-gray-600 hover:text-gray-800">
+          <button onClick={() => setShowComment(null)} className="btn-neutral">
             Hủy
           </button>
         </div>

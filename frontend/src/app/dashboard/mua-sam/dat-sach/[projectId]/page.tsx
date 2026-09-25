@@ -11,7 +11,6 @@ import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import { OnlyOfficePreview } from '@/components/OnlyOfficePreview';
 import type { PreviewType } from '@/components/OnlyOfficePreview';
-import { ProjectChat } from '@/components/ProjectChat';
 
 type Tab = 'gdn_pcdi' | 'quyetdinh';
 
@@ -76,6 +75,7 @@ function DatSachDetailPageInner() {
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('gdn_pcdi');
   const [users, setUsers] = useState<User[]>([]);
+  const [approvalUsers, setApprovalUsers] = useState<User[]>([]);
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -209,6 +209,10 @@ function DatSachDetailPageInner() {
     const interval = setInterval(fetchProject, 10000);
     return () => clearInterval(interval);
   }, [fetchProject]);
+
+  useEffect(() => {
+    api.getApprovers().then(setApprovalUsers).catch(() => setApprovalUsers([]));
+  }, []);
 
   useEffect(() => {
     setLoadingUsers(true);
@@ -433,8 +437,8 @@ function DatSachDetailPageInner() {
   const gdn = project?.gdnDocuments?.[0];
   const pcdi = project?.pcdiDocuments?.[0];
   const totalSL = (gdn?.assignments || []).reduce((sum: number, a: any) => sum + (a.soLuong || 0), 0);
-  const gdnApproved = gdn?.status === 'APPROVED';
-  const pcdiApproved = pcdi?.status === 'APPROVED';
+  const gdnApproved = gdn?.status === 'COMPLETED';
+  const pcdiApproved = pcdi?.status === 'COMPLETED';
   const projectCompleted = project?.status === 'COMPLETED';
   const isReviewer = !!(user && ['ADMIN', 'HEAD_OF_DEPARTMENT', 'DIRECTOR'].includes(user.role));
   const gdnPendingReview = gdn?.status === "PENDING_REVIEW";
@@ -561,16 +565,16 @@ function DatSachDetailPageInner() {
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <h2 className="font-semibold text-gray-800">1. Giấy đề nghị in/tái bản sách</h2>
-                {gdnApproved && <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">Đã duyệt ✅</span>}
+                {gdnApproved && <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">Hoàn thành ✅</span>}
               </div>
               <div className="flex gap-2 items-center">
                 <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                  gdn?.status === 'APPROVED' ? 'bg-green-100 text-green-700' :
+                  gdn?.status === 'COMPLETED' ? 'bg-green-100 text-green-700' :
                   gdn?.status === 'PENDING_REVIEW' ? 'bg-amber-100 text-amber-700' :
                   gdn?.status === 'REWORK' ? 'bg-red-100 text-red-700' :
                   'bg-gray-100 text-gray-600'
                 }`}>
-                  {gdn?.status === 'APPROVED' ? 'Đã duyệt' :
+                  {gdn?.status === 'COMPLETED' ? 'Hoàn thành' :
                    gdn?.status === 'PENDING_REVIEW' ? 'Chờ duyệt' :
                    gdn?.status === 'REWORK' ? 'Cần sửa lại' : 'Nháp'}
                 </span>
@@ -612,7 +616,7 @@ function DatSachDetailPageInner() {
                   <span className="text-sm font-bold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
                     {totalSL > 0 ? `${formatMoney(totalSL)} cuốn` : '— chưa có người điền —'}
                   </span>
-                  {!(gdn?.status === 'APPROVED') && (
+                  {!(gdn?.status === 'COMPLETED') && (
                     <button onClick={() => { setSelectedUsers((gdn?.assignments || []).map((a: any) => a.userId)); setShowAssignModal(true); }}
                       className="px-3 py-1.5 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 text-xs font-medium">
                       👥 Phân công điền SL
@@ -678,10 +682,10 @@ function DatSachDetailPageInner() {
               </button>
 
               {/* Review workflow buttons */}
-              {gdn && gdn.status !== 'APPROVED' && gdn.status !== 'PENDING_REVIEW' && (
+              {gdn && gdn.status !== 'COMPLETED' && gdn.status !== 'PENDING_REVIEW' && (
                 <button
                   onClick={() => {
-                    if (totalSL === 0) { toast.error('Cần phân công và điền SL trước khi trình duyệt'); return; }
+                    if (totalSL === 0) { toast.error('Cần phân công và điền SL trước khi hoàn thành'); return; }
                     setReviewerModalType('gdn');
                     setSelectedReviewer('');
                     setShowReviewerModal(true);
@@ -689,7 +693,7 @@ function DatSachDetailPageInner() {
                   disabled={saving}
                   className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm disabled:opacity-50"
                 >
-                  📤 Trình duyệt GDN
+                  ✅ Hoàn thành GDN
                 </button>
               )}
 
@@ -731,15 +735,15 @@ function DatSachDetailPageInner() {
                 </div>
               )}
 
-              {gdn?.status === 'APPROVED' && (
+              {gdn?.status === 'COMPLETED' && (
                 <span className="px-3 py-1.5 bg-green-50 text-green-700 border border-green-200 rounded-lg text-sm font-medium">
-                  ✅ Đã duyệt bởi: {gdn.reviewer?.name || '—'}
+                  ✅ Hồ sơ đã hoàn thành
                 </span>
               )}
             </div>
 
-            {totalSL === 0 && gdn && gdn.status !== 'APPROVED' && gdn.status !== 'PENDING_REVIEW' && (
-              <p className="text-xs text-orange-500 mt-2">⚠️ Cần phân công user và điền số lượng trước khi trình duyệt.</p>
+            {totalSL === 0 && gdn && gdn.status !== 'COMPLETED' && gdn.status !== 'PENDING_REVIEW' && (
+              <p className="text-xs text-orange-500 mt-2">⚠️ Cần phân công user và điền số lượng trước khi hoàn thành.</p>
             )}
           </div>
 
@@ -748,7 +752,7 @@ function DatSachDetailPageInner() {
             <div className="bg-white rounded-xl p-5 border">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-semibold text-gray-800">📋 Phân công điền số lượng</h3>
-                {!(gdn?.status === 'APPROVED') && (
+                {!(gdn?.status === 'COMPLETED') && (
                   <button onClick={() => {
                     if (users.length === 0) {
                       setLoadingUsers(true);
@@ -810,16 +814,16 @@ function DatSachDetailPageInner() {
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <h2 className="font-semibold text-gray-800">2. Phiếu chỉ định cơ sở in</h2>
-                {pcdiApproved && <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">Đã duyệt ✅</span>}
+                {pcdiApproved && <span className="text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">Hoàn thành ✅</span>}
               </div>
               <div className="flex gap-2 items-center">
                 <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                  pcdi?.status === 'APPROVED' ? 'bg-green-100 text-green-700' :
+                  pcdi?.status === 'COMPLETED' ? 'bg-green-100 text-green-700' :
                   pcdi?.status === 'PENDING_REVIEW' ? 'bg-amber-100 text-amber-700' :
                   pcdi?.status === 'REWORK' ? 'bg-red-100 text-red-700' :
                   'bg-gray-100 text-gray-600'
                 }`}>
-                  {pcdi?.status === 'APPROVED' ? 'Đã duyệt' :
+                  {pcdi?.status === 'COMPLETED' ? 'Hoàn thành' :
                    pcdi?.status === 'PENDING_REVIEW' ? 'Chờ duyệt' :
                    pcdi?.status === 'REWORK' ? 'Cần sửa lại' : 'Nháp'}
                 </span>
@@ -950,7 +954,7 @@ function DatSachDetailPageInner() {
                       disabled={saving}
                       className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm disabled:opacity-50"
                     >
-                      📤 Trình duyệt PCDI
+                      ✅ Hoàn thành PCDI
                     </button>
                   )}
                 </>
@@ -959,19 +963,19 @@ function DatSachDetailPageInner() {
           </div>
 
           {/* Unified Submission Section */}
-          {gdn && pcdi && (gdn.status !== 'APPROVED' || pcdi.status !== 'APPROVED') && (
+          {gdn && pcdi && (gdn.status !== 'COMPLETED' || pcdi.status !== 'COMPLETED') && (
             <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-5 flex items-center justify-between">
               <div>
-                <h3 className="font-semibold text-indigo-900 text-sm">📤 Trình duyệt cả 2 (GDN & PCDI)</h3>
+                <h3 className="font-semibold text-indigo-900 text-sm">✅ Hoàn thành GDN & PCDI</h3>
                 <p className="text-xs text-indigo-700 mt-1">
-                  Gửi đồng thời cả Giấy đề nghị in (GDN) và Phiếu chỉ định cơ sở in (PCDI) cho cùng một người duyệt.
+                  Xác nhận hoàn thành đồng thời Giấy đề nghị in (GDN) và Phiếu chỉ định cơ sở in (PCDI).
                 </p>
                 <div className="flex gap-4 mt-2 text-xs">
-                  <span className={`font-medium ${gdn.status === 'APPROVED' ? 'text-green-600' : gdn.status === 'PENDING_REVIEW' ? 'text-amber-600' : 'text-gray-500'}`}>
-                    GDN: {gdn.status === 'APPROVED' ? 'Đã duyệt' : gdn.status === 'PENDING_REVIEW' ? 'Chờ duyệt' : gdn.status === 'REWORK' ? 'Cần sửa lại' : 'Nháp'}
+                  <span className={`font-medium ${gdn.status === 'COMPLETED' ? 'text-green-600' : gdn.status === 'PENDING_REVIEW' ? 'text-amber-600' : 'text-gray-500'}`}>
+                    GDN: {gdn.status === 'COMPLETED' ? 'Hoàn thành' : gdn.status === 'PENDING_REVIEW' ? 'Chờ duyệt' : gdn.status === 'REWORK' ? 'Cần sửa lại' : 'Nháp'}
                   </span>
-                  <span className={`font-medium ${pcdi.status === 'APPROVED' ? 'text-green-600' : pcdi.status === 'PENDING_REVIEW' ? 'text-amber-600' : 'text-gray-500'}`}>
-                    PCDI: {pcdi.status === 'APPROVED' ? 'Đã duyệt' : pcdi.status === 'PENDING_REVIEW' ? 'Chờ duyệt' : pcdi.status === 'REWORK' ? 'Cần sửa lại' : 'Nháp'}
+                  <span className={`font-medium ${pcdi.status === 'COMPLETED' ? 'text-green-600' : pcdi.status === 'PENDING_REVIEW' ? 'text-amber-600' : 'text-gray-500'}`}>
+                    PCDI: {pcdi.status === 'COMPLETED' ? 'Hoàn thành' : pcdi.status === 'PENDING_REVIEW' ? 'Chờ duyệt' : pcdi.status === 'REWORK' ? 'Cần sửa lại' : 'Nháp'}
                   </span>
                 </div>
               </div>
@@ -980,7 +984,7 @@ function DatSachDetailPageInner() {
                 {(gdn.status === 'DRAFT' || gdn.status === 'REWORK' || pcdi.status === 'DRAFT' || pcdi.status === 'REWORK') ? (
                   <button
                     onClick={() => {
-                      if (totalSL === 0) { toast.error('Cần phân công và điền SL trước khi trình duyệt GDN'); return; }
+                      if (totalSL === 0) { toast.error('Cần phân công và điền SL trước khi hoàn thành GDN'); return; }
                       setReviewerModalType('gdn_pcdi');
                       setSelectedReviewer('');
                       setShowReviewerModal(true);
@@ -988,7 +992,7 @@ function DatSachDetailPageInner() {
                     disabled={saving}
                     className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium disabled:opacity-50"
                   >
-                    Gửi duyệt cả 2
+                    Hoàn thành cả 2
                   </button>
                 ) : (
                   (gdn.status === 'PENDING_REVIEW' || pcdi.status === 'PENDING_REVIEW') && (
@@ -1101,11 +1105,11 @@ function DatSachDetailPageInner() {
             <div className="mt-4 p-3 bg-gray-50 rounded-lg border">
               <p className="text-xs font-semibold text-gray-600 mb-2">📋 Trạng thái luồng:</p>
               <div className="flex gap-4 text-xs">
-                <span className={gdn?.status === 'APPROVED' ? 'text-green-600' : gdn?.status === 'PENDING_REVIEW' ? 'text-amber-600' : gdn?.status === 'REWORK' ? 'text-red-600' : 'text-gray-400'}>
-                  {gdn?.status === 'APPROVED' ? '✅' : gdn?.status === 'PENDING_REVIEW' ? '📤' : gdn?.status === 'REWORK' ? '🔁' : '⏳'} GDN
+                <span className={gdn?.status === 'COMPLETED' ? 'text-green-600' : gdn?.status === 'PENDING_REVIEW' ? 'text-amber-600' : gdn?.status === 'REWORK' ? 'text-red-600' : 'text-gray-400'}>
+                  {gdn?.status === 'COMPLETED' ? '✅' : gdn?.status === 'PENDING_REVIEW' ? '📤' : gdn?.status === 'REWORK' ? '🔁' : '⏳'} GDN
                 </span>
-                <span className={pcdi?.status === 'APPROVED' ? 'text-green-600' : pcdi?.status === 'PENDING_REVIEW' ? 'text-amber-600' : pcdi?.status === 'REWORK' ? 'text-red-600' : 'text-gray-400'}>
-                  {pcdi?.status === 'APPROVED' ? '✅' : pcdi?.status === 'PENDING_REVIEW' ? '📤' : pcdi?.status === 'REWORK' ? '🔁' : '⏳'} PCDI
+                <span className={pcdi?.status === 'COMPLETED' ? 'text-green-600' : pcdi?.status === 'PENDING_REVIEW' ? 'text-amber-600' : pcdi?.status === 'REWORK' ? 'text-red-600' : 'text-gray-400'}>
+                  {pcdi?.status === 'COMPLETED' ? '✅' : pcdi?.status === 'PENDING_REVIEW' ? '📤' : pcdi?.status === 'REWORK' ? '🔁' : '⏳'} PCDI
                 </span>
                 <span className={projectCompleted ? 'text-green-600' : 'text-gray-400'}>
                   {projectCompleted ? '✅' : '⏳'} QĐ
@@ -1184,51 +1188,66 @@ function DatSachDetailPageInner() {
       {showReviewerModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setShowReviewerModal(false)}>
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold mb-2">📤 Trình duyệt {reviewerModalType === 'gdn' ? 'GDN' : reviewerModalType === 'pcdi' ? 'PCDI' : reviewerModalType === 'gdn_pcdi' ? 'GDN & PCDI' : 'QĐ'}</h3>
+            <h3 className="text-lg font-semibold mb-2">
+              {reviewerModalType === 'qd' ? '📤 Trình duyệt Quyết định' : '✅ Hoàn thành hồ sơ hỗ trợ'}
+            </h3>
             <p className="text-sm text-gray-500 mb-4">
-              Chọn người phê duyệt (Trưởng phòng hoặc Giám đốc):
+              {reviewerModalType === 'qd'
+                ? 'Chọn một người được Admin cấp quyền phê duyệt.'
+                : 'GDN và PCDI hoàn thành trực tiếp, không gửi vào luồng phê duyệt.'}
             </p>
-            <select
-              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm mb-4 focus:ring-2 focus:ring-indigo-500 outline-none"
-              value={selectedReviewer}
-              onChange={e => setSelectedReviewer(e.target.value)}
-            >
-              <option value="">-- Chọn người duyệt --</option>
-              {users.filter(u => ['ADMIN', 'HEAD_OF_DEPARTMENT', 'DIRECTOR'].includes(u.role)).map(u => (
-                <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
-              ))}
-            </select>
+            {reviewerModalType === 'qd' && (
+              <select
+                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm mb-4 focus:ring-2 focus:ring-indigo-500 outline-none"
+                value={selectedReviewer}
+                onChange={e => setSelectedReviewer(e.target.value)}
+              >
+                <option value="">-- Chọn người duyệt --</option>
+                {approvalUsers.map(u => (
+                  <option key={u.id} value={u.id}>
+                    {u.name}{u.position ? ` · ${u.position}` : ''}{u.department ? ` · ${u.department}` : ''}
+                  </option>
+                ))}
+              </select>
+            )}
             <div className="flex gap-2 justify-end">
               <button onClick={() => setShowReviewerModal(false)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200">Hủy</button>
               <button
                 onClick={async () => {
-                  if (!selectedReviewer) { toast.error('Chọn người duyệt'); return; }
+                  if (reviewerModalType === 'qd' && !selectedReviewer) {
+                    toast.error('Chọn người duyệt');
+                    return;
+                  }
                   setSaving(true);
                   try {
                     if (reviewerModalType === 'gdn') {
-                      await api.submitGDNForReview(gdn!.id, selectedReviewer);
+                      await api.submitGDNForReview(gdn!.id, '');
                     } else if (reviewerModalType === 'pcdi') {
-                      await api.submitPCDIForReview(pcdi!.id, selectedReviewer);
+                      await api.submitPCDIForReview(pcdi!.id, '');
                     } else if (reviewerModalType === 'gdn_pcdi') {
                       if (gdn && (gdn.status === 'DRAFT' || gdn.status === 'REWORK')) {
-                        await api.submitGDNForReview(gdn.id, selectedReviewer);
+                        await api.submitGDNForReview(gdn.id, '');
                       }
                       if (pcdi && (pcdi.status === 'DRAFT' || pcdi.status === 'REWORK')) {
-                        await api.submitPCDIForReview(pcdi.id, selectedReviewer);
+                        await api.submitPCDIForReview(pcdi.id, '');
                       }
                     } else {
                       await api.submitQDForReview(projectId, selectedReviewer);
                     }
-                    toast.success('Đã gửi trình duyệt!');
+                    toast.success(
+                      reviewerModalType === 'qd'
+                        ? 'Đã gửi Quyết định để phê duyệt!'
+                        : 'Đã hoàn thành hồ sơ hỗ trợ!',
+                    );
                     setShowReviewerModal(false);
                     fetchProject(true);
                   } catch (err: any) { toast.error(err.message); }
                   finally { setSaving(false); }
                 }}
-                disabled={!selectedReviewer || saving}
+                disabled={(reviewerModalType === 'qd' && !selectedReviewer) || saving}
                 className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm disabled:opacity-50"
               >
-                {saving ? '...' : '📤 Gửi duyệt'}
+                {saving ? '...' : reviewerModalType === 'qd' ? '📤 Gửi duyệt' : '✅ Hoàn thành'}
               </button>
             </div>
           </div>
@@ -1350,7 +1369,7 @@ function DatSachDetailPageInner() {
               project.gdnDocuments.map((g: any) => (
                 <div key={g.id} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg border">
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
-                    g.status === 'APPROVED' ? 'bg-green-100 text-green-700' :
+                    g.status === 'COMPLETED' ? 'bg-green-100 text-green-700' :
                     g.status === 'PENDING_REVIEW' ? 'bg-amber-100 text-amber-700' :
                     g.status === 'REWORK' ? 'bg-red-100 text-red-700' :
                     'bg-gray-100 text-gray-600'
@@ -1371,12 +1390,12 @@ function DatSachDetailPageInner() {
                     </p>
                   </div>
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${
-                    g.status === 'APPROVED' ? 'bg-green-100 text-green-700' :
+                    g.status === 'COMPLETED' ? 'bg-green-100 text-green-700' :
                     g.status === 'PENDING_REVIEW' ? 'bg-amber-100 text-amber-700' :
                     g.status === 'REWORK' ? 'bg-red-100 text-red-700' :
                     'bg-gray-100 text-gray-600'
                   }`}>
-                    {g.status === 'APPROVED' ? 'Đã duyệt' :
+                    {g.status === 'COMPLETED' ? 'Hoàn thành' :
                      g.status === 'PENDING_REVIEW' ? 'Chờ duyệt' :
                      g.status === 'REWORK' ? 'Cần sửa lại' : 'Nháp'}
                   </span>
@@ -1392,7 +1411,7 @@ function DatSachDetailPageInner() {
               project.pcdiDocuments.map((p: any) => (
                 <div key={p.id} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg border">
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
-                    p.status === 'APPROVED' ? 'bg-green-100 text-green-700' :
+                    p.status === 'COMPLETED' ? 'bg-green-100 text-green-700' :
                     p.status === 'PENDING_REVIEW' ? 'bg-amber-100 text-amber-700' :
                     p.status === 'REWORK' ? 'bg-red-100 text-red-700' :
                     'bg-gray-100 text-gray-600'
@@ -1406,12 +1425,12 @@ function DatSachDetailPageInner() {
                     </p>
                   </div>
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 ${
-                    p.status === 'APPROVED' ? 'bg-green-100 text-green-700' :
+                    p.status === 'COMPLETED' ? 'bg-green-100 text-green-700' :
                     p.status === 'PENDING_REVIEW' ? 'bg-amber-100 text-amber-700' :
                     p.status === 'REWORK' ? 'bg-red-100 text-red-700' :
                     'bg-gray-100 text-gray-600'
                   }`}>
-                    {p.status === 'APPROVED' ? 'Đã duyệt' :
+                    {p.status === 'COMPLETED' ? 'Hoàn thành' :
                      p.status === 'PENDING_REVIEW' ? 'Chờ duyệt' :
                      p.status === 'REWORK' ? 'Cần sửa lại' : 'Nháp'}
                   </span>
@@ -1464,13 +1483,6 @@ function DatSachDetailPageInner() {
         title="Lịch sử Đặt sách"
       />
 
-      {project?.projectId && (
-        <ProjectChat
-          projectId={project.projectId}
-          module="DAT_SACH"
-          projectName={project.tenDuAn}
-        />
-      )}
     </div>
   );
 }

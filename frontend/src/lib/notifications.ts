@@ -67,8 +67,11 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
         notifications: state.notifications.map((n) =>
           n.id === id ? { ...n, isRead: true } : n,
         ),
-        unreadCount: Math.max(0, state.unreadCount - 1),
       }));
+      // The server also emits the exact count over Socket.IO. Refreshing here
+      // keeps the badge correct when the socket is reconnecting and avoids a
+      // double decrement when the realtime event arrives before this request.
+      await get().fetchUnreadCount();
     } catch {
       // silent fail
     }

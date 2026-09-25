@@ -110,6 +110,19 @@ export class RbacController {
     return this.rbacService.removeUserRole(id, roleId);
   }
 
+  @Get('users/:id/direct-permissions')
+  async getUserDirectPermissions(@Param('id') id: string) {
+    return this.rbacService.getUserDirectPermissions(id);
+  }
+
+  @Put('users/:id/direct-permissions')
+  async setUserDirectPermissions(
+    @Param('id') id: string,
+    @Body() dto: SetPermissionsDto,
+  ) {
+    return this.rbacService.setUserDirectPermissions(id, dto);
+  }
+
   // ====================== Effective Permissions ======================
 
   @Get('users/:id/effective-permissions')

@@ -4,6 +4,7 @@ import {
   BookOpen,
   ChevronDown,
   ChevronUp,
+  Eye,
   Loader2,
   Plus,
   Search,
@@ -16,6 +17,7 @@ import {
   legalDocumentApi,
   normalizeManualCitation,
 } from '@/lib/legal-document-api';
+import { LegalDocumentDetailModal } from './LegalDocumentDetailModal';
 
 export interface LegalBasisSelection {
   legalDocumentId: string | null;
@@ -28,6 +30,9 @@ interface LegalBasisFieldProps {
   onChange: (value: LegalBasisSelection[]) => void;
   disabled?: boolean;
   label?: string;
+  description?: string;
+  allowManual?: boolean;
+  maxItems?: number;
 }
 
 const EMPTY_MANUAL_BASIS: LegalBasisSelection = {
@@ -36,11 +41,20 @@ const EMPTY_MANUAL_BASIS: LegalBasisSelection = {
   citationSnapshot: '',
 };
 
+const EMPTY_LIBRARY_BASIS: LegalBasisSelection = {
+  legalDocumentId: null,
+  source: 'LIBRARY',
+  citationSnapshot: '',
+};
+
 export function LegalBasisField({
   value,
   onChange,
   disabled = false,
   label = 'Căn cứ',
+  description,
+  allowManual = true,
+  maxItems,
 }: LegalBasisFieldProps) {
   const [pickerIndex, setPickerIndex] = useState<number | null>(null);
   const [searchText, setSearchText] = useState('');
@@ -48,6 +62,7 @@ export function LegalBasisField({
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState('');
   const [duplicateError, setDuplicateError] = useState('');
+  const [detailDocumentId, setDetailDocumentId] = useState<string | null>(null);
 
   useEffect(() => {
     if (pickerIndex === null) return;
@@ -144,6 +159,18 @@ export function LegalBasisField({
     closePicker();
   };
 
+  const addBasis = () => {
+    if (maxItems !== undefined && value.length >= maxItems) return;
+    if (allowManual) {
+      onChange([...value, { ...EMPTY_MANUAL_BASIS }]);
+      return;
+    }
+
+    const nextIndex = value.length;
+    onChange([...value, { ...EMPTY_LIBRARY_BASIS }]);
+    openPicker(nextIndex);
+  };
+
   return (
     <div className="space-y-3">
       <div>
@@ -151,7 +178,10 @@ export function LegalBasisField({
           {label}
         </label>
         <p className="mt-0.5 text-xs text-gray-500">
-          Có thể chọn từ thư viện hoặc nhập căn cứ chưa có trong thư viện.
+          {description
+            || (allowManual
+              ? 'Có thể chọn từ thư viện hoặc nhập căn cứ chưa có trong thư viện.'
+              : 'Căn cứ bắt buộc được chọn từ Thư viện văn bản.')}
         </p>
       </div>
 
@@ -219,8 +249,18 @@ export function LegalBasisField({
               <div className="rounded-lg bg-gray-50 px-3 py-2.5 text-sm leading-6 text-gray-800">
                 {item.citationSnapshot || 'Chưa chọn văn bản'}
               </div>
-              {!disabled && (
-                <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2">
+                {item.legalDocumentId && (
+                  <button
+                    type="button"
+                    onClick={() => setDetailDocumentId(item.legalDocumentId)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  >
+                    <Eye className="h-4 w-4" />
+                    Xem chi tiết
+                  </button>
+                )}
+                {!disabled && (
                   <button
                     type="button"
                     onClick={() => openPicker(index)}
@@ -229,41 +269,51 @@ export function LegalBasisField({
                     <BookOpen className="h-4 w-4" />
                     Đổi văn bản
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => updateAt(index, { ...EMPTY_MANUAL_BASIS })}
-                    className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                  >
-                    Chuyển sang nhập tạm
-                  </button>
-                </div>
-              )}
+                )}
+                {!disabled && allowManual && (
+                    <button
+                      type="button"
+                      onClick={() => updateAt(index, { ...EMPTY_MANUAL_BASIS })}
+                      className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                    >
+                      Chuyển sang nhập tạm
+                    </button>
+                )}
+              </div>
             </div>
           ) : (
             <div className="space-y-3">
-              <textarea
-                rows={3}
-                value={item.citationSnapshot}
-                disabled={disabled}
-                onChange={(event) =>
-                  updateAt(index, {
-                    legalDocumentId: null,
-                    source: 'MANUAL',
-                    citationSnapshot: event.target.value,
-                  })
-                }
-                onBlur={() =>
-                  updateAt(index, {
-                    legalDocumentId: null,
-                    source: 'MANUAL',
-                    citationSnapshot: normalizeManualCitation(
-                      item.citationSnapshot,
-                    ),
-                  })
-                }
-                placeholder="Ví dụ: Luật Đấu thầu số 22/2023/QH15..."
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 disabled:bg-gray-50"
-              />
+              {allowManual ? (
+                <textarea
+                  rows={3}
+                  value={item.citationSnapshot}
+                  disabled={disabled}
+                  onChange={(event) =>
+                    updateAt(index, {
+                      legalDocumentId: null,
+                      source: 'MANUAL',
+                      citationSnapshot: event.target.value,
+                    })
+                  }
+                  onBlur={() =>
+                    updateAt(index, {
+                      legalDocumentId: null,
+                      source: 'MANUAL',
+                      citationSnapshot: normalizeManualCitation(
+                        item.citationSnapshot,
+                      ),
+                    })
+                  }
+                  placeholder="Ví dụ: Luật Đấu thầu số 22/2023/QH15..."
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 disabled:bg-gray-50"
+                />
+              ) : (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
+                  {item.citationSnapshot
+                    ? 'Căn cứ cũ được nhập tay. Vui lòng thay bằng văn bản trong thư viện.'
+                    : 'Vui lòng chọn một văn bản trong thư viện.'}
+                </div>
+              )}
               {!disabled && (
                 <button
                   type="button"
@@ -279,14 +329,15 @@ export function LegalBasisField({
         </div>
       ))}
 
-      {!disabled && (
+      {!disabled
+        && (maxItems === undefined || value.length < maxItems) && (
         <button
           type="button"
-          onClick={() => onChange([...value, { ...EMPTY_MANUAL_BASIS }])}
+          onClick={addBasis}
           className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-primary-300 px-3 py-2 text-sm font-medium text-primary-700 hover:bg-primary-50"
         >
           <Plus className="h-4 w-4" />
-          Thêm căn cứ
+          {allowManual ? 'Thêm căn cứ' : 'Chọn văn bản từ thư viện'}
         </button>
       )}
 
@@ -348,16 +399,15 @@ export function LegalBasisField({
               <div className="mt-4 max-h-[55vh] space-y-2 overflow-y-auto">
                 {!searching && !searchError && results.length === 0 && (
                   <div className="rounded-lg border border-dashed border-gray-300 px-4 py-8 text-center text-sm text-gray-500">
-                    Không tìm thấy văn bản phù hợp. Bạn có thể đóng cửa sổ
-                    và nhập tạm căn cứ.
+                    {allowManual
+                      ? 'Không tìm thấy văn bản phù hợp. Bạn có thể đóng cửa sổ và nhập tạm căn cứ.'
+                      : 'Không tìm thấy văn bản phù hợp trong thư viện.'}
                   </div>
                 )}
                 {results.map((document) => (
-                  <button
+                  <div
                     key={document.id}
-                    type="button"
-                    onClick={() => selectDocument(document)}
-                    className="block w-full rounded-xl border border-gray-200 p-3 text-left hover:border-blue-300 hover:bg-blue-50"
+                    className="rounded-xl border border-gray-200 p-3 hover:border-blue-300 hover:bg-blue-50"
                   >
                     {document.tenCanCu && (
                       <p className="mb-1 font-medium text-blue-800">
@@ -375,13 +425,35 @@ export function LegalBasisField({
                     <p className="mt-1 text-sm leading-5 text-gray-700">
                       {document.citation}
                     </p>
-                  </button>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => selectDocument(document)}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-primary-700"
+                      >
+                        <BookOpen className="h-3.5 w-3.5" />
+                        Chọn văn bản
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDetailDocumentId(document.id)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                        Xem chi tiết
+                      </button>
+                    </div>
+                  </div>
                 ))}
               </div>
             </div>
           </div>
         </div>
       )}
+      <LegalDocumentDetailModal
+        documentId={detailDocumentId}
+        onClose={() => setDetailDocumentId(null)}
+      />
     </div>
   );
 }

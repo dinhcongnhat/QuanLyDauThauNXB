@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Param, Body, Res, UseGuards, Request,
+  BadRequestException, Controller, Get, Post, Param, Body, Res, UseGuards, Request,
   UseInterceptors, UploadedFile, Query,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -7,11 +7,12 @@ import { Response } from 'express';
 import { IsString, IsNumber, IsObject, IsOptional } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Public } from '../auth/public.decorator';
-import { RolesGuard } from '../auth/roles.guard';
-import { Roles } from '../auth/roles.decorator';
-import { Role } from '@prisma/client';
+import { ApprovalRequestStatus, ApprovalTargetType } from '@prisma/client';
 import { RequirePermissions } from '../auth/permissions.decorator';
+import { PermissionsGuard } from '../auth/permissions.guard';
 import { ContractorSelectionService } from './contractor-selection.service';
+import { ApprovalGuard } from '../approvals/approval.guard';
+import { ApprovalsService } from '../approvals/approvals.service';
 import { convertDocxToPdf } from '../utils/docx-to-pdf';
 import * as JSZip from 'jszip';
 
@@ -28,16 +29,31 @@ class UpdateStepDto {
 
 class ApprovalDto {
   @IsOptional() @IsString() comment?: string;
+  @IsOptional() @IsString() approverId?: string;
 }
 
 class UploadDto {
   @IsOptional() @IsString() ghiChu?: string;
 }
 
+export function decodeMultipartFilename(originalName: string): string {
+  const decoded = Buffer.from(originalName, 'latin1').toString('utf8');
+  return (
+    decoded.includes('\uFFFD') ? originalName : decoded
+  ).normalize('NFC');
+}
+
 @Controller('contractor-selection')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@RequirePermissions(
+  'feature:book-procurement',
+  'feature:equipment-procurement',
+)
 export class ContractorSelectionController {
-  constructor(private readonly svc: ContractorSelectionService) {}
+  constructor(
+    private readonly svc: ContractorSelectionService,
+    private readonly approvals: ApprovalsService,
+  ) {}
 
   // ====================== LIST ENDPOINTS ======================
 
@@ -59,14 +75,19 @@ export class ContractorSelectionController {
 
   /** Steps pending approval - requires canApprove=true or ADMIN */
   @Get('pending-approvals')
-  async getPendingApprovals() {
-    return this.svc.getPendingApprovals();
+  @UseGuards(ApprovalGuard)
+  async getPendingApprovals(@Request() req: any) {
+    return this.approvals.list(req.user.sub, {
+      status: ApprovalRequestStatus.PENDING,
+      targetType: ApprovalTargetType.PROCUREMENT_STEP,
+      page: 1,
+      limit: 100,
+    });
   }
 
   // ====================== CRUD ======================
 
   @Post()
-  @Roles(Role.ADMIN)
   async create(@Body() dto: CreateSelectionDto, @Request() req: any) {
     return this.svc.createSelection(
       req.user.sub,
@@ -107,7 +128,6 @@ export class ContractorSelectionController {
   }
 
   @Post('step/:stepId/update')
-  @RequirePermissions('doc:edit')
   async updateStep(@Param('stepId') stepId: string, @Body() dto: UpdateStepDto, @Request() req: any) {
     return this.svc.updateStepData(stepId, dto.data, req.user.sub);
   }
@@ -121,7 +141,15 @@ export class ContractorSelectionController {
     @Body() dto: ApprovalDto,
     @Request() req: any,
   ) {
-    return this.svc.requestApproval(stepId, req.user.sub, dto.comment);
+    if (!dto.approverId) {
+      throw new BadRequestException('Vui lòng chọn người phê duyệt');
+    }
+    return this.approvals.submit(req.user.sub, {
+      targetType: ApprovalTargetType.PROCUREMENT_STEP,
+      targetId: stepId,
+      approverId: dto.approverId,
+      comment: dto.comment,
+    });
   }
 
   /** Approve a step - requires canApprove=true or ADMIN role */
@@ -131,7 +159,12 @@ export class ContractorSelectionController {
     @Body() dto: ApprovalDto,
     @Request() req: any,
   ) {
-    return this.svc.approveStep(stepId, req.user.sub, dto.comment);
+    return this.approvals.approveTarget(
+      ApprovalTargetType.PROCUREMENT_STEP,
+      stepId,
+      req.user.sub,
+      dto.comment,
+    );
   }
 
   /** Reject a step - requires canApprove=true or ADMIN role */
@@ -141,28 +174,35 @@ export class ContractorSelectionController {
     @Body() dto: ApprovalDto,
     @Request() req: any,
   ) {
-    return this.svc.rejectStep(stepId, req.user.sub, dto.comment || '');
+    return this.approvals.rejectTarget(
+      ApprovalTargetType.PROCUREMENT_STEP,
+      stepId,
+      req.user.sub,
+      dto.comment || '',
+    );
   }
 
   // ====================== STEP COMPLETION ======================
 
   @Post(':id/set-package-type')
-  @Roles(Role.ADMIN)
   async setPackageType(
     @Param('id') id: string,
     @Body() body: { contractPackageType: string },
+    @Request() req: any,
   ) {
-    return this.svc.setContractPackageType(id, body.contractPackageType);
+    return this.svc.setContractPackageType(
+      id,
+      body.contractPackageType,
+      req.user.sub,
+    );
   }
 
   @Post('step/:stepId/complete')
-  @Roles(Role.ADMIN)
   async completeStep(@Param('stepId') stepId: string, @Request() req: any) {
     return this.svc.completeStep(stepId, req.user.sub);
   }
 
   @Post('step/:stepId/reopen')
-  @Roles(Role.ADMIN)
   async reopenStep(@Param('stepId') stepId: string, @Request() req: any) {
     return this.svc.reopenStep(stepId, req.user.sub);
   }
@@ -184,8 +224,14 @@ export class ContractorSelectionController {
   }
 
   @Post('step/:stepId/generate-docx')
-  async generateAndSaveDocx(@Param('stepId') stepId: string) {
-    const objectName = await this.svc.generateAndSaveDocx(stepId);
+  async generateAndSaveDocx(
+    @Param('stepId') stepId: string,
+    @Request() req: any,
+  ) {
+    const objectName = await this.svc.generateAndSaveDocx(
+      stepId,
+      req.user.sub,
+    );
     const url = await this.svc.getFileUrl(objectName);
     return { objectName, url };
   }
@@ -259,7 +305,6 @@ export class ContractorSelectionController {
   // ====================== FILE UPLOAD ======================
 
   @Post('step/:stepId/upload')
-  @Roles(Role.ADMIN)
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 50 * 1024 * 1024 } }))
   async uploadAttachment(
     @Param('stepId') stepId: string,
@@ -268,7 +313,7 @@ export class ContractorSelectionController {
     @Request() req: any,
   ) {
     if (!file) throw new Error('No file uploaded');
-    const originalname = Buffer.from(file.originalname, 'latin1').toString('utf8');
+    const originalname = decodeMultipartFilename(file.originalname);
     const objectName = await this.svc.uploadAttachment(stepId, {
       buffer: file.buffer,
       originalname,
@@ -280,7 +325,6 @@ export class ContractorSelectionController {
   }
 
   @Post('step/:stepId/delete-attachment')
-  @Roles(Role.ADMIN)
   async deleteAttachment(
     @Param('stepId') stepId: string,
     @Body() body: { path: string },

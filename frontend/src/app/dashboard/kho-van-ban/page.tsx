@@ -373,8 +373,8 @@ export default function DocumentWarehousePage() {
     : null;
 
   return (
-    <div className="min-h-full bg-slate-50/70 px-5 py-6 lg:px-8">
-      <div className="mx-auto max-w-[1500px]">
+    <div className="min-h-full w-full">
+      <div className="w-full">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.12em] text-blue-600">

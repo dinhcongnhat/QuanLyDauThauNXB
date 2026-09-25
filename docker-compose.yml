@@ -21,11 +21,13 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     environment:
-      DATABASE_URL: "postgresql://postgres:jtsc12345@192.168.1.90:5432/qlda_nxb"
+      DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/qlda_nxb"
       JWT_SECRET: "Q9qHU+5khmVqKmLNQl8ppQKqT8Gae46Jl3NKrK5FVE0="
       PORT: "4000"
       APP_URL: "https://demo.jtsc.vn"
       ONLYOFFICE_URL: "https://demo.jtsc.vn/onlyoffice"
+      ONLYOFFICE_INTERNAL_APP_URL: "http://nginx"
+      ONLYOFFICE_INTERNAL_URL: "http://onlyoffice"
       ONLYOFFICE_JWT_SECRET: "10122002"
       FILEMAU_PATH: "/app/FileMau"
       MINIO_ENDPOINT: "minio"
@@ -69,6 +71,7 @@ services:
       JWT_ENABLED: "true"
       JWT_SECRET: "10122002"
       JWT_HEADER: "Authorization"
+      ALLOW_PRIVATE_IP_ADDRESS: "true"
     ports:
       - "8080:80"
     restart: unless-stopped

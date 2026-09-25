@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   ClipboardPaste,
   FileImage,
+  FileText,
   Loader2,
   ScanText,
   Upload,
@@ -19,15 +20,18 @@ import {
 import type { LoggerMessage } from 'tesseract.js';
 import {
   LegalDocumentOcrResult,
+  mergeVietnameseLegalDocumentOcrResults,
   parseVietnameseLegalDocumentOcr,
 } from '@/lib/vietnamese-legal-document-ocr';
 
 interface LegalDocumentOcrPanelProps {
   onExtract: (result: LegalDocumentOcrResult) => void;
+  onFileSelected?: (file: File) => void;
   disabled?: boolean;
 }
 
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
+const MAX_PDF_BYTES = 100 * 1024 * 1024;
 
 const STATUS_LABELS: Record<string, string> = {
   'loading tesseract core': 'Đang tải bộ máy OCR',
@@ -37,32 +41,105 @@ const STATUS_LABELS: Record<string, string> = {
   'recognizing text': 'Đang nhận dạng nội dung',
 };
 
-async function prepareImage(file: File): Promise<File | Blob> {
-  if (typeof createImageBitmap !== 'function') return file;
+function isPdf(file: File): boolean {
+  return (
+    file.type === 'application/pdf'
+    || file.name.toLocaleLowerCase('vi').endsWith('.pdf')
+  );
+}
+
+async function renderPdfFirstPage(file: File): Promise<Blob> {
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.js');
+  pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+    'pdfjs-dist/legacy/build/pdf.worker.min.js',
+    import.meta.url,
+  ).toString();
+
+  const loadingTask = pdfjs.getDocument({
+    data: new Uint8Array(await file.arrayBuffer()),
+  });
+  const pdf = await loadingTask.promise;
+  try {
+    const page = await pdf.getPage(1);
+    const baseViewport = page.getViewport({ scale: 1 });
+    const scale = Math.max(2, Math.min(4, 2600 / baseViewport.width));
+    const viewport = page.getViewport({ scale });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.ceil(viewport.width);
+    canvas.height = Math.ceil(viewport.height);
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Trình duyệt không thể tạo ảnh từ PDF');
+    await page.render({ canvasContext: context, viewport }).promise;
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, 'image/png', 1),
+    );
+    if (!blob) throw new Error('Không thể kết xuất trang đầu PDF');
+    return blob;
+  } finally {
+    await pdf.destroy();
+  }
+}
+
+async function prepareImage(
+  input: File | Blob,
+): Promise<{ fullPage: File | Blob; header: File | Blob }> {
+  if (typeof createImageBitmap !== 'function') {
+    return { fullPage: input, header: input };
+  }
 
   try {
-    const bitmap = await createImageBitmap(file);
-    const scale = Math.min(3, Math.max(1, 1800 / bitmap.width));
+    const bitmap = await createImageBitmap(input);
+    const requestedScale = Math.min(4, Math.max(1, 2600 / bitmap.width));
+    const pixelLimitedScale = Math.sqrt(
+      (20 * 1024 * 1024) / (bitmap.width * bitmap.height),
+    );
+    const scale = Math.min(requestedScale, pixelLimitedScale);
     const canvas = document.createElement('canvas');
     canvas.width = Math.round(bitmap.width * scale);
     canvas.height = Math.round(bitmap.height * scale);
     const context = canvas.getContext('2d');
     if (!context) {
       bitmap.close();
-      return file;
+      return { fullPage: input, header: input };
     }
 
-    context.filter = 'grayscale(1) contrast(1.25)';
+    context.fillStyle = '#fff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.filter = 'grayscale(1) contrast(1.55) brightness(1.04)';
     context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
     bitmap.close();
 
-    return (
+    const fullPage =
       (await new Promise<Blob | null>((resolve) =>
         canvas.toBlob(resolve, 'image/png', 1),
-      )) || file
+      )) || input;
+
+    const headerCanvas = document.createElement('canvas');
+    headerCanvas.width = canvas.width;
+    headerCanvas.height = Math.max(
+      1,
+      Math.round(canvas.height * 0.58),
     );
+    const headerContext = headerCanvas.getContext('2d');
+    if (!headerContext) return { fullPage, header: fullPage };
+    headerContext.drawImage(
+      canvas,
+      0,
+      0,
+      canvas.width,
+      headerCanvas.height,
+      0,
+      0,
+      canvas.width,
+      headerCanvas.height,
+    );
+    const header =
+      (await new Promise<Blob | null>((resolve) =>
+        headerCanvas.toBlob(resolve, 'image/png', 1),
+      )) || fullPage;
+    return { fullPage, header };
   } catch {
-    return file;
+    return { fullPage: input, header: input };
   }
 }
 
@@ -75,6 +152,7 @@ function findClipboardImage(event: ClipboardEvent): File | null {
 
 export function LegalDocumentOcrPanel({
   onExtract,
+  onFileSelected,
   disabled = false,
 }: LegalDocumentOcrPanelProps) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -100,16 +178,22 @@ export function LegalDocumentOcrPanel({
   const recognizeImage = useCallback(
     async (file: File) => {
       if (disabled || recognizing) return;
-      if (!file.type.startsWith('image/')) {
-        setError('Chỉ hỗ trợ tệp ảnh PNG, JPG, WEBP hoặc BMP.');
+      const pdfFile = isPdf(file);
+      if (!pdfFile && !file.type.startsWith('image/')) {
+        setError('Chỉ hỗ trợ PDF, PNG, JPG, WEBP hoặc BMP.');
         return;
       }
-      if (file.size > MAX_IMAGE_BYTES) {
+      if (pdfFile && file.size > MAX_PDF_BYTES) {
+        setError('PDF vượt quá 100 MB. Vui lòng chọn tệp nhỏ hơn.');
+        return;
+      }
+      if (!pdfFile && file.size > MAX_IMAGE_BYTES) {
         setError('Ảnh vượt quá 12 MB. Vui lòng giảm kích thước ảnh.');
         return;
       }
 
       setPreview(file);
+      onFileSelected?.(file);
       setRecognizing(true);
       setProgress(0);
       setStatus('Đang chuẩn bị ảnh');
@@ -121,9 +205,11 @@ export function LegalDocumentOcrPanel({
         | Awaited<ReturnType<(typeof import('tesseract.js'))['createWorker']>>
         | undefined;
       try {
-        const image = await prepareImage(file);
-        const { createWorker } = await import('tesseract.js');
-        worker = await createWorker('vie', 1, {
+        const ocrSource = pdfFile ? await renderPdfFirstPage(file) : file;
+        if (pdfFile) setStatus('Đã lấy trang 1 · đang tăng độ rõ');
+        const images = await prepareImage(ocrSource);
+        const { createWorker, PSM } = await import('tesseract.js');
+        worker = await createWorker('vie+eng', 1, {
           logger: (message: LoggerMessage) => {
             setStatus(STATUS_LABELS[message.status] || message.status);
             if (typeof message.progress === 'number') {
@@ -131,9 +217,29 @@ export function LegalDocumentOcrPanel({
             }
           },
         });
-        const response = await worker.recognize(image);
-        const parsed = parseVietnameseLegalDocumentOcr(response.data.text);
-        setConfidence(Math.round(response.data.confidence));
+        await worker.setParameters({
+          tessedit_pageseg_mode: PSM.AUTO,
+          preserve_interword_spaces: '1',
+          user_defined_dpi: '300',
+        });
+        const primaryResponse = await worker.recognize(images.fullPage);
+        setStatus('Đang dò bổ sung chữ viết tay ở đầu trang');
+        await worker.setParameters({
+          tessedit_pageseg_mode: PSM.SPARSE_TEXT,
+          preserve_interword_spaces: '1',
+          user_defined_dpi: '300',
+        });
+        const supplementalResponse = await worker.recognize(images.header);
+        const parsed = mergeVietnameseLegalDocumentOcrResults(
+          parseVietnameseLegalDocumentOcr(primaryResponse.data.text),
+          parseVietnameseLegalDocumentOcr(supplementalResponse.data.text),
+        );
+        setConfidence(
+          Math.round(
+            primaryResponse.data.confidence * 0.75
+            + supplementalResponse.data.confidence * 0.25,
+          ),
+        );
         setResult(parsed);
         onExtract(parsed);
       } catch (ocrError) {
@@ -147,7 +253,7 @@ export function LegalDocumentOcrPanel({
         setRecognizing(false);
       }
     },
-    [disabled, onExtract, recognizing, setPreview],
+    [disabled, onExtract, onFileSelected, recognizing, setPreview],
   );
 
   useEffect(() => {
@@ -172,10 +278,10 @@ export function LegalDocumentOcrPanel({
     event.preventDefault();
     setDragging(false);
     const file = Array.from(event.dataTransfer.files).find((candidate) =>
-      candidate.type.startsWith('image/'),
+      candidate.type.startsWith('image/') || isPdf(candidate),
     );
     if (file) void recognizeImage(file);
-    else setError('Không tìm thấy ảnh trong dữ liệu vừa thả.');
+    else setError('Không tìm thấy PDF hoặc ảnh trong dữ liệu vừa thả.');
   };
 
   return (
@@ -189,8 +295,8 @@ export function LegalDocumentOcrPanel({
             Nhận dạng nhanh bằng OCR tiếng Việt
           </h3>
           <p className="mt-0.5 text-xs leading-5 text-gray-600">
-            Chụp phần đầu văn bản rồi nhấn Ctrl+V, hoặc chọn/kéo ảnh vào đây.
-            Ảnh chỉ được xử lý trên trình duyệt và không tự lưu.
+            Dán/chọn ảnh hoặc tải PDF. PDF tối đa 100 MB và hệ thống chỉ OCR
+            trang đầu tiên; tệp gốc sẽ được lưu để đối chiếu.
           </p>
         </div>
       </div>
@@ -211,11 +317,17 @@ export function LegalDocumentOcrPanel({
       >
         <div className="flex flex-col items-center gap-3 sm:flex-row">
           {previewUrl ? (
-            <img
-              src={previewUrl}
-              alt="Ảnh văn bản chờ nhận dạng"
-              className="h-20 w-28 rounded-lg border bg-gray-50 object-contain"
-            />
+            fileName.toLocaleLowerCase('vi').endsWith('.pdf') ? (
+              <div className="flex h-20 w-28 items-center justify-center rounded-lg border bg-red-50">
+                <FileText className="h-8 w-8 text-red-500" />
+              </div>
+            ) : (
+              <img
+                src={previewUrl}
+                alt="Ảnh văn bản chờ nhận dạng"
+                className="h-20 w-28 rounded-lg border bg-gray-50 object-contain"
+              />
+            )
           ) : (
             <div className="flex h-20 w-28 items-center justify-center rounded-lg border bg-gray-50">
               <FileImage className="h-7 w-7 text-gray-400" />
@@ -226,7 +338,7 @@ export function LegalDocumentOcrPanel({
               {fileName || 'Dán ảnh từ clipboard hoặc chọn tệp'}
             </p>
             <p className="mt-0.5 text-xs text-gray-500">
-              PNG, JPG, WEBP, BMP · tối đa 12 MB
+              PDF tối đa 100 MB (chỉ OCR trang 1) · ảnh tối đa 12 MB
             </p>
             <div className="mt-2 flex flex-wrap justify-center gap-2 sm:justify-start">
               <button
@@ -236,7 +348,7 @@ export function LegalDocumentOcrPanel({
                 className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-white px-3 py-1.5 text-xs font-medium text-violet-700 hover:bg-violet-50 disabled:opacity-50"
               >
                 <Upload className="h-3.5 w-3.5" />
-                Chụp / chọn ảnh
+                Chọn ảnh / PDF
               </button>
               <span className="inline-flex items-center gap-1.5 rounded-lg bg-gray-100 px-3 py-1.5 text-xs text-gray-600">
                 <ClipboardPaste className="h-3.5 w-3.5" />
@@ -248,8 +360,7 @@ export function LegalDocumentOcrPanel({
         <input
           ref={inputRef}
           type="file"
-          accept="image/png,image/jpeg,image/webp,image/bmp"
-          capture="environment"
+          accept="application/pdf,.pdf,image/png,image/jpeg,image/webp,image/bmp"
           className="hidden"
           onChange={(event) => {
             const file = event.target.files?.[0];
@@ -275,7 +386,8 @@ export function LegalDocumentOcrPanel({
             />
           </div>
           <p className="mt-1 text-xs text-gray-500">
-            Lần đầu có thể lâu hơn vì trình duyệt cần tải dữ liệu tiếng Việt.
+            OCR dùng tiếng Việt + tiếng Anh và dò riêng vùng đầu trang để nhận
+            các số/ngày viết tay rõ hơn.
           </p>
         </div>
       )}

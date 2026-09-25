@@ -45,9 +45,9 @@ Thì một placeholder:
 có thể được hệ thống mở rộng thành:
 
 ```text
-Căn cứ Luật Đấu thầu số 22/2023/QH15, ngày 23/6/2023 của Quốc hội khóa XV, Kỳ họp thứ 5;
-Căn cứ Luật số 57/2024/QH15, ngày 29/11/2024 của Quốc hội ...;
-Căn cứ Nghị định số 214/2025/NĐ-CP, ngày 04/8/2025 của Chính phủ ...;
+Căn cứ Luật số 22/2023/QH15 ngày 23 tháng 6 năm 2023 của Quốc hội khóa XV, Kỳ họp thứ 5 đấu thầu;
+Căn cứ Luật số 57/2024/QH15 ngày 29 tháng 11 năm 2024 của Quốc hội ...;
+Căn cứ Nghị định số 214/2025/NĐ-CP ngày 04 tháng 8 năm 2025 của Chính phủ ...;
 ```
 
 Mỗi căn cứ có thể là một paragraph Word riêng, giữ nguyên font, chữ nghiêng, căn lề và thụt đầu dòng đã đặt ở paragraph chứa `{{CanCu}}`.
@@ -434,7 +434,7 @@ Các rule chính:
 Công thức đã chốt:
 
 ```text
-Căn cứ {Hình thức văn bản} {Trích yếu nội dung} số {Số hiệu}, ngày {d/M/yyyy} của {Cơ quan ban hành};
+Căn cứ {Hình thức văn bản} số {Số hiệu} ngày {dd} tháng {M} năm {yyyy} của {Cơ quan ban hành} {Trích yếu nội dung};
 ```
 
 Ví dụ dữ liệu:
@@ -451,7 +451,7 @@ Ví dụ dữ liệu:
 Kết quả:
 
 ```text
-Căn cứ Luật Đấu thầu số 22/2023/QH15, ngày 23/6/2023 của Quốc hội khóa XV, Kỳ họp thứ 5;
+Căn cứ Luật số 22/2023/QH15 ngày 23 tháng 6 năm 2023 của Quốc hội khóa XV, Kỳ họp thứ 5 đấu thầu;
 ```
 
 `linhVuc` chỉ dùng để lọc/tìm kiếm và không đưa vào câu.

@@ -14,13 +14,13 @@ import {
 } from '@/components/WorkflowDocumentUI';
 import { WorkflowDocxPreview } from '@/components/WorkflowDocxPreview';
 import { ATTACHMENT_ONLY, getFieldsForStep } from '@/lib/lcnt-field-defs';
-import { ProjectChat } from '@/components/ProjectChat';
 import {
   getLCNTTemplateFieldKeys,
   isBlankWorkflowValue,
   mergeTemplateFields,
   normalizeLegalBasisValue,
-  normalizeWorkflowData,
+  normalizeWorkflowAttachments,
+  pickWorkflowFormData,
 } from '@/lib/workflow-template-api';
 
 const STEP_STATUS_LABELS: Record<string, string> = {
@@ -92,31 +92,40 @@ export default function LCNTStepDetailPage() {
       }
 
       const rawData = (stepData.data || {}) as Record<string, any>;
-      const normalizedData = normalizeWorkflowData(rawData);
-      delete normalizedData._attachments;
-      setFormData(normalizedData);
+      const allowedFields = mergeTemplateFields(
+        getFieldsForStep(stepData.stepKey, selData.procurementMethod),
+        dynamicFields,
+      );
+      setFormData(
+        pickWorkflowFormData(
+          rawData,
+          allowedFields.map((field) => field.key),
+        ),
+      );
     } catch (err: any) { toast.error(err.message); }
     finally { setLoading(false); }
   }, [selectionId, stepId]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // Load potential approvers (directors + heads of department)
+  // Only accounts explicitly granted canApprove by Admin are selectable.
   useEffect(() => {
-    Promise.all([
-      api.getUsersByRole('DIRECTOR').catch(() => []),
-      api.getUsersByRole('HEAD_OF_DEPARTMENT').catch(() => []),
-    ]).then(([directors, heads]) => {
-      setApprovers([...directors, ...heads]);
-    });
+    api.getApprovers().then(setApprovers).catch(() => setApprovers([]));
   }, []);
 
   // Load auto-fill data — also persist to DB so DOCX generation has the data
   useEffect(() => {
-    if (!step || step.status === 'COMPLETED') return;
+    if (!step || !selection || step.status === 'COMPLETED') return;
     api.getLCNTAutoFill(stepId).then(async (data) => {
       if (!data || Object.keys(data).length === 0) return;
-      const normalizedAutoFill = normalizeWorkflowData(data);
+      const allowedFields = mergeTemplateFields(
+        getFieldsForStep(step.stepKey, selection.procurementMethod),
+        templateFieldKeys,
+      );
+      const normalizedAutoFill = pickWorkflowFormData(
+        data,
+        allowedFields.map((field) => field.key),
+      );
       setAutoFillData(normalizedAutoFill);
       // Merge auto-fill into formData for non-completed steps
       setFormData(prev => {
@@ -131,8 +140,9 @@ export default function LCNTStepDetailPage() {
       // Persist auto-fill data to DB immediately
       try {
         const keysToUpdate: Record<string, any> = {};
-        const currentData = normalizeWorkflowData(
+        const currentData = pickWorkflowFormData(
           (step.data || {}) as Record<string, any>,
+          allowedFields.map((field) => field.key),
         );
         for (const [key, val] of Object.entries(normalizedAutoFill)) {
           if (isBlankWorkflowValue(currentData[key])) {
@@ -144,7 +154,7 @@ export default function LCNTStepDetailPage() {
         }
       } catch { /* ignore - will be saved on explicit save */ }
     }).catch(() => {});
-  }, [stepId, step]);
+  }, [selection?.procurementMethod, stepId, step, templateFieldKeys]);
 
   const fields = step && selection
     ? mergeTemplateFields(
@@ -154,8 +164,9 @@ export default function LCNTStepDetailPage() {
     : [];
 
   const isAttachment = step ? ATTACHMENT_ONLY.has(step.stepKey) : false;
-  const attachmentsRaw: any[] = (step?.data as any)?._attachments || [];
-  const attachments = attachmentsRaw.map((att: any) => typeof att === 'string' ? { path: att, fileName: displayFilename(att), ghiChu: '' } : att);
+  const attachments = normalizeWorkflowAttachments(
+    (step?.data as any)?._attachments,
+  );
   const canEdit =
     step &&
     step.status !== 'COMPLETED' &&
@@ -184,11 +195,22 @@ export default function LCNTStepDetailPage() {
   };
 
   const handleRequestApproval = async () => {
+    if (!selectedApproverId) {
+      toast.error('Vui lòng chọn người phê duyệt');
+      return;
+    }
     try {
-      await api.requestStepApproval(stepId, approvalComment);
-      toast.success('Đã trình lên Giám đốc/Trưởng phòng');
+      // Chốt đúng dữ liệu người dùng đang nhìn thấy và sinh DOCX trước khi
+      // tạo dossier, để người duyệt luôn nhận được một snapshot có thể mở.
+      await api.updateLCNTStep(stepId, formData);
+      if (!isAttachment) {
+        await api.generateLCNTDocx(stepId);
+      }
+      await api.requestStepApproval(stepId, approvalComment, selectedApproverId);
+      toast.success('Đã gửi Quyết định đến người phê duyệt');
       setShowApprovalModal(false);
       setApprovalComment('');
+      setSelectedApproverId('');
       await loadData();
     } catch (err: any) { toast.error(err.message); }
   };
@@ -312,9 +334,6 @@ export default function LCNTStepDetailPage() {
       </div>
     );
   }
-
-  const stepData = (step.data || {}) as Record<string, any>;
-  const dataEntries = Object.entries(stepData).filter(([k]) => !k.startsWith('_'));
 
   return (
     <div className="mx-auto max-w-[1800px] space-y-4 2xl:space-y-6">
@@ -498,10 +517,12 @@ export default function LCNTStepDetailPage() {
               )}
             </div>
             <WorkflowDocxPreview
+              debounceMs={800}
               documents={[
                 {
                   id: step.stepKey,
                   label: step.title,
+                  previewData: formData,
                   loadPreview: () => api.previewLCNTStepPdf(stepId, formData),
                 },
               ]}
@@ -509,6 +530,28 @@ export default function LCNTStepDetailPage() {
           </div>
         );
       })()}
+
+      {!isAttachment && fields.length === 0 && (
+        <div className="rounded-2xl border border-blue-100 bg-white p-4 shadow-sm">
+          <div className="mb-3">
+            <h2 className="font-semibold text-slate-900">Bản xem trước văn bản</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Mẫu Word của bước này chưa khai báo trường nhập liệu, nhưng vẫn có thể xem nội dung được hệ thống tự điền.
+            </p>
+          </div>
+          <WorkflowDocxPreview
+            debounceMs={800}
+            documents={[
+              {
+                id: step.stepKey,
+                label: step.title,
+                previewData: formData,
+                loadPreview: () => api.previewLCNTStepPdf(stepId, formData),
+              },
+            ]}
+          />
+        </div>
+      )}
 
       {/* Attachment-only step */}
       {isAttachment && (
@@ -625,7 +668,7 @@ export default function LCNTStepDetailPage() {
         )}
 
         {/* Download DOCX (auto-generated on save) */}
-        {!isAttachment && dataEntries.length > 0 && (
+        {!isAttachment && (
           <button onClick={handleDownloadDocx}
             className="min-h-10 w-full rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 sm:w-auto">
             📥 Tải DOCX
@@ -659,12 +702,12 @@ export default function LCNTStepDetailPage() {
                '❌ Từ chối bước'}
             </h3>
             <p className="text-sm text-gray-500 mb-3">
-              {approvalMode === 'request' ? 'Gửi bước này lên Giám đốc/Trưởng phòng để phê duyệt.'
+              {approvalMode === 'request' ? 'Chọn một người có thẩm quyền để phê duyệt Quyết định.'
                : approvalMode === 'approve' ? 'Xác nhận phê duyệt bước này.'
                : 'Vui lòng nhập lý do từ chối.'}
             </p>
             {/* Approver selector - only show when requesting approval */}
-            {approvalMode === 'request' && approvers.length > 0 && (
+            {approvalMode === 'request' && (
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-1">Chọn người phê duyệt</label>
                 <select
@@ -675,7 +718,7 @@ export default function LCNTStepDetailPage() {
                   <option value="">-- Chọn người phê duyệt --</option>
                   {approvers.map((u: any) => (
                     <option key={u.id} value={u.id}>
-                      {u.name} ({u.role === 'DIRECTOR' ? 'Giám đốc' : 'Trưởng phòng'}{u.department ? ` - ${u.department}` : ''})
+                      {u.name}{u.position ? ` · ${u.position}` : ''}{u.department ? ` · ${u.department}` : ''}
                     </option>
                   ))}
                 </select>
@@ -709,13 +752,6 @@ export default function LCNTStepDetailPage() {
         </div>
       )}
 
-      {selection?.projectId && (
-        <ProjectChat
-          projectId={selection.projectId}
-          module="LCNT"
-          projectName={selection.tenGoiThau}
-        />
-      )}
     </div>
   );
 }

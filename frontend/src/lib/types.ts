@@ -1,6 +1,6 @@
 export type Role = 'ADMIN' | 'USER';
 export type DocType = 'TT_DUTOAN' | 'QD_DUTOAN' | 'TT_KHLCNT' | 'BC_KHLCNT' | 'QD_KHLCNT';
-export type DocStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
+export type DocStatus = 'DRAFT' | 'COMPLETED' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
 
 export interface User {
   id: string;
@@ -8,6 +8,7 @@ export interface User {
   email: string;
   role: Role;
   canApprove?: boolean;
+  canFinalApprove?: boolean;
   isInvestor?: boolean;
   isContractor?: boolean;
   department?: string;
@@ -37,6 +38,7 @@ export interface Document {
   projectId?: string;
   procurementType?: string;
   createdBy: string;
+  assignedTo?: string;
   delegatedTo?: string;
   createdAt: string;
   updatedAt: string;
@@ -184,4 +186,58 @@ export interface RoleWithPermissions extends DynamicRole {
 
 export interface UserWithDynamicRoles extends User {
   dynamicRoles: DynamicRole[];
+}
+
+export type DossierWorkflowType =
+  | 'DU_TOAN'
+  | 'KHLCNT'
+  | 'DAT_SACH'
+  | 'LCNT_QD_HSMT'
+  | 'LCNT_QD_KQLCNT'
+  | 'LCNT_QD_LCNT';
+
+export type DossierStatus =
+  | 'DRAFT'
+  | 'IN_REVIEW'
+  | 'REWORK'
+  | 'APPROVED'
+  | 'CANCELLED';
+
+export interface ApprovalDossierItem {
+  id: string;
+  itemKey: string;
+  label: string;
+  kind: string;
+  source: 'FORM' | 'FILE' | 'ENTITY_REFERENCE';
+  data: Record<string, any>;
+  objectPath?: string | null;
+  renderedOverridePath?: string | null;
+  originalName?: string | null;
+  mimeType?: string | null;
+  required: boolean;
+  editable: boolean;
+  version: number;
+}
+
+export interface ApprovalDossier {
+  id: string;
+  workflowType: DossierWorkflowType;
+  status: DossierStatus;
+  version: number;
+  title: string;
+  projectId?: string | null;
+  createdBy: string;
+  currentHandlerId?: string | null;
+  items: ApprovalDossierItem[];
+  revisions: any[];
+  requests: any[];
+  activeRequestId?: string | null;
+  actions: {
+    canEdit: boolean;
+    canSubmit: boolean;
+    canForward: boolean;
+    canFinalApprove: boolean;
+    canReject: boolean;
+    canReturn: boolean;
+  };
 }

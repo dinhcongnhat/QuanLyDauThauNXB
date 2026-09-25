@@ -1,4 +1,10 @@
-import { WebSocketGateway, WebSocketServer, OnGatewayConnection, OnGatewayDisconnect } from '@nestjs/websockets';
+import {
+  WebSocketGateway,
+  WebSocketServer,
+  OnGatewayConnection,
+  OnGatewayDisconnect,
+  OnGatewayInit,
+} from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { Injectable } from '@nestjs/common';
@@ -6,11 +12,11 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from './notification.service';
 
 @WebSocketGateway({
-  cors: { origin: ['http://localhost:3000', 'http://demo.jtsc.vn'] },
+  cors: { origin: true, credentials: true },
   namespace: '/notifications',
 })
 @Injectable()
-export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisconnect, OnGatewayInit {
   @WebSocketServer()
   server: Server;
 
@@ -18,7 +24,9 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
     private jwtService: JwtService,
     private prisma: PrismaService,
     private notificationService: NotificationService,
-  ) {
+  ) {}
+
+  afterInit() {
     this.notificationService.setServer(this.server);
   }
 
@@ -31,14 +39,28 @@ export class NotificationsGateway implements OnGatewayConnection, OnGatewayDisco
       }
 
       const payload = this.jwtService.verify(token);
-      client.data.userId = payload.userId;
+      const userId = payload.sub;
+      if (!userId) {
+        client.disconnect();
+        return;
+      }
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true },
+      });
+      if (!user) {
+        client.disconnect();
+        return;
+      }
+      client.data.userId = user.id;
 
-      await client.join(`user:${payload.userId}`);
+      await client.join(`user:${user.id}`);
 
-      const unreadCount = await this.notificationService.getUnreadCount(payload.userId);
+      const unreadCount = await this.notificationService.getUnreadCount(user.id);
       client.emit('unread-count', unreadCount);
+      await this.notificationService.emitApprovalCount(user.id);
 
-      console.log(`Client ${client.id} connected as user ${payload.userId}`);
+      console.log(`Client ${client.id} connected as user ${user.id}`);
     } catch (e) {
       client.disconnect();
     }

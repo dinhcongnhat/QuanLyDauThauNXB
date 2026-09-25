@@ -3,9 +3,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { motion } from 'framer-motion';
+import { loadOnlyOfficeApi } from '@/lib/onlyoffice-loader';
 
 interface Props {
-  objectPath: string;
+  objectPath?: string;
+  attachmentId?: string;
   onClose: () => void;
 }
 
@@ -14,49 +16,58 @@ const OnlyOfficeContainer = React.memo(({ containerId }: { containerId: string }
 }, () => true);
 OnlyOfficeContainer.displayName = 'OnlyOfficeContainer';
 
-export function OnlyOfficeFilePreview({ objectPath, onClose }: Props) {
+export function OnlyOfficeFilePreview({ objectPath, attachmentId, onClose }: Props) {
   const editorRef = useRef<any>(null);
   const containerRef = useRef<string>('oo-editor-' + Date.now());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [slow, setSlow] = useState(false);
 
   useEffect(() => {
     let destroyed = false;
     const init = async () => {
       try {
-        const { onlyofficeUrl, editorConfig } = await api.getLCNTOnlyofficeConfig(objectPath);
+        const { onlyofficeUrl, editorConfig } = attachmentId
+          ? await api.getChatOnlyofficeConfig(attachmentId)
+          : await api.getLCNTOnlyofficeConfig(objectPath || '');
         if (destroyed) return;
-        if (!window.DocsAPI) {
-          await new Promise<void>((resolve, reject) => {
-            const script = document.createElement('script');
-            script.src = onlyofficeUrl + '/web-apps/apps/api/documents/api.js';
-            script.onload = () => resolve();
-            script.onerror = () => reject(new Error('Không thể tải OnlyOffice'));
-            document.head.appendChild(script);
-          });
-        }
+        await loadOnlyOfficeApi(onlyofficeUrl);
         if (destroyed) return;
         editorRef.current = new window.DocsAPI.DocEditor(containerRef.current, {
           ...editorConfig,
           height: '100%',
           width: '100%',
           events: {
-            onAppReady: () => { if (!destroyed) setLoading(false); },
-            onError: (e: any) => { if (!destroyed) setError(e?.data?.message || 'Lỗi OnlyOffice'); },
+            onAppReady: () => {
+              if (!destroyed) {
+                setLoading(false);
+                setSlow(false);
+              }
+            },
+            onError: (e: any) => {
+              if (!destroyed) {
+                setError(e?.data?.message || 'Lỗi OnlyOffice');
+                setLoading(false);
+              }
+            },
           },
         });
       } catch (err: any) {
         if (!destroyed) { setError(err.message || 'Lỗi tải cấu hình'); setLoading(false); }
       }
     };
+    const slowTimer = window.setTimeout(() => {
+      if (!destroyed) setSlow(true);
+    }, 8_000);
     init();
     return () => {
       destroyed = true;
+      window.clearTimeout(slowTimer);
       if (editorRef.current?.destroyEditor) {
         try { editorRef.current.destroyEditor(); } catch {}
       }
     };
-  }, [objectPath]);
+  }, [attachmentId, objectPath]);
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -68,8 +79,14 @@ export function OnlyOfficeFilePreview({ objectPath, onClose }: Props) {
         </div>
         <div className="flex-1 relative">
           {loading && !error && (
-            <div className="absolute inset-0 flex items-center justify-center bg-gray-50 z-10">
-              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary-600" />
+            <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-gray-50">
+              <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary-200 border-t-primary-600" />
+              <p className="mt-4 text-sm font-medium text-slate-700">Đang mở tài liệu Word…</p>
+              {slow && (
+                <p className="mt-2 max-w-md text-center text-xs leading-5 text-amber-700">
+                  OnlyOffice đang phản hồi chậm. Bạn có thể đóng cửa sổ này và tải file về để làm việc ngay.
+                </p>
+              )}
             </div>
           )}
           {error && (

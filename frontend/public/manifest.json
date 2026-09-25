@@ -1,11 +1,11 @@
 {
   "name": "Quản lý Đấu thầu",
   "short_name": "Quản lý Đấu thầu",
-  "description": "Hệ thống quản lý đấu thầu mua sắm",
+  "description": "Hệ thống quản lý quy trình đấu thầu nội bộ",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#ea580c",
+  "background_color": "#f7f7f8",
+  "theme_color": "#8b1e24",
   "icons": [
     { "src": "/icons/icon-72x72.png", "sizes": "72x72", "type": "image/png" },
     { "src": "/icons/icon-96x96.png", "sizes": "96x96", "type": "image/png" },

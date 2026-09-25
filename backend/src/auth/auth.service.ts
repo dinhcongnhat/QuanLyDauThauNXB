@@ -2,12 +2,14 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
+import { EffectivePermissionsService } from './effective-permissions.service';
 
 @Injectable()
 export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
+    private effectivePermissions: EffectivePermissionsService,
   ) {}
 
   async login(email: string, password: string) {
@@ -21,48 +23,20 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    // Get legacy permissions
-    const legacyPerms = await this.prisma.rolePermission.findMany({
-      where: { role: user.role },
-    });
-
-    // Get dynamic permissions from user's dynamic roles
-    const userDynamicRoles = await this.prisma.userDynamicRole.findMany({
-      where: { userId: user.id },
-      include: {
-        role: {
-          include: {
-            permissions: {
-              include: { permission: true },
-            },
-          },
-        },
-      },
-    });
-
-    const dynamicPermSet = new Set<string>();
-    const dynamicRoleNames: string[] = [];
-    for (const ur of userDynamicRoles) {
-      dynamicRoleNames.push(ur.role.name);
-      for (const rp of ur.role.permissions) {
-        dynamicPermSet.add(rp.permission.key);
-      }
-    }
-
-    // Union of legacy + dynamic permissions
-    const effectivePermissions = [
-      ...new Set([
-        ...legacyPerms.map((p) => p.permissionKey),
-        ...Array.from(dynamicPermSet),
-      ]),
-    ];
+    const resolved = await this.effectivePermissions.resolve(user.id);
+    const effectivePermissions = resolved.effectivePermissions;
+    const canFinalApprove = effectivePermissions.includes('approval:final');
+    const canApprove =
+      canFinalApprove ||
+      effectivePermissions.includes('approval:review') ||
+      user.canApprove;
 
     const payload = {
       sub: user.id,
       email: user.email,
       role: user.role,
       permissions: effectivePermissions,
-      dynamicRoles: dynamicRoleNames,
+      dynamicRoles: resolved.dynamicRoles,
     };
 
     return {
@@ -75,7 +49,10 @@ export class AuthService {
         department: user.department,
         isInvestor: user.isInvestor,
         isContractor: user.isContractor,
-        dynamicRoles: dynamicRoleNames,
+        canApprove,
+        canFinalApprove,
+        position: user.position,
+        dynamicRoles: resolved.dynamicRoles,
         permissions: effectivePermissions,
       },
     };
@@ -85,41 +62,13 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new UnauthorizedException();
 
-    // Get legacy permissions
-    const legacyPerms = await this.prisma.rolePermission.findMany({
-      where: { role: user.role },
-    });
-
-    // Get dynamic permissions from user's dynamic roles
-    const userDynamicRoles = await this.prisma.userDynamicRole.findMany({
-      where: { userId: user.id },
-      include: {
-        role: {
-          include: {
-            permissions: {
-              include: { permission: true },
-            },
-          },
-        },
-      },
-    });
-
-    const dynamicPermSet = new Set<string>();
-    const dynamicRoleNames: string[] = [];
-    for (const ur of userDynamicRoles) {
-      dynamicRoleNames.push(ur.role.name);
-      for (const rp of ur.role.permissions) {
-        dynamicPermSet.add(rp.permission.key);
-      }
-    }
-
-    // Union of legacy + dynamic permissions
-    const effectivePermissions = [
-      ...new Set([
-        ...legacyPerms.map((p) => p.permissionKey),
-        ...Array.from(dynamicPermSet),
-      ]),
-    ];
+    const resolved = await this.effectivePermissions.resolve(user.id);
+    const effectivePermissions = resolved.effectivePermissions;
+    const canFinalApprove = effectivePermissions.includes('approval:final');
+    const canApprove =
+      canFinalApprove ||
+      effectivePermissions.includes('approval:review') ||
+      user.canApprove;
 
     return {
       id: user.id,
@@ -129,7 +78,10 @@ export class AuthService {
       department: user.department,
       isInvestor: user.isInvestor,
       isContractor: user.isContractor,
-      dynamicRoles: dynamicRoleNames,
+      canApprove,
+      canFinalApprove,
+      position: user.position,
+      dynamicRoles: resolved.dynamicRoles,
       permissions: effectivePermissions,
     };
   }

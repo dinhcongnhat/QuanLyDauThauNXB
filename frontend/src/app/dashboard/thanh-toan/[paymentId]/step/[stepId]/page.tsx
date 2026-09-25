@@ -10,13 +10,12 @@ import { FieldDef } from '@/components/SmartFormField';
 import { GroupedFieldRenderer } from '@/components/GroupedFieldRenderer';
 import { WorkflowDocxPreview } from '@/components/WorkflowDocxPreview';
 import { HistoryModal } from '@/components/HistoryModal';
-import { ProjectChat } from '@/components/ProjectChat';
 import {
   getPaymentTemplateFieldKeys,
   isBlankWorkflowValue,
   mergeTemplateFields,
-  normalizeLegalBasisValue,
-  normalizeWorkflowData,
+  normalizeWorkflowAttachments,
+  pickWorkflowFormData,
 } from '@/lib/workflow-template-api';
 
 // ====================== FIELD DEFINITIONS ======================
@@ -639,11 +638,6 @@ const PACKAGE_TYPE_LABELS: Record<string, string> = {
 
 const ATTACHMENT_ONLY = new Set(['bang_tien_do_cung_cap']);
 
-function displayFilename(path: string): string {
-  const raw = path.split('/').pop() || path;
-  try { return decodeURIComponent(raw); } catch { return raw; }
-}
-
 export default function PaymentStepPage() {
   const params = useParams();
   const router = useRouter();
@@ -675,15 +669,18 @@ export default function PaymentStepPage() {
       setTemplateFieldKeys(dynamicFields);
 
       const rawData = (stepData.data || {}) as Record<string, any>;
-      const normalizedData = normalizeWorkflowData(rawData);
-      const stringData: Record<string, any> = {};
-      for (const [k, v] of Object.entries(normalizedData)) {
-        if (k !== '_attachments') {
-          stringData[k] =
-            k === 'CanCu' ? normalizeLegalBasisValue(v) : String(v ?? '');
-        }
-      }
-      setFormData(stringData);
+      const allowedFields = mergeTemplateFields(
+        ALL_STEP_FIELDS[stepData.payment?.contractPackageType]?.[
+          stepData.stepKey
+        ] || [],
+        dynamicFields,
+      );
+      setFormData(
+        pickWorkflowFormData(
+          rawData,
+          allowedFields.map((field) => field.key),
+        ),
+      );
     } catch (err: any) { toast.error(err.message); }
     finally { setLoading(false); }
   }, [stepId]);
@@ -695,16 +692,20 @@ export default function PaymentStepPage() {
     if (!step || step.status === 'COMPLETED') return;
     api.getPaymentAutoFill(stepId).then(async (data) => {
       if (!data || Object.keys(data).length === 0) return;
-      const normalizedAutoFill = normalizeWorkflowData(data);
+      const allowedFields = mergeTemplateFields(
+        ALL_STEP_FIELDS[payment?.contractPackageType]?.[step.stepKey] || [],
+        templateFieldKeys,
+      );
+      const normalizedAutoFill = pickWorkflowFormData(
+        data,
+        allowedFields.map((field) => field.key),
+      );
       setAutoFillData(normalizedAutoFill);
       setFormData(prev => {
         const merged = { ...prev };
         for (const [key, val] of Object.entries(normalizedAutoFill)) {
           if (isBlankWorkflowValue(merged[key])) {
-            merged[key] =
-              key === 'CanCu'
-                ? normalizeLegalBasisValue(val)
-                : String(val ?? '');
+            merged[key] = val;
           }
         }
         return merged;
@@ -712,15 +713,13 @@ export default function PaymentStepPage() {
       // Persist auto-fill data to DB immediately so it's available for DOCX generation
       try {
         const keysToUpdate: Record<string, any> = {};
-        const currentData = normalizeWorkflowData(
+        const currentData = pickWorkflowFormData(
           (step.data || {}) as Record<string, any>,
+          allowedFields.map((field) => field.key),
         );
         for (const [key, val] of Object.entries(normalizedAutoFill)) {
           if (isBlankWorkflowValue(currentData[key])) {
-            keysToUpdate[key] =
-              key === 'CanCu'
-                ? normalizeLegalBasisValue(val)
-                : String(val ?? '');
+            keysToUpdate[key] = val;
           }
         }
         if (Object.keys(keysToUpdate).length > 0) {
@@ -728,7 +727,7 @@ export default function PaymentStepPage() {
         }
       } catch { /* ignore - will be saved on explicit save */ }
     }).catch(() => {});
-  }, [stepId, step]);
+  }, [payment?.contractPackageType, stepId, step, templateFieldKeys]);
 
   const packageType = payment?.contractPackageType || '';
   const stepFields = mergeTemplateFields(
@@ -736,11 +735,9 @@ export default function PaymentStepPage() {
     templateFieldKeys,
   );
   const isAttachment = step ? ATTACHMENT_ONLY.has(step.stepKey) : false;
-  const attachmentsRaw: any[] = (step?.data)?._attachments || [];
-  const attachments = attachmentsRaw.map((att: any) => typeof att === 'string' ? { path: att, fileName: displayFilename(att), ghiChu: '' } : att);
+  const attachments = normalizeWorkflowAttachments(step?.data?._attachments);
   const canEdit = step && step.status !== 'COMPLETED';
   const canComplete = step && step.status !== 'COMPLETED';
-  const dataEntries = Object.entries((step?.data || {}) as Record<string, any>).filter(([k]) => !k.startsWith('_'));
 
   const handleSave = async () => {
     setSaving(true);
@@ -759,13 +756,18 @@ export default function PaymentStepPage() {
   };
 
   const handleComplete = async () => {
+    setSaving(true);
     try {
       // Save form data before completing
       await api.updatePaymentStep(stepId, formData);
+      if (!isAttachment) {
+        await api.generatePaymentDocx(stepId);
+      }
       await api.completePaymentStep(stepId);
       toast.success('Đã hoàn thành bước');
       await loadData();
     } catch (err: any) { toast.error(err.message); }
+    finally { setSaving(false); }
   };
 
   const handleReopen = async () => {
@@ -933,10 +935,12 @@ export default function PaymentStepPage() {
               onFormDataChange={setFormData}
             />
             <WorkflowDocxPreview
+              debounceMs={800}
               documents={[
                 {
                   id: step.stepKey,
                   label: step.title,
+                  previewData: formData,
                   loadPreview: () => api.previewPaymentStepPdf(stepId, formData),
                 },
               ]}
@@ -997,7 +1001,7 @@ export default function PaymentStepPage() {
         )}
 
         {/* Download DOCX (auto-generated on save) */}
-        {!isAttachment && dataEntries.length > 0 && (
+        {!isAttachment && (
           <button onClick={handleDownloadDocx}
             className="min-h-10 w-full rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 sm:w-auto">
             📥 Tải DOCX
@@ -1006,9 +1010,9 @@ export default function PaymentStepPage() {
 
         {/* Complete */}
         {canComplete && (
-          <button onClick={handleComplete}
+          <button onClick={handleComplete} disabled={saving}
             className="min-h-10 w-full rounded-xl bg-green-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-green-700 sm:w-auto">
-            ✅ Hoàn thành bước
+            {saving ? '⏳ Đang lưu và hoàn thành...' : '✅ Hoàn thành bước'}
           </button>
         )}
 
@@ -1027,13 +1031,6 @@ export default function PaymentStepPage() {
         stepKey="payment"
         title="Lịch sử Thanh toán"
       />
-      {payment?.projectId && (
-        <ProjectChat
-          projectId={payment.projectId}
-          module="THANH_TOAN"
-          projectName={payment.contractorSelection?.tenGoiThau}
-        />
-      )}
     </div>
   );
 }

@@ -9,6 +9,10 @@ export interface LegalDocument {
   linhVuc: string;
   trichYeuNoiDung: string;
   ngayBanHanh: string;
+  originalObjectPath: string | null;
+  originalName: string | null;
+  originalMimeType: string | null;
+  originalSize: number | null;
   createdAt: string;
   updatedAt: string;
   citation: string;
@@ -50,8 +54,9 @@ async function request<T>(
 ): Promise<T> {
   const token =
     typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+  const isFormData = options.body instanceof FormData;
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    ...(!isFormData ? { 'Content-Type': 'application/json' } : {}),
     ...(options.headers as Record<string, string> | undefined),
   };
 
@@ -75,6 +80,37 @@ async function request<T>(
   }
 
   return response.json() as Promise<T>;
+}
+
+function toFormData(data: Partial<LegalDocumentInput>, file: File): FormData {
+  const body = new FormData();
+  Object.entries(data).forEach(([key, value]) => {
+    if (value !== undefined) body.append(key, value);
+  });
+  body.append('file', file);
+  return body;
+}
+
+async function requestOriginalFile(id: string): Promise<Blob> {
+  const token =
+    typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+  const response = await fetch(
+    `${API_BASE}/legal-documents/${encodeURIComponent(id)}/original-file`,
+    {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    },
+  );
+  if (!response.ok) {
+    const error = await response
+      .json()
+      .catch(() => ({ message: 'Không thể tải tệp văn bản gốc' }));
+    throw new Error(
+      Array.isArray(error.message)
+        ? error.message.join(', ')
+        : error.message || `HTTP ${response.status}`,
+    );
+  }
+  return response.blob();
 }
 
 function buildQuery(params: LegalDocumentListParams): string {
@@ -103,17 +139,23 @@ export const legalDocumentApi = {
   get: (id: string) =>
     request<LegalDocument>(`/legal-documents/${encodeURIComponent(id)}`),
 
-  create: (data: LegalDocumentInput) =>
+  create: (data: LegalDocumentInput, file?: File | null) =>
     request<LegalDocument>('/legal-documents', {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: file ? toFormData(data, file) : JSON.stringify(data),
     }),
 
-  update: (id: string, data: Partial<LegalDocumentInput>) =>
+  update: (
+    id: string,
+    data: Partial<LegalDocumentInput>,
+    file?: File | null,
+  ) =>
     request<LegalDocument>(`/legal-documents/${encodeURIComponent(id)}`, {
       method: 'PUT',
-      body: JSON.stringify(data),
+      body: file ? toFormData(data, file) : JSON.stringify(data),
     }),
+
+  getOriginalFile: requestOriginalFile,
 
   remove: (id: string) =>
     request<{ message: string }>(
@@ -124,6 +166,13 @@ export const legalDocumentApi = {
 
 function stripTrailingPunctuation(value: string): string {
   return value.trim().replace(/[\s,.;:]+$/, '');
+}
+
+function lowercaseCitationTitle(value: string): string {
+  const normalized = stripTrailingPunctuation(value);
+  return normalized
+    ? normalized.charAt(0).toLocaleLowerCase('vi') + normalized.slice(1)
+    : '';
 }
 
 export function formatLegalDocumentCitation(
@@ -139,9 +188,11 @@ export function formatLegalDocumentCitation(
   const datePart = document.ngayBanHanh.slice(0, 10);
   const [year, month, day] = datePart.split('-').map(Number);
   const formattedDate =
-    year && month && day ? `${day}/${month}/${year}` : datePart;
+    year && month && day
+      ? `${String(day).padStart(2, '0')} tháng ${month} năm ${year}`
+      : datePart;
 
-  return `Căn cứ ${stripTrailingPunctuation(document.hinhThucVanBan)} ${stripTrailingPunctuation(document.trichYeuNoiDung)} số ${stripTrailingPunctuation(document.soHieu)}, ngày ${formattedDate} của ${stripTrailingPunctuation(document.coQuanBanHanh)};`;
+  return `Căn cứ ${stripTrailingPunctuation(document.hinhThucVanBan)} số ${stripTrailingPunctuation(document.soHieu)} ngày ${formattedDate} của ${stripTrailingPunctuation(document.coQuanBanHanh)} ${lowercaseCitationTitle(document.trichYeuNoiDung)};`;
 }
 
 export function normalizeManualCitation(value: string): string {

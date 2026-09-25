@@ -4,6 +4,12 @@ const API_BASE = '/api';
 
 export type WorkflowFormData = Record<string, unknown>;
 
+export type WorkflowAttachment = {
+  path: string;
+  fileName: string;
+  ghiChu?: string;
+};
+
 export type LegalBasisSelectionValue = {
   legalDocumentId: string | null;
   source: 'LIBRARY' | 'MANUAL';
@@ -253,6 +259,150 @@ export function normalizeWorkflowData(
     normalized.CanCu = normalizeLegalBasisValue(normalized.CanCu);
   }
   return normalized;
+}
+
+/**
+ * Chỉ đưa các placeholder thật sự thuộc mẫu hiện tại vào form. Dữ liệu workflow
+ * cũ thường chứa cả snapshot dự án/gói thầu (object, array); ép toàn bộ chúng
+ * bằng String() sẽ tạo ra "[object Object]" và ghi ngược giá trị lỗi vào DB.
+ */
+export function pickWorkflowFormData(
+  source: Record<string, unknown> | null | undefined,
+  allowedKeys: Iterable<string>,
+): WorkflowFormData {
+  const normalized = normalizeWorkflowData(source);
+  const result: WorkflowFormData = {};
+
+  for (const rawKey of Array.from(allowedKeys)) {
+    const key = canonicalWorkflowKey(String(rawKey));
+    if (!key || !(key in normalized)) continue;
+    const value = normalized[key];
+
+    if (key === 'CanCu') {
+      result[key] = normalizeLegalBasisValue(value);
+      continue;
+    }
+    if (
+      value === null
+      || value === undefined
+      || typeof value === 'string'
+      || typeof value === 'number'
+      || typeof value === 'boolean'
+    ) {
+      result[key] = value == null ? '' : String(value);
+    }
+  }
+
+  return result;
+}
+
+export function formatWorkflowDisplayValue(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') {
+    return /\[object Object\]/i.test(value) ? '' : value.trim();
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => formatWorkflowDisplayValue(item))
+      .filter(Boolean)
+      .join('; ');
+  }
+  if (typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    for (const key of [
+      'citationSnapshot',
+      'fileName',
+      'originalName',
+      'label',
+      'title',
+      'name',
+      'tenGoiThau',
+      'tenDuAn',
+      'value',
+    ]) {
+      const formatted = formatWorkflowDisplayValue(record[key]);
+      if (formatted) return formatted;
+    }
+
+    return Object.entries(record)
+      .map(([key, item]) => {
+        const formatted = formatWorkflowDisplayValue(item);
+        return formatted ? `${humanizeTemplateKey(key)}: ${formatted}` : '';
+      })
+      .filter(Boolean)
+      .slice(0, 4)
+      .join(' · ');
+  }
+  return '';
+}
+
+export function getWorkflowDisplayEntries(
+  source: Record<string, unknown> | null | undefined,
+  allowedKeys?: Iterable<string>,
+): Array<{ key: string; label: string; value: string }> {
+  const normalized = normalizeWorkflowData(source);
+  const keys = allowedKeys
+    ? Array.from(allowedKeys, (key) => canonicalWorkflowKey(String(key)))
+    : Object.keys(normalized).map(canonicalWorkflowKey);
+  const seen = new Set<string>();
+
+  return keys.flatMap((key) => {
+    if (!key || key.startsWith('_') || seen.has(key)) return [];
+    seen.add(key);
+    const value = formatWorkflowDisplayValue(normalized[key]);
+    if (!value) return [];
+    return [{
+      key,
+      label: FIELD_LABELS[key] || humanizeTemplateKey(key),
+      value,
+    }];
+  });
+}
+
+/**
+ * Dữ liệu cũ từng lưu `_attachments` dưới nhiều dạng (mảng, một object hoặc
+ * một chuỗi). Luôn chuẩn hóa trước khi render để một bản ghi cũ không thể làm
+ * hỏng toàn bộ trang bằng lỗi `.map is not a function`.
+ */
+export function normalizeWorkflowAttachments(
+  value: unknown,
+): WorkflowAttachment[] {
+  const values = Array.isArray(value)
+    ? value
+    : value == null || value === ''
+      ? []
+      : [value];
+
+  return values
+    .map((item): WorkflowAttachment | null => {
+      if (typeof item === 'string') {
+        const path = item.trim();
+        if (!path || /\[object Object\]/i.test(path)) return null;
+        const rawName = path.split('/').pop() || path;
+        let fileName = rawName;
+        try {
+          fileName = decodeURIComponent(rawName);
+        } catch {
+          // Tên tệp cũ có thể không phải URI encoded.
+        }
+        return { path, fileName };
+      }
+      if (!item || typeof item !== 'object') return null;
+
+      const record = item as Record<string, unknown>;
+      const path = String(record.path || record.objectPath || '').trim();
+      if (!path) return null;
+      const rawName = path.split('/').pop() || path;
+      return {
+        path,
+        fileName: String(record.fileName || record.originalName || rawName),
+        ...(record.ghiChu ? { ghiChu: String(record.ghiChu) } : {}),
+      };
+    })
+    .filter((item): item is WorkflowAttachment => item !== null);
 }
 
 function inferGroup(key: string): FieldDef['group'] {

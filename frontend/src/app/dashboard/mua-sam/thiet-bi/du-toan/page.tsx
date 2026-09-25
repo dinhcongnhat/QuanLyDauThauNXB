@@ -11,7 +11,7 @@ import {
   LegalBasisSelection,
 } from '@/components/LegalBasisField';
 import { OnlyOfficePreview } from '@/components/OnlyOfficePreview';
-import { ProjectChat } from '@/components/ProjectChat';
+import { ApproverSelect } from '@/components/ApproverSelect';
 import {
   WorkflowDocxPreview,
   WorkflowDocxPreviewDocument,
@@ -38,6 +38,7 @@ const INPUT_CLASS =
 const statusLabels: Record<DocStatus, string> = {
   DRAFT: 'Bản nháp',
   PENDING_APPROVAL: 'Chờ phê duyệt',
+  COMPLETED: 'Hoàn thành',
   APPROVED: 'Đã phê duyệt',
   REJECTED: 'Cần làm lại',
 };
@@ -45,6 +46,7 @@ const statusLabels: Record<DocStatus, string> = {
 const statusColors: Record<DocStatus, string> = {
   DRAFT: 'bg-gray-100 text-gray-700',
   PENDING_APPROVAL: 'bg-yellow-100 text-yellow-700',
+  COMPLETED: 'bg-blue-100 text-blue-700',
   APPROVED: 'bg-green-100 text-green-700',
   REJECTED: 'bg-red-100 text-red-700',
 };
@@ -60,7 +62,12 @@ type DuToanDraftStep = 'COVER' | 'DOCUMENT';
 interface DuToanFormData {
   SoVanBan: string;
   NgayBanHanh: string;
+  NgayKy: string;
+  NguoiSoanVanBan: string;
+  ThuTruongDonVi: string;
   TenDuAn: string;
+  CanCuMoDau: string;
+  canCuMoDau: LegalBasisSelectionValue[];
   ThuyetMinh: string;
   MucTieuQuyMo: string;
   NguonVon: string;
@@ -101,7 +108,12 @@ function emptyForm(): DuToanFormData {
   return {
     SoVanBan: '',
     NgayBanHanh: TODAY,
+    NgayKy: TODAY,
+    NguoiSoanVanBan: '',
+    ThuTruongDonVi: '',
     TenDuAn: '',
+    CanCuMoDau: '',
+    canCuMoDau: [],
     ThuyetMinh: '',
     MucTieuQuyMo: '',
     NguonVon: '',
@@ -162,6 +174,23 @@ function normalizeLegalBases(
         );
     })
     .filter((item) => item.citationSnapshot.trim());
+}
+
+function normalizeOpeningLegalBasis(
+  data: Record<string, any>,
+): LegalBasisSelectionValue[] {
+  const structured =
+    data?.canCuMoDau
+    ?? data?.CanCuMoDauSelection
+    ?? data?.canCuMoDauSelection;
+  if (structured !== undefined && structured !== null) {
+    return normalizeLegalBases({ canCu: structured }).slice(0, 1);
+  }
+
+  const legacy = firstValue(data, 'CanCuMoDau');
+  return legacy
+    ? normalizeLegalBases({ canCu: legacy }).slice(0, 1)
+    : [];
 }
 
 function normalizePackage(
@@ -257,7 +286,32 @@ function normalizeDuToanData(data: Record<string, any>): DuToanFormData {
         0,
         10,
       ) || TODAY,
+    NgayKy:
+      firstValue(
+        data,
+        'NgayKy',
+        'ngayKy',
+        'NgayBanHanh',
+        'ngayBanHanh',
+        'ngayLap',
+      ).slice(0, 10) || TODAY,
+    NguoiSoanVanBan: firstValue(
+      data,
+      'NguoiSoanVanBan',
+      'nguoiSoanVanBan',
+      'NguoiSoan',
+      'nguoiSoan',
+    ),
+    ThuTruongDonVi: firstValue(
+      data,
+      'ThuTruongDonVi',
+      'thuTruongDonVi',
+      'ThuTruong',
+      'thuTruong',
+    ),
     TenDuAn: firstValue(data, 'TenDuAn', 'tenDuAn'),
+    CanCuMoDau: firstValue(data, 'CanCuMoDau', 'canCuMoDau'),
+    canCuMoDau: normalizeOpeningLegalBasis(data),
     ThuyetMinh: firstValue(data, 'ThuyetMinh', 'thuyetMinh'),
     MucTieuQuyMo: firstValue(
       data,
@@ -281,9 +335,14 @@ function packageNames(data: Record<string, any>): string {
     .join(', ');
 }
 
-function cleanPayload(data: DuToanFormData): DuToanFormData {
+function cleanPayload(data: DuToanFormData) {
+  const canCuMoDau = data.canCuMoDau
+    .filter((item) => item.citationSnapshot.trim())
+    .slice(0, 1);
   return {
     ...data,
+    CanCuMoDau: canCuMoDau[0]?.citationSnapshot.trim() || '',
+    canCuMoDau,
     canCu: data.canCu.filter((item) => item.citationSnapshot.trim()),
     packages: data.packages.map((item) => ({
       ...item,
@@ -351,6 +410,7 @@ function ThietBiDuToanPageInner() {
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [previewDocId, setPreviewDocId] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [selectedApproverId, setSelectedApproverId] = useState('');
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -410,7 +470,8 @@ function ThietBiDuToanPageInner() {
 
   const approvedTTs = docs.filter(
     (document) =>
-      document.type === 'TT_DUTOAN' && document.status === 'APPROVED',
+      document.type === 'TT_DUTOAN'
+      && ['COMPLETED', 'APPROVED'].includes(document.status),
   );
   const hasTT = docs.some((document) => document.type === 'TT_DUTOAN');
   const hasApprovedQD = docs.some(
@@ -418,13 +479,14 @@ function ThietBiDuToanPageInner() {
       document.type === 'QD_DUTOAN' && document.status === 'APPROVED',
   );
   const hasQD = docs.some((document) => document.type === 'QD_DUTOAN');
-  const canApprove = user?.role === 'ADMIN' || user?.canApprove === true;
+  const canApprove = user?.canApprove === true;
 
   const resetForm = () => {
     setShowForm(null);
     setDraftStep('COVER');
     setEditingDoc(null);
     setSelectedTTId('');
+    setSelectedApproverId('');
     setTtData(emptyForm());
     setQdData(emptyForm());
     setTtFile(null);
@@ -437,7 +499,11 @@ function ThietBiDuToanPageInner() {
       return;
     }
     resetForm();
-    const initial = { ...emptyForm(), TenDuAn: selectedProjectName };
+    const initial = {
+      ...emptyForm(),
+      TenDuAn: selectedProjectName,
+      NguoiSoanVanBan: user?.name || '',
+    };
     if (type === 'TT_DUTOAN') {
       setTtData(initial);
       setDraftStep('COVER');
@@ -468,7 +534,7 @@ function ThietBiDuToanPageInner() {
     if (document.projectId) setSelectedProject(document.projectId);
     setEditingDoc(document);
     setShowForm(type);
-    setDraftStep('DOCUMENT');
+    setDraftStep(type === 'TT_DUTOAN' ? 'COVER' : 'DOCUMENT');
     setSelectedTTId(document.sourceDocumentId || '');
     if (type === 'TT_DUTOAN') setTtData(normalized);
     if (type === 'QD_DUTOAN') setQdData(normalized);
@@ -490,8 +556,42 @@ function ThietBiDuToanPageInner() {
       toast.error('Vui lòng nhập tên cho tất cả gói thầu');
       return false;
     }
+    if (
+      type === 'TT_DUTOAN'
+      && (!data.NguoiSoanVanBan.trim() || !data.ThuTruongDonVi.trim())
+    ) {
+      toast.error(
+        'Vui lòng nhập Người soạn văn bản và Thủ trưởng đơn vị trên Phiếu trình ký',
+      );
+      return false;
+    }
+    if (
+      data.canCuMoDau.length !== 1
+      || data.canCuMoDau[0].source !== 'LIBRARY'
+      || !data.canCuMoDau[0].legalDocumentId
+      || !data.canCuMoDau[0].citationSnapshot.trim()
+    ) {
+      toast.error(
+        'Vui lòng chọn Căn cứ mở đầu từ Thư viện văn bản',
+      );
+      return false;
+    }
+    if (
+      data.canCu.length === 0
+      || data.canCu.some(
+        (item) =>
+          item.source !== 'LIBRARY'
+          || !item.legalDocumentId
+          || !item.citationSnapshot.trim(),
+      )
+    ) {
+      toast.error(
+        'Các căn cứ tại Mục I phải được chọn từ Thư viện văn bản',
+      );
+      return false;
+    }
     if (type === 'QD_DUTOAN' && !selectedTTId && !editingDoc) {
-      toast.error('Vui lòng chọn Tờ trình dự toán đã duyệt');
+      toast.error('Vui lòng chọn Tờ trình dự toán đã hoàn thành');
       return false;
     }
     if (type === 'QD_DUTOAN' && !data.SoVanBan.trim()) {
@@ -504,6 +604,19 @@ function ThietBiDuToanPageInner() {
   const continueFromCover = () => {
     if (!selectedProjectName) {
       toast.error('Vui lòng chọn dự án trong Quản lý dự án');
+      return;
+    }
+    if (!ttData.NgayKy) {
+      toast.error('Vui lòng chọn Ngày ký Phiếu trình');
+      return;
+    }
+    if (
+      !ttData.NguoiSoanVanBan.trim()
+      || !ttData.ThuTruongDonVi.trim()
+    ) {
+      toast.error(
+        'Vui lòng nhập Người soạn văn bản và Thủ trưởng đơn vị',
+      );
       return;
     }
     if (
@@ -524,6 +637,10 @@ function ThietBiDuToanPageInner() {
     const currentData = type === 'TT_DUTOAN' ? ttData : qdData;
     const file = type === 'TT_DUTOAN' ? ttFile : qdFile;
     if (!validate(currentData, type)) return;
+    if (type === 'QD_DUTOAN' && !selectedApproverId) {
+      toast.error('Vui lòng chọn người phê duyệt');
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -559,13 +676,25 @@ function ThietBiDuToanPageInner() {
         }
       }
 
+      if (type === 'QD_DUTOAN' && !attachmentFailed) {
+        await api.submitApproval({
+          targetType: 'DOCUMENT',
+          targetId: saved.id,
+          approverId: selectedApproverId,
+        });
+      }
+
       if (!attachmentFailed) {
         toast.success(
           editingDoc
             ? editingDoc.status === 'REJECTED'
-              ? 'Đã lưu và gửi lại văn bản'
-              : 'Đã cập nhật văn bản đang chờ duyệt'
-            : `Đã tạo ${typeLabels[type]}`,
+              ? type === 'QD_DUTOAN'
+                ? 'Đã lưu và gửi lại Quyết định'
+                : 'Đã hoàn thành lại Tờ trình'
+              : 'Đã lưu văn bản'
+            : type === 'QD_DUTOAN'
+              ? 'Đã tạo và gửi duyệt Quyết định'
+              : 'Đã hoàn thành Tờ trình dự toán',
         );
       }
       resetForm();
@@ -715,7 +844,7 @@ function ThietBiDuToanPageInner() {
   }, [docs, searchQuery]);
 
   return (
-    <div className="mx-auto w-full max-w-[1720px] space-y-4 2xl:space-y-6">
+    <div className="w-full space-y-6">
       <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-start">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">
@@ -809,7 +938,8 @@ function ThietBiDuToanPageInner() {
           {
             number: 2,
             label: 'Quyết định dự toán',
-            description: 'Kế thừa Tờ trình đã duyệt và ghép phụ lục khái toán.',
+            description:
+              'Kế thừa Tờ trình đã hoàn thành và ghép phụ lục khái toán.',
             status: hasApprovedQD
               ? 'completed'
               : hasQD || showForm === 'QD_DUTOAN' || approvedTTs.length > 0
@@ -839,11 +969,6 @@ function ThietBiDuToanPageInner() {
                     typeLabels[showForm]
                   }`}
             </h2>
-            <p className="mt-1 text-xs text-slate-600">
-              {showForm === 'TT_DUTOAN' && draftStep === 'COVER'
-                ? 'Hoàn thành bước này trước khi mở nội dung Tờ trình.'
-                : 'Dữ liệu được điền trực tiếp vào file Word mẫu ở khung bên phải.'}
-            </p>
           </div>
           <div className="space-y-5 p-3 sm:p-5 2xl:p-6">
             <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.08fr)_minmax(420px,0.92fr)] 2xl:gap-6 2xl:grid-cols-[minmax(0,1fr)_minmax(520px,0.95fr)]">
@@ -851,7 +976,7 @@ function ThietBiDuToanPageInner() {
                 {showForm === 'QD_DUTOAN' && !editingDoc && (
                   <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
                     <label className="mb-2 block text-sm font-medium text-blue-900">
-                      Tờ trình dự toán đã duyệt
+                      Tờ trình dự toán đã hoàn thành
                     </label>
                     <select
                       value={selectedTTId}
@@ -873,11 +998,15 @@ function ThietBiDuToanPageInner() {
                         </option>
                       ))}
                     </select>
-                    <p className="mt-1 text-xs text-blue-700">
-                      Hệ thống liên kết bằng ID văn bản nguồn và sao chép toàn
-                      bộ gói thầu, căn cứ, thuyết minh, nguồn vốn.
-                    </p>
                   </div>
+                )}
+
+                {showForm === 'QD_DUTOAN' && (
+                  <ApproverSelect
+                    value={selectedApproverId}
+                    onChange={setSelectedApproverId}
+                    disabled={submitting}
+                  />
                 )}
 
                 {showForm === 'TT_DUTOAN' && draftStep === 'COVER' ? (
@@ -915,7 +1044,33 @@ function ThietBiDuToanPageInner() {
                   showForm,
                   showForm === 'TT_DUTOAN' ? ttData : qdData,
                   draftStep,
-                )}
+                ).map((document) => {
+                  const attachment =
+                    showForm === 'TT_DUTOAN' ? ttFile : qdFile;
+                  if (
+                    !attachment ||
+                    document.id === 'cover' ||
+                    !document.type
+                  ) {
+                    return document;
+                  }
+                  return {
+                    ...document,
+                    loadPreview: () =>
+                      api.previewDocumentPdfWithAttachment(
+                        document.type!,
+                        document.data || {},
+                        attachment,
+                      ),
+                  };
+                })}
+                activeDocumentId={
+                  showForm === 'QD_DUTOAN'
+                    ? 'decision'
+                    : draftStep === 'COVER'
+                      ? 'cover'
+                      : 'proposal'
+                }
               />
             </div>
 
@@ -962,7 +1117,9 @@ function ThietBiDuToanPageInner() {
                     ? editingDoc.status === 'REJECTED'
                       ? 'Lưu và gửi lại'
                       : 'Lưu chỉnh sửa'
-                    : 'Tạo và gửi duyệt'}
+                    : showForm === 'QD_DUTOAN'
+                      ? 'Tạo và gửi duyệt Quyết định'
+                      : 'Hoàn thành Tờ trình'}
               </button>
             </div>
           </div>
@@ -1116,6 +1273,7 @@ function ThietBiDuToanPageInner() {
                         </label>
                       )}
                       {canApprove &&
+                        document.assignedTo === user?.id &&
                         document.status === 'PENDING_APPROVAL' && (
                           <>
                             <button
@@ -1154,7 +1312,9 @@ function ThietBiDuToanPageInner() {
                             )}
                           </>
                         )}
-                      {document.status !== 'APPROVED' &&
+                      {(['DRAFT', 'REJECTED'] as DocStatus[]).includes(
+                        document.status,
+                      ) &&
                         (document.createdBy === user?.id ||
                           user?.role === 'ADMIN') && (
                           <button
@@ -1192,16 +1352,6 @@ function ThietBiDuToanPageInner() {
         />
       )}
 
-      {selectedProject && (
-        <ProjectChat
-          projectId={selectedProject}
-          module="DU_TOAN"
-          projectName={
-            projects.find((item: any) => item.id === selectedProject)
-              ?.tenDuAn
-          }
-        />
-      )}
     </div>
   );
 }
@@ -1239,7 +1389,6 @@ function DuToanCoverForm({
   return (
     <WorkflowFormSection
       title="0. Mẫu phiếu trình ký phê duyệt dự toán"
-      description="Màn hình này khớp đúng hai placeholder của file Word: TenDuAn và TenCacGoiThau."
     >
       <div className="space-y-5">
         <Field label="Tên dự án (liên kết từ Quản lý dự án)">
@@ -1250,14 +1399,57 @@ function DuToanCoverForm({
           />
         </Field>
 
+        <Field label="Ngày ký Phiếu trình">
+          <input
+            type="date"
+            value={value.NgayKy}
+            onChange={(event) =>
+              onChange({
+                ...value,
+                TenDuAn: projectName,
+                NgayKy: event.target.value,
+              })
+            }
+            className={INPUT_CLASS}
+          />
+        </Field>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <Field label="Người soạn văn bản">
+            <input
+              value={value.NguoiSoanVanBan}
+              onChange={(event) =>
+                onChange({
+                  ...value,
+                  TenDuAn: projectName,
+                  NguoiSoanVanBan: event.target.value,
+                })
+              }
+              placeholder="Nhập họ tên người soạn"
+              className={INPUT_CLASS}
+            />
+          </Field>
+          <Field label="Thủ trưởng đơn vị">
+            <input
+              value={value.ThuTruongDonVi}
+              onChange={(event) =>
+                onChange({
+                  ...value,
+                  TenDuAn: projectName,
+                  ThuTruongDonVi: event.target.value,
+                })
+              }
+              placeholder="Nhập họ tên thủ trưởng đơn vị"
+              className={INPUT_CLASS}
+            />
+          </Field>
+        </div>
+
         <div>
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
               <p className="text-sm font-semibold text-slate-800">
                 Danh sách gói thầu
-              </p>
-              <p className="mt-0.5 text-xs text-slate-500">
-                Khi xuất Word, các tên được nối theo đúng thứ tự bằng dấu phẩy.
               </p>
             </div>
             <button
@@ -1307,11 +1499,6 @@ function DuToanCoverForm({
             ))}
           </div>
         </div>
-
-        <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs leading-5 text-blue-800">
-          Dữ liệu bước 0 được giữ nguyên và chuyển tiếp xuống Tờ trình; người
-          dùng không phải nhập lại tên dự án hoặc tên các gói thầu.
-        </div>
       </div>
     </WorkflowFormSection>
   );
@@ -1335,7 +1522,10 @@ function DuToanForm({
   projectName: string;
 }) {
   const setField = (
-    key: Exclude<keyof DuToanFormData, 'canCu' | 'packages'>,
+    key: Exclude<
+      keyof DuToanFormData,
+      'canCu' | 'canCuMoDau' | 'packages'
+    >,
     fieldValue: string,
   ) => onChange({ ...value, [key]: fieldValue });
 
@@ -1366,8 +1556,7 @@ function DuToanForm({
   return (
     <>
       <WorkflowFormSection
-        title="I. Mô tả tóm tắt dự án/Dự toán mua sắm"
-        description="Thông tin tổng quan được dùng chung cho Phiếu trình ký, Tờ trình và Quyết định."
+        title="Thông tin chung của văn bản"
       >
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <Field label="Số văn bản">
@@ -1398,80 +1587,56 @@ function DuToanForm({
                 className={`${INPUT_CLASS} cursor-not-allowed bg-slate-100 font-medium text-slate-700`}
               />
             </Field>
-            <p className="mt-1.5 text-xs text-slate-500">
-              Trường <code>TenDuAn</code> được lấy trực tiếp từ dự án đang
-              chọn và không thể nhập lệch tên tại hồ sơ.
-            </p>
-          </div>
-          <Field label="Nguồn vốn">
-            <input
-              value={value.NguonVon}
-              onChange={(event) =>
-                setField('NguonVon', event.target.value)
-              }
-              className={INPUT_CLASS}
-            />
-          </Field>
-          <Field label="Năm thực hiện">
-            <input
-              value={value.NamThucHien}
-              onChange={(event) =>
-                setField('NamThucHien', event.target.value)
-              }
-              className={INPUT_CLASS}
-            />
-          </Field>
-          <div className="md:col-span-2">
-            <Field label="Mục tiêu, quy mô">
-              <textarea
-                rows={3}
-                value={value.MucTieuQuyMo}
-                onChange={(event) =>
-                  setField('MucTieuQuyMo', event.target.value)
-                }
-                className={INPUT_CLASS}
-              />
-            </Field>
-          </div>
-          <div className="md:col-span-2">
-            <Field label="Thuyết minh">
-              <textarea
-                rows={3}
-                value={value.ThuyetMinh}
-                onChange={(event) =>
-                  setField('ThuyetMinh', event.target.value)
-                }
-                className={INPUT_CLASS}
-              />
-            </Field>
           </div>
         </div>
       </WorkflowFormSection>
 
       <WorkflowFormSection
-        title="II. Căn cứ pháp lý"
-        description="Mỗi căn cứ là một mục độc lập và một paragraph riêng trong Word."
+        title="Phần mở đầu Tờ trình"
       >
+        <div className="space-y-4">
+          <LegalBasisField
+            value={value.canCuMoDau as LegalBasisSelection[]}
+            onChange={(canCuMoDau) =>
+              onChange({ ...value, canCuMoDau })
+            }
+            label="Căn cứ mở đầu ({{CanCu}})"
+            description="Chọn một văn bản từ Thư viện văn bản. Câu viện dẫn chuẩn sẽ được đưa vào vị trí {{CanCu}} ở phần mở đầu Tờ trình."
+            allowManual={false}
+            maxItems={1}
+          />
+          <Field label="Nội dung thuyết minh/đề nghị sau căn cứ mở đầu">
+            <textarea
+              rows={4}
+              value={value.ThuyetMinh}
+              onChange={(event) =>
+                setField('ThuyetMinh', event.target.value)
+              }
+              placeholder="Nội dung này nằm ngay sau căn cứ mở đầu và trước Mục I"
+              className={INPUT_CLASS}
+            />
+          </Field>
+        </div>
+      </WorkflowFormSection>
+
+      <WorkflowFormSection title="I. Căn cứ xây dựng dự toán">
         <LegalBasisField
           value={value.canCu as LegalBasisSelection[]}
           onChange={(canCu) => onChange({ ...value, canCu })}
-          label="Danh sách căn cứ"
+          label="Danh sách căn cứ pháp lý tại Mục I"
+          description="Chọn các văn bản từ Thư viện văn bản theo đúng thứ tự cần hiển thị tại Mục I."
+          allowManual={false}
         />
       </WorkflowFormSection>
 
       <WorkflowFormSection
-        title="III. Nội dung xây dựng dự toán"
-        description="Có phụ lục chi tiết kèm theo; hệ thống tự sinh hàng bảng và dòng chi phí cho từng gói."
+        title="II. Nội dung xây dựng dự toán"
       >
         <div className="mb-3 flex items-center justify-between">
           <div>
             <h3 className="text-sm font-semibold text-gray-700">
               Các gói thầu
             </h3>
-            <p className="mt-0.5 text-xs text-gray-500">
-              Hệ thống tự sinh <code>TenCacGoiThau</code>, tổng giá và các
-              hàng Word theo thứ tự dưới đây.
-            </p>
           </div>
           {!packagesReadOnly && (
             <button
@@ -1574,8 +1739,44 @@ function DuToanForm({
       </WorkflowFormSection>
 
       <WorkflowFormSection
-        title="IV. Phụ lục khái toán"
-        description="File DOCX được ghép vào vị trí FileKhaiToanDinhKem trong Quyết định."
+        title="III. Ý kiến đề xuất của Văn phòng"
+      >
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="md:col-span-2">
+            <Field label="Mục tiêu, quy mô">
+              <textarea
+                rows={3}
+                value={value.MucTieuQuyMo}
+                onChange={(event) =>
+                  setField('MucTieuQuyMo', event.target.value)
+                }
+                className={INPUT_CLASS}
+              />
+            </Field>
+          </div>
+          <Field label="Nguồn vốn">
+            <input
+              value={value.NguonVon}
+              onChange={(event) =>
+                setField('NguonVon', event.target.value)
+              }
+              className={INPUT_CLASS}
+            />
+          </Field>
+          <Field label="Năm thực hiện">
+            <input
+              value={value.NamThucHien}
+              onChange={(event) =>
+                setField('NamThucHien', event.target.value)
+              }
+              className={INPUT_CLASS}
+            />
+          </Field>
+        </div>
+      </WorkflowFormSection>
+
+      <WorkflowFormSection
+        title="Phụ lục khái toán"
       >
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
         <Field label="Phụ lục khái toán đính kèm (DOCX)">

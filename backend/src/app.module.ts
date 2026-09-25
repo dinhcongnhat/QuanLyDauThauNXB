@@ -14,6 +14,7 @@ import { RbacModule } from './rbac/rbac.module';
 import { ChatModule } from './chat/chat.module';
 import { LegalDocumentsModule } from './legal-documents/legal-documents.module';
 import { DocumentWarehouseModule } from './document-warehouse/document-warehouse.module';
+import { ApprovalsModule } from './approvals/approvals.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { DocumentWarehouseModule } from './document-warehouse/document-warehouse
     ChatModule,
     LegalDocumentsModule,
     DocumentWarehouseModule,
+    ApprovalsModule,
   ],
 })
 export class AppModule implements NestModule {

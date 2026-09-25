@@ -7,15 +7,18 @@ import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
 import { AnimatePresence, motion } from 'framer-motion';
+import { Check, Pencil } from 'lucide-react';
+import { useAuthStore } from '@/lib/store';
 
 export default function DuAnPage() {
   const router = useRouter();
+  const { user: currentUser } = useAuthStore();
   const [projects, setProjects] = useState<any[]>([]);
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [filterType, setFilterType] = useState<string>('');
   const [showCreate, setShowCreate] = useState(false);
-  const [createForm, setCreateForm] = useState({ tenDuAn: '', procurementType: 'THAU_THIET_BI' });
+  const [createForm, setCreateForm] = useState({ tenDuAn: '', procurementType: '' });
   const [creating, setCreating] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [summaryData, setSummaryData] = useState<any>({});
@@ -25,6 +28,9 @@ export default function DuAnPage() {
   const [selectedMembers, setSelectedMembers] = useState<any[]>([]);
   const [memberSearch, setMemberSearch] = useState('');
   const [showMemberPicker, setShowMemberPicker] = useState(false);
+  const [editingProject, setEditingProject] = useState<any | null>(null);
+  const [editForm, setEditForm] = useState({ tenDuAn: '', status: 'IN_PROGRESS' });
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const loadProjects = async () => {
     setLoading(true);
@@ -43,10 +49,10 @@ export default function DuAnPage() {
 
   // Load users when create dialog opens
   useEffect(() => {
-    if (showCreate && allUsers.length === 0) {
+    if ((showCreate || editingProject) && allUsers.length === 0) {
       api.getUsers().then((data: any) => setAllUsers(Array.isArray(data) ? data : (data?.users || []))).catch(() => {});
     }
-  }, [showCreate]);
+  }, [showCreate, editingProject]);
 
   const filteredUsers = allUsers.filter(u => {
     if (!memberSearch.trim()) return true;
@@ -55,6 +61,10 @@ export default function DuAnPage() {
   }).filter(u => !selectedMembers.some(m => m.id === u.id));
 
   const toggleMember = (user: any) => {
+    if (editingProject && user.projectRole === 'OWNER') {
+      toast.error('Không thể xóa chủ dự án');
+      return;
+    }
     setSelectedMembers(prev =>
       prev.some(m => m.id === user.id)
         ? prev.filter(m => m.id !== user.id)
@@ -64,19 +74,70 @@ export default function DuAnPage() {
 
   const handleCreate = async () => {
     if (!createForm.tenDuAn.trim()) { toast.error('Vui lòng nhập tên dự án'); return; }
+    if (!createForm.procurementType) { toast.error('Vui lòng chọn loại thầu'); return; }
     setCreating(true);
     try {
       const memberIds = selectedMembers.map(m => m.id);
       await api.createProject(createForm.tenDuAn, createForm.procurementType, memberIds.length > 0 ? memberIds : undefined);
       toast.success('Tạo dự án thành công');
       setShowCreate(false);
-      setCreateForm({ tenDuAn: '', procurementType: 'THAU_THIET_BI' });
+      setCreateForm({ tenDuAn: '', procurementType: '' });
       setSelectedMembers([]);
       setMemberSearch('');
       setShowMemberPicker(false);
       loadProjects();
     } catch (err: any) { toast.error(err.message); }
     finally { setCreating(false); }
+  };
+
+  const openCreateProject = () => {
+    setEditingProject(null);
+    setCreateForm({ tenDuAn: '', procurementType: '' });
+    setSelectedMembers([]);
+    setMemberSearch('');
+    setShowCreate(true);
+  };
+
+  const canManageProject = (project: any) =>
+    currentUser?.role === 'ADMIN' ||
+    project.members?.some(
+      (member: any) =>
+        member.userId === currentUser?.id && member.role === 'OWNER',
+    );
+
+  const openEditProject = (project: any) => {
+    setEditingProject(project);
+    setEditForm({ tenDuAn: project.tenDuAn, status: project.status });
+    setSelectedMembers(
+      (project.members || []).map((member: any) => ({
+        ...member.user,
+        projectRole: member.role,
+      })),
+    );
+    setMemberSearch('');
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingProject || !editForm.tenDuAn.trim()) {
+      toast.error('Vui lòng nhập tên dự án');
+      return;
+    }
+    setSavingEdit(true);
+    try {
+      await api.updateProject(editingProject.id, {
+        tenDuAn: editForm.tenDuAn.trim(),
+        status: editForm.status,
+        memberIds: selectedMembers.map(member => member.id),
+      });
+      toast.success('Cập nhật dự án thành công');
+      setEditingProject(null);
+      setSelectedMembers([]);
+      await loadProjects();
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setSavingEdit(false);
+    }
   };
 
   const handleDelete = async (id: string) => {
@@ -127,7 +188,7 @@ export default function DuAnPage() {
           </p>
         </div>
         <button
-          onClick={() => setShowCreate(true)}
+          onClick={openCreateProject}
           className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm font-medium flex items-center gap-2"
         >
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
@@ -199,6 +260,16 @@ export default function DuAnPage() {
                       {p.status === 'IN_PROGRESS' ? 'Đang thực hiện' :
                        p.status === 'COMPLETED' ? 'Hoàn thành' : 'Đã hủy'}
                     </span>
+                    {canManageProject(p) && (
+                      <button
+                        type="button"
+                        onClick={() => openEditProject(p)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-primary-200 px-2.5 py-1.5 text-xs font-semibold text-primary-700 hover:bg-primary-50"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                        Chỉnh sửa
+                      </button>
+                    )}
                     <button
                       onClick={() => toggleExpand(p.id)}
                       className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
@@ -325,12 +396,23 @@ export default function DuAnPage() {
                           KH LCNT
                         </button>
                         <div className="flex-1" />
-                        <button
-                          onClick={() => handleDelete(p.id)}
-                          className="px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-xs font-medium hover:bg-red-100"
-                        >
-                          Xóa
-                        </button>
+                        {canManageProject(p) && (
+                          <>
+                            <button
+                              onClick={() => openEditProject(p)}
+                              className="inline-flex items-center gap-1.5 rounded-lg bg-primary-50 px-3 py-1.5 text-xs font-medium text-primary-700 hover:bg-primary-100"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                              Chỉnh sửa
+                            </button>
+                            <button
+                              onClick={() => handleDelete(p.id)}
+                              className="px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-xs font-medium hover:bg-red-100"
+                            >
+                              Xóa
+                            </button>
+                          </>
+                        )}
                       </div>
                     </motion.div>
                   )}
@@ -342,7 +424,7 @@ export default function DuAnPage() {
             <div className="bg-white rounded-xl p-12 text-center shadow-sm border">
               <p className="text-gray-400">Chưa có dự án nào</p>
               <button
-                onClick={() => setShowCreate(true)}
+                onClick={openCreateProject}
                 className="mt-3 px-4 py-2 bg-primary-600 text-white rounded-lg text-sm hover:bg-primary-700"
               >
                 Tạo dự án đầu tiên
@@ -366,11 +448,12 @@ export default function DuAnPage() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 p-6"
+              className="mx-4 w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl"
               onClick={e => e.stopPropagation()}
             >
-              <h3 className="text-lg font-semibold mb-4">Tạo dự án mới</h3>
-              <div className="space-y-4">
+              <h3 className="text-xl font-semibold text-gray-900">Tạo dự án mới</h3>
+              <p className="mb-5 mt-1 text-sm text-gray-500">Nhập thông tin chung, chọn rõ loại thầu và thành viên tham gia.</p>
+              <div className="space-y-5">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Tên dự án</label>
                   <input
@@ -383,40 +466,54 @@ export default function DuAnPage() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Loại thầu</label>
-                  <div className="flex gap-3">
+                  <div className="grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label="Loại thầu">
                     <button
                       type="button"
+                      role="radio"
+                      aria-checked={createForm.procurementType === 'THAU_THIET_BI'}
                       onClick={() => setCreateForm({ ...createForm, procurementType: 'THAU_THIET_BI' })}
-                      className={`flex-1 px-3 py-2.5 rounded-lg border-2 text-sm font-medium transition-all ${
+                      className={`relative min-h-24 rounded-xl border-2 px-4 py-4 text-left text-sm transition-all ${
                         createForm.procurementType === 'THAU_THIET_BI'
-                          ? 'border-blue-500 bg-blue-50 text-blue-700'
-                          : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                          ? 'border-blue-700 bg-blue-50 font-bold text-blue-900 ring-2 ring-blue-200'
+                          : 'border-gray-200 font-medium text-gray-600 hover:border-blue-300 hover:bg-blue-50/40'
                       }`}
                     >
-                      <span className="flex items-center justify-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-blue-500" />
-                        Thầu Thiết Bị
+                      <span className="flex items-center gap-2">
+                        <span className="h-3 w-3 rounded-full bg-blue-600" />
+                        <span>Thầu Thiết Bị</span>
+                        {createForm.procurementType === 'THAU_THIET_BI' && (
+                          <Check className="ml-auto h-5 w-5 text-blue-700" />
+                        )}
                       </span>
+                      <span className="mt-2 block text-xs font-normal leading-5 text-gray-500">Dự toán → KHLCNT → LCNT → Thanh toán</span>
                     </button>
                     <button
                       type="button"
+                      role="radio"
+                      aria-checked={createForm.procurementType === 'THAU_SACH'}
                       onClick={() => setCreateForm({ ...createForm, procurementType: 'THAU_SACH' })}
-                      className={`flex-1 px-3 py-2.5 rounded-lg border-2 text-sm font-medium transition-all ${
+                      className={`relative min-h-24 rounded-xl border-2 px-4 py-4 text-left text-sm transition-all ${
                         createForm.procurementType === 'THAU_SACH'
-                          ? 'border-green-500 bg-green-50 text-green-700'
-                          : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                          ? 'border-emerald-700 bg-emerald-50 font-bold text-emerald-900 ring-2 ring-emerald-200'
+                          : 'border-gray-200 font-medium text-gray-600 hover:border-emerald-300 hover:bg-emerald-50/40'
                       }`}
                     >
-                      <span className="flex items-center justify-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-green-500" />
-                        Thầu Sách
+                      <span className="flex items-center gap-2">
+                        <span className="h-3 w-3 rounded-full bg-emerald-600" />
+                        <span>Thầu Sách</span>
+                        {createForm.procurementType === 'THAU_SACH' && (
+                          <Check className="ml-auto h-5 w-5 text-emerald-700" />
+                        )}
                       </span>
+                      <span className="mt-2 block text-xs font-normal leading-5 text-gray-500">Đặt sách → Dự toán → KHLCNT → LCNT</span>
                     </button>
                   </div>
-                  <p className="text-xs text-gray-400 mt-1.5">
-                    {createForm.procurementType === 'THAU_SACH'
-                      ? 'Luồng: Đặt sách → Phê duyệt Dự toán → Phê duyệt KHLCNT → LCNT → Thanh toán'
-                      : 'Luồng: Phê duyệt Dự toán → Phê duyệt KHLCNT → LCNT → Thanh toán'}
+                  <p className="text-xs text-gray-500 mt-2">
+                    {!createForm.procurementType
+                      ? 'Bạn phải chọn một loại thầu để tạo dự án.'
+                      : createForm.procurementType === 'THAU_SACH'
+                        ? 'Luồng: Đặt sách → Phê duyệt Dự toán → Phê duyệt KHLCNT → LCNT → Thanh toán'
+                        : 'Luồng: Phê duyệt Dự toán → Phê duyệt KHLCNT → LCNT → Thanh toán'}
                   </p>
                 </div>
 
@@ -459,10 +556,123 @@ export default function DuAnPage() {
                 </button>
                 <button
                   onClick={handleCreate}
-                  disabled={creating}
+                  disabled={creating || !createForm.procurementType}
                   className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg text-sm hover:bg-primary-700 disabled:opacity-50"
                 >
                   {creating ? 'Đang tạo...' : 'Tạo dự án'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {editingProject && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+            onClick={() => setEditingProject(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.96, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.96, opacity: 0 }}
+              className="mx-4 w-full max-w-xl rounded-2xl bg-white p-6 shadow-xl"
+              onClick={event => event.stopPropagation()}
+            >
+              <div className="mb-5">
+                <h3 className="text-xl font-semibold text-gray-900">Chỉnh sửa dự án</h3>
+                <p className="mt-1 text-sm text-gray-500">
+                  Có thể đổi tên, trạng thái và thành viên. Loại thầu được khóa sau khi tạo.
+                </p>
+              </div>
+              <div className="space-y-5">
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-gray-700">Tên dự án</label>
+                  <input
+                    value={editForm.tenDuAn}
+                    onChange={event => setEditForm({ ...editForm, tenDuAn: event.target.value })}
+                    className="w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-gray-700">Trạng thái</label>
+                    <select
+                      value={editForm.status}
+                      onChange={event => setEditForm({ ...editForm, status: event.target.value })}
+                      className="w-full rounded-lg border bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-500"
+                    >
+                      <option value="IN_PROGRESS">Đang thực hiện</option>
+                      <option value="COMPLETED">Hoàn thành</option>
+                      <option value="CANCELLED">Đã hủy</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-gray-700">Loại thầu</label>
+                    <div className="rounded-lg border bg-gray-50 px-3 py-2 text-sm font-medium text-gray-600">
+                      {editingProject.procurementType === 'THAU_SACH' ? 'Thầu Sách' : 'Thầu Thiết Bị'}
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <div className="mb-2 flex items-center justify-between">
+                    <label className="text-sm font-medium text-gray-700">Thành viên dự án</label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMemberSearch('');
+                        setShowMemberPicker(true);
+                      }}
+                      className="text-sm font-semibold text-primary-700 hover:text-primary-800"
+                    >
+                      + Thêm người
+                    </button>
+                  </div>
+                  <div className="max-h-44 space-y-2 overflow-y-auto rounded-xl border p-2">
+                    {selectedMembers.map(member => (
+                      <div key={member.id} className="flex items-center gap-3 rounded-lg bg-gray-50 px-3 py-2">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-100 text-xs font-bold text-primary-700">
+                          {member.name?.charAt(0)?.toUpperCase()}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-gray-800">{member.name}</p>
+                          <p className="truncate text-xs text-gray-400">{member.email}</p>
+                        </div>
+                        {member.projectRole === 'OWNER' ? (
+                          <span className="rounded bg-amber-100 px-2 py-1 text-[10px] font-semibold text-amber-700">OWNER</span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => toggleMember(member)}
+                            className="rounded px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
+                          >
+                            Xóa
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="mt-6 flex justify-end gap-3 border-t pt-4">
+                <button
+                  type="button"
+                  onClick={() => setEditingProject(null)}
+                  className="rounded-lg bg-gray-100 px-4 py-2 text-sm text-gray-700 hover:bg-gray-200"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveEdit}
+                  disabled={savingEdit}
+                  className="rounded-lg bg-primary-600 px-5 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50"
+                >
+                  {savingEdit ? 'Đang lưu...' : 'Lưu thay đổi'}
                 </button>
               </div>
             </motion.div>
@@ -511,7 +721,9 @@ export default function DuAnPage() {
                   const q = memberSearch.toLowerCase();
                   return u.name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q);
                 }).map(u => {
-                  const isSelected = selectedMembers.some(m => m.id === u.id);
+                  const selectedMember = selectedMembers.find(m => m.id === u.id);
+                  const isSelected = !!selectedMember;
+                  const isOwner = selectedMember?.projectRole === 'OWNER';
                   return (
                     <label
                       key={u.id}
@@ -529,7 +741,8 @@ export default function DuAnPage() {
                       <input
                         type="checkbox"
                         checked={isSelected}
-                        onChange={() => toggleMember(u)}
+                        disabled={isOwner}
+                        onChange={() => toggleMember(selectedMember || u)}
                         className="w-4 h-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 cursor-pointer shrink-0"
                       />
                     </label>

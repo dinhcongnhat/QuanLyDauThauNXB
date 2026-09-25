@@ -1,12 +1,23 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { api } from '@/lib/api';
-import { useAuthStore } from '@/lib/store';
-import toast from 'react-hot-toast';
+import Link from 'next/link';
+import {
+  ArrowRight,
+  Ban,
+  BookOpen,
+  CheckCircle2,
+  Clock3,
+  FolderKanban,
+  Gavel,
+  History,
+  Monitor,
+} from 'lucide-react';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
-import Link from 'next/link';
+import toast from 'react-hot-toast';
+import { api } from '@/lib/api';
+import { useAuthStore } from '@/lib/store';
 
 const roleLabels: Record<string, string> = {
   ADMIN: 'Quản trị viên',
@@ -14,18 +25,11 @@ const roleLabels: Record<string, string> = {
 };
 
 const typeLabels: Record<string, string> = {
-  TT_DUTOAN: 'TT Dự toán',
-  QD_DUTOAN: 'QĐ Dự toán',
-  TT_KHLCNT: 'TT KHLCNT',
-  BC_KHLCNT: 'BC KHLCNT',
-  QD_KHLCNT: 'QĐ KHLCNT',
-};
-
-const statusLabels: Record<string, string> = {
-  DRAFT: 'Bản nháp',
-  PENDING_APPROVAL: 'Chờ duyệt',
-  APPROVED: 'Đã duyệt',
-  REJECTED: 'Từ chối',
+  TT_DUTOAN: 'Tờ trình dự toán',
+  QD_DUTOAN: 'Quyết định dự toán',
+  TT_KHLCNT: 'Tờ trình KHLCNT',
+  BC_KHLCNT: 'Báo cáo KHLCNT',
+  QD_KHLCNT: 'Quyết định KHLCNT',
 };
 
 const actionLabels: Record<string, string> = {
@@ -35,6 +39,20 @@ const actionLabels: Record<string, string> = {
   RESUBMIT: 'Gửi lại',
   DELEGATE: 'Ủy quyền',
 };
+
+function projectStatus(status: string) {
+  if (status === 'IN_PROGRESS') return { label: 'Đang thực hiện', className: 'status-processing' };
+  if (status === 'COMPLETED') return { label: 'Hoàn thành', className: 'status-approved' };
+  if (status === 'CANCELLED') return { label: 'Đã hủy', className: 'status-neutral' };
+  return { label: status || 'Chưa xác định', className: 'status-neutral' };
+}
+
+function reviewStatus(action: string) {
+  if (action.includes('APPROVE')) return 'status-approved';
+  if (action === 'REJECT') return 'status-rejected';
+  if (action === 'SUBMIT' || action === 'RESUBMIT') return 'status-pending';
+  return 'status-neutral';
+}
 
 export default function DashboardPage() {
   const { user } = useAuthStore();
@@ -52,154 +70,181 @@ export default function DashboardPage() {
         setProjectStats(statsData);
         const projectsList = projectsData.projects || projectsData || [];
         setRecentProjects(Array.isArray(projectsList) ? projectsList.slice(0, 5) : []);
-      } catch (err: any) { toast.error(err.message); }
-      finally { setLoading(false); }
+      } catch (err: any) {
+        toast.error(err.message);
+      } finally {
+        setLoading(false);
+      }
     })();
   }, []);
 
-  if (loading) return <div className="flex items-center justify-center h-64"><div className="animate-spin h-8 w-8 border-4 border-primary-500 border-t-transparent rounded-full" /></div>;
+  if (loading) {
+    return (
+      <div className="flex h-64 items-center justify-center" role="status" aria-label="Đang tải dữ liệu tổng quan">
+        <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-primary-100 border-t-primary-700" />
+      </div>
+    );
+  }
 
-  const { total, inProgress, completed, cancelled } = projectStats || { total: 0, inProgress: 0, completed: 0, cancelled: 0 };
+  const { total, inProgress, completed, cancelled } = projectStats || {
+    total: 0,
+    inProgress: 0,
+    completed: 0,
+    cancelled: 0,
+  };
+
+  const statistics = [
+    { label: 'Tổng dự án', value: total, icon: FolderKanban },
+    { label: 'Đang thực hiện', value: inProgress, icon: Clock3 },
+    { label: 'Hoàn thành', value: completed, icon: CheckCircle2 },
+    { label: 'Đã hủy', value: cancelled, icon: Ban },
+  ];
+
+  const quickActions = [
+    { href: '/dashboard/du-an', label: 'Quản lý dự án', description: 'Danh sách và tiến độ dự án', icon: FolderKanban },
+    { href: '/dashboard/mua-sam/thiet-bi/du-toan', label: 'Thầu thiết bị', description: 'Hồ sơ dự toán thiết bị', icon: Monitor },
+    { href: '/dashboard/mua-sam/sach/dat-sach', label: 'Thầu sách', description: 'Đặt sách và lập dự toán', icon: BookOpen },
+    { href: '/dashboard/lua-chon-nha-thau', label: 'Lựa chọn nhà thầu', description: 'Theo dõi quy trình LCNT', icon: Gavel },
+  ];
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Tổng quan</h1>
-        <p className="text-gray-500 mt-1">Xin chào, {user?.name} ({roleLabels[user?.role || '']})</p>
-      </div>
+      <section className="flex flex-col justify-between gap-3 border-b border-[#E4E7EC] pb-5 sm:flex-row sm:items-end">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.13em] text-primary-700">Tổng quan nghiệp vụ</p>
+          <h1 className="mt-1.5 text-[26px] font-semibold leading-tight text-[#1F2328] sm:text-[30px]">Bảng điều hành</h1>
+          <p className="mt-2 text-sm text-[#667085]">
+            Xin chào, <span className="font-medium text-[#344054]">{user?.name}</span>
+            {user?.role ? ` · ${roleLabels[user.role] || user.role}` : ''}
+          </p>
+        </div>
+        <p className="text-xs text-[#667085]">Dữ liệu được tổng hợp theo quyền truy cập của tài khoản</p>
+      </section>
 
-      {/* Project Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl p-5 shadow-sm border">
-          <p className="text-sm text-gray-500">Tổng dự án</p>
-          <p className="text-3xl font-bold text-gray-700 mt-1">{total}</p>
-        </div>
-        <div className="bg-white rounded-xl p-5 shadow-sm border">
-          <p className="text-sm text-gray-500">Đang thực hiện</p>
-          <p className="text-3xl font-bold text-blue-600 mt-1">{inProgress}</p>
-        </div>
-        <div className="bg-white rounded-xl p-5 shadow-sm border">
-          <p className="text-sm text-gray-500">Hoàn thành</p>
-          <p className="text-3xl font-bold text-green-600 mt-1">{completed}</p>
-        </div>
-        <div className="bg-white rounded-xl p-5 shadow-sm border">
-          <p className="text-sm text-gray-500">Đã hủy</p>
-          <p className="text-3xl font-bold text-red-600 mt-1">{cancelled}</p>
-        </div>
-      </div>
-
-      {/* Quick access to projects */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Recent Projects */}
-        <div className="lg:col-span-2 bg-white rounded-xl p-5 shadow-sm border">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-gray-700">Dự án gần đây</h3>
-            <Link href="/dashboard/du-an" className="text-sm text-primary-600 hover:text-primary-700 font-medium">
-              Xem tất cả →
-            </Link>
-          </div>
-          <div className="space-y-3">
-            {recentProjects.map((p: any) => (
-              <div key={p.id} className="flex items-center justify-between py-3 border-b border-gray-50 last:border-0">
-                <div className="flex items-center gap-3">
-                  <div className={`w-2 h-2 rounded-full shrink-0 ${
-                    p.procurementType === 'THAU_SACH' ? 'bg-green-500' : 'bg-blue-500'
-                  }`} />
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">{p.tenDuAn}</p>
-                    <p className="text-xs text-gray-400">
-                      {p.procurementType === 'THAU_SACH' ? 'Thầu Sách' : 'Thầu Thiết Bị'}
-                      {' · '}{p.creator?.name}
-                    </p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <span className={`text-xs px-2 py-1 rounded ${
-                    p.status === 'IN_PROGRESS' ? 'bg-blue-50 text-blue-700' :
-                    p.status === 'COMPLETED' ? 'bg-green-50 text-green-700' :
-                    'bg-red-50 text-red-700'
-                  }`}>
-                    {p.status === 'IN_PROGRESS' ? 'Đang thực hiện' :
-                     p.status === 'COMPLETED' ? 'Hoàn thành' : 'Đã hủy'}
-                  </span>
-                  <p className="text-xs text-gray-400 mt-1">
-                    {format(new Date(p.createdAt), 'dd/MM/yyyy', { locale: vi })}
-                  </p>
-                </div>
+      <section aria-label="Thống kê dự án" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {statistics.map(({ label, value, icon: Icon }) => (
+          <article key={label} className="rounded-lg border border-[#E4E7EC] bg-white p-5 shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium text-[#667085]">{label}</p>
+                <p className="mt-2 text-3xl font-semibold tabular-nums tracking-tight text-primary-800">{value}</p>
               </div>
-            ))}
-            {recentProjects.length === 0 && (
-              <div className="text-center py-8">
-                <p className="text-sm text-gray-400">Chưa có dự án nào</p>
-                <Link href="/dashboard/du-an" className="text-sm text-primary-600 hover:text-primary-700 font-medium mt-2 inline-block">
-                  Tạo dự án đầu tiên
-                </Link>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Quick navigation */}
-        <div className="bg-white rounded-xl p-5 shadow-sm border">
-          <h3 className="text-sm font-semibold text-gray-700 mb-4">Thao tác nhanh</h3>
-          <div className="space-y-2">
-            <Link href="/dashboard/du-an" className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
-                <path d="M5.433 13.917l1.262-3.155A4 4 0 017.58 9.42l6.92-6.918a2.121 2.121 0 013.414 3.414l-6.92 6.918a4 4 0 01-1.242.84l-3.155 1.262a.5.5 0 01-.65-.65zM3.5 15.5h13a.5.5 0 000-.5h-13a.5.5 0 000 .5z" />
-              </svg>
-              <span className="text-sm font-medium">Quản lý Dự án</span>
-            </Link>
-            <Link href="/dashboard/mua-sam/thiet-bi/du-toan" className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
-                <path fillRule="evenodd" d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z" clipRule="evenodd" />
-              </svg>
-              <span className="text-sm font-medium">Thầu Thiết Bị</span>
-            </Link>
-            <Link href="/dashboard/mua-sam/sach/dat-sach" className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-green-50 text-green-700 hover:bg-green-100 transition-colors">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
-                <path d="M10.394 2.08a1 1 0 00-.788 0l-7 3a1 1 0 000 1.84L5.25 8.051a.999.999 0 01.356-.257l4-1.714a1 1 0 11.788 1.838L7.667 9.088l1.94.831a1 1 0 00.787 0l7-3a1 1 0 000-1.838l-7-3z" />
-              </svg>
-              <span className="text-sm font-medium">Thầu Sách</span>
-            </Link>
-            <Link href="/dashboard/lua-chon-nha-thau" className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-gray-50 text-gray-700 hover:bg-gray-100 transition-colors">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
-                <path fillRule="evenodd" d="M4 16.5v-13h-.25a.75.75 0 010-1.5h12.5a.75.75 0 010 1.5H16v13h.25a.75.75 0 010 1.5H3.75a.75.75 0 010-1.5H4z" clipRule="evenodd" />
-              </svg>
-              <span className="text-sm font-medium">Lựa chọn Nhà thầu</span>
-            </Link>
-          </div>
-        </div>
-      </div>
-
-      {/* Recent Activity */}
-      <div className="bg-white rounded-xl p-5 shadow-sm border">
-        <h3 className="text-sm font-semibold text-gray-700 mb-3">Hoạt động gần đây</h3>
-        <div className="space-y-3">
-          {(projectStats?.recentReviews || []).slice(0, 10).map((r: any) => (
-            <div key={r.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
-              <div className="flex items-center gap-3">
-                <span className={`text-xs px-2 py-0.5 rounded ${
-                  r.action.includes('APPROVE') ? 'bg-green-50 text-green-700' :
-                  r.action === 'REJECT' ? 'bg-red-50 text-red-700' :
-                  'bg-gray-50 text-gray-700'
-                }`}>
-                  {actionLabels[r.action] || r.action}
-                </span>
-                <span className="text-sm font-medium">{r.user?.name}</span>
-                <span className="text-sm text-gray-500">
-                  {typeLabels[r.document?.type] || r.document?.type}
-                </span>
-              </div>
-              <span className="text-xs text-gray-400">
-                {format(new Date(r.createdAt), 'dd/MM HH:mm', { locale: vi })}
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary-100 text-primary-800">
+                <Icon className="h-5 w-5" strokeWidth={1.8} />
               </span>
             </div>
-          ))}
-          {(!projectStats?.recentReviews || projectStats.recentReviews.length === 0) && (
-            <p className="text-sm text-gray-400">Chưa có hoạt động</p>
+          </article>
+        ))}
+      </section>
+
+      <section className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(300px,1fr)]">
+        <div className="overflow-hidden rounded-lg border border-[#E4E7EC] bg-white shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
+          <div className="flex items-center justify-between gap-4 border-b border-[#E4E7EC] px-5 py-4">
+            <div>
+              <h2 className="text-base font-semibold text-[#1F2328]">Dự án gần đây</h2>
+              <p className="mt-0.5 text-xs text-[#667085]">Các dự án được cập nhật gần nhất</p>
+            </div>
+            <Link href="/dashboard/du-an" className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary-800 hover:text-primary-900">
+              Xem tất cả
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
+
+          {recentProjects.length > 0 ? (
+            <div className="divide-y divide-[#E4E7EC]">
+              {recentProjects.map((project: any) => {
+                const status = projectStatus(project.status);
+                const ProjectIcon = project.procurementType === 'THAU_SACH' ? BookOpen : Monitor;
+                return (
+                  <div key={project.id} className="flex flex-col gap-3 px-5 py-4 transition-colors hover:bg-primary-50 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[#E4E7EC] bg-[#FAFAFA] text-[#475467]">
+                        <ProjectIcon className="h-[18px] w-[18px]" />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="line-clamp-2 text-sm font-semibold text-[#1F2328]">{project.tenDuAn}</p>
+                        <p className="mt-1 text-xs text-[#667085]">
+                          {project.procurementType === 'THAU_SACH' ? 'Thầu sách' : 'Thầu thiết bị'}
+                          {project.creator?.name ? ` · ${project.creator.name}` : ''}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center justify-between gap-4 pl-12 sm:block sm:pl-0 sm:text-right">
+                      <span className={status.className}>{status.label}</span>
+                      <p className="mt-0 text-xs tabular-nums text-[#667085] sm:mt-1.5">
+                        {format(new Date(project.createdAt), 'dd/MM/yyyy', { locale: vi })}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="px-5 py-12 text-center">
+              <FolderKanban className="mx-auto h-9 w-9 text-[#98A2B3]" strokeWidth={1.5} />
+              <p className="mt-3 text-sm font-medium text-[#475467]">Chưa có dự án nào</p>
+              <Link href="/dashboard/du-an" className="mt-2 inline-flex text-sm font-semibold text-primary-800 hover:text-primary-900">
+                Mở trang quản lý dự án
+              </Link>
+            </div>
           )}
         </div>
-      </div>
+
+        <aside className="rounded-lg border border-[#E4E7EC] bg-white p-5 shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
+          <h2 className="text-base font-semibold text-[#1F2328]">Truy cập nhanh</h2>
+          <p className="mt-0.5 text-xs text-[#667085]">Các phân hệ sử dụng thường xuyên</p>
+          <div className="mt-4 space-y-2">
+            {quickActions.map(({ href, label, description, icon: Icon }) => (
+              <Link
+                key={href}
+                href={href}
+                className="group flex items-center gap-3 rounded-md border border-[#E4E7EC] bg-[#FAFAFA] px-3 py-3 text-[#344054] hover:border-[#D8AEB1] hover:bg-primary-50 hover:text-primary-800"
+              >
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-white text-[#667085] ring-1 ring-inset ring-[#E4E7EC] group-hover:text-primary-800">
+                  <Icon className="h-[18px] w-[18px]" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold">{label}</span>
+                  <span className="mt-0.5 block truncate text-xs font-normal text-[#667085]">{description}</span>
+                </span>
+                <ArrowRight className="h-4 w-4 shrink-0 text-[#98A2B3] group-hover:text-primary-700" />
+              </Link>
+            ))}
+          </div>
+        </aside>
+      </section>
+
+      <section className="overflow-hidden rounded-lg border border-[#E4E7EC] bg-white shadow-[0_1px_2px_rgba(16,24,40,0.03)]">
+        <div className="flex items-center gap-3 border-b border-[#E4E7EC] px-5 py-4">
+          <History className="h-5 w-5 text-primary-700" />
+          <div>
+            <h2 className="text-base font-semibold text-[#1F2328]">Hoạt động gần đây</h2>
+            <p className="mt-0.5 text-xs text-[#667085]">Lịch sử xử lý và phê duyệt mới nhất</p>
+          </div>
+        </div>
+
+        {(projectStats?.recentReviews || []).length > 0 ? (
+          <div className="divide-y divide-[#E4E7EC]">
+            {(projectStats.recentReviews || []).slice(0, 10).map((review: any) => (
+              <div key={review.id} className="flex flex-col gap-2 px-5 py-3.5 hover:bg-primary-50 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className={reviewStatus(review.action)}>{actionLabels[review.action] || review.action}</span>
+                  <p className="min-w-0 truncate text-sm text-[#475467]">
+                    <span className="font-semibold text-[#1F2328]">{review.user?.name}</span>
+                    <span className="mx-1.5 text-[#98A2B3]">·</span>
+                    {typeLabels[review.document?.type] || review.document?.type}
+                  </p>
+                </div>
+                <time className="shrink-0 pl-0 text-xs tabular-nums text-[#667085] sm:pl-4">
+                  {format(new Date(review.createdAt), 'dd/MM/yyyy HH:mm', { locale: vi })}
+                </time>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="px-5 py-10 text-center text-sm text-[#667085]">Chưa có hoạt động được ghi nhận.</div>
+        )}
+      </section>
     </div>
   );
 }

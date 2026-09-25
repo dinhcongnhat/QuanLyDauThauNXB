@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationType } from '@prisma/client';
 import { Server } from 'socket.io';
@@ -79,6 +79,21 @@ export class NotificationService {
     );
 
     await Promise.all(
+      userIds.map(async (userId) => {
+        const unreadCount = await this.prisma.notification.count({
+          where: { userId, isRead: false },
+        });
+        if (this.server) {
+          this.server.to(`user:${userId}`).emit(
+            'notification',
+            notifications.find((item) => item.userId === userId),
+          );
+          this.server.to(`user:${userId}`).emit('unread-count', unreadCount);
+        }
+      }),
+    );
+
+    await Promise.all(
       userIds.map((userId) =>
         this.sendPush(userId, {
           title: data.title,
@@ -112,15 +127,23 @@ export class NotificationService {
   }
 
   async markRead(id: string, userId: string) {
-    const notification = await this.prisma.notification.update({
-      where: { id },
-      data: { isRead: true },
+    const existing = await this.prisma.notification.findFirst({
+      where: { id, userId },
     });
+    if (!existing) {
+      throw new NotFoundException('Không tìm thấy thông báo');
+    }
+    const notification = existing.isRead
+      ? existing
+      : await this.prisma.notification.update({
+          where: { id },
+          data: { isRead: true },
+        });
 
+    const unreadCount = await this.prisma.notification.count({
+      where: { userId, isRead: false },
+    });
     if (this.server) {
-      const unreadCount = await this.prisma.notification.count({
-        where: { userId, isRead: false },
-      });
       this.server.to(`user:${userId}`).emit('unread-count', unreadCount);
     }
 
@@ -144,6 +167,16 @@ export class NotificationService {
     return this.prisma.notification.count({
       where: { userId, isRead: false },
     });
+  }
+
+  async emitApprovalCount(userId: string) {
+    const count = await this.prisma.approvalRequest.count({
+      where: { approverId: userId, status: 'PENDING' },
+    });
+    if (this.server) {
+      this.server.to(`user:${userId}`).emit('approval:count', count);
+    }
+    return count;
   }
 
   private   async sendPush(

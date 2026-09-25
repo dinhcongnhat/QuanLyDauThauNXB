@@ -11,6 +11,7 @@ import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSearchParams } from 'next/navigation';
+import { WorkflowArrowStepper } from '@/components/WorkflowDocumentUI';
 
 const METHOD_LABELS: Record<string, string> = {
   CHI_DINH_THAU: 'Chỉ định thầu',
@@ -706,41 +707,42 @@ function LuaChonNhaThauPageInner() {
 
   return (
     <div className="space-y-6">
-      <input ref={fileInputRef} type="file" className="hidden" onChange={onFileSelected}
-        accept=".doc,.docx,.pdf,.xlsx,.xls,.jpg,.jpeg,.png,.zip,.rar" />
-
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Lựa chọn nhà thầu</h1>
         <p className="mt-1 text-sm text-gray-500">Quản lý quy trình lựa chọn nhà thầu theo từng gói thầu đã phê duyệt</p>
+        <input ref={fileInputRef} type="file" className="hidden" onChange={onFileSelected}
+          accept=".doc,.docx,.pdf,.xlsx,.xls,.jpg,.jpeg,.png,.zip,.rar" />
       </div>
 
-      <div className="flex gap-2">
-        {editingStep && (
-          <button onClick={() => setEditingStepId(null)}
-            className="text-sm text-primary-600 hover:text-primary-700 flex items-center gap-1">
-            ← Quay lại quy trình
-          </button>
-        )}
-        {activeSelection && !editingStep && (
-          <button onClick={() => { setActiveSelection(null); setEditingStepId(null); setExpandedStepId(null); }}
-            className="text-sm text-primary-600 hover:text-primary-700 flex items-center gap-1">
-            ← Quay lại danh sách gói thầu
-          </button>
-        )}
-        {selectedQD && !activeSelection && (
-          <button onClick={() => { setSelectedQD(null); setSelections([]); }}
-            className="text-sm text-primary-600 hover:text-primary-700 flex items-center gap-1">
-            ← Quay lại danh sách QĐ
-          </button>
-        )}
-      </div>
+      {(editingStep || activeSelection || selectedQD) && (
+        <div className="flex gap-2">
+          {editingStep && (
+            <button onClick={() => setEditingStepId(null)}
+              className="text-sm text-primary-600 hover:text-primary-700 flex items-center gap-1">
+              ← Quay lại quy trình
+            </button>
+          )}
+          {activeSelection && !editingStep && (
+            <button onClick={() => { setActiveSelection(null); setEditingStepId(null); setExpandedStepId(null); }}
+              className="text-sm text-primary-600 hover:text-primary-700 flex items-center gap-1">
+              ← Quay lại danh sách gói thầu
+            </button>
+          )}
+          {selectedQD && !activeSelection && (
+            <button onClick={() => { setSelectedQD(null); setSelections([]); }}
+              className="text-sm text-primary-600 hover:text-primary-700 flex items-center gap-1">
+              ← Quay lại danh sách QĐ
+            </button>
+          )}
+        </div>
+      )}
 
       {/* ===================== Project Selector ===================== */}
       {!editingStep && (
         <div className="bg-indigo-50 rounded-xl p-4 border border-indigo-100">
           <label className="block text-sm font-medium text-indigo-900 mb-2">Chọn dự án</label>
           <select
-            className="w-full max-w-xs bg-white border border-indigo-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-400 outline-none"
+            className="w-full max-w-xl bg-white border border-indigo-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-400 outline-none"
             value={selectedProject}
             onChange={e => setSelectedProject(e.target.value)}
           >
@@ -796,6 +798,21 @@ function LuaChonNhaThauPageInner() {
               <div className="bg-green-500 h-2 rounded-full transition-all"
                 style={{ width: (activeSelection.steps.filter(s => s.status === 'COMPLETED').length / activeSelection.steps.length * 100) + '%' }} />
             </div>
+
+            <WorkflowArrowStepper
+              title="Luồng xử lý LCNT"
+              stages={activeSelection.steps.map((step, idx) => {
+                const prevCompleted = idx === 0 || activeSelection.steps[idx - 1]?.status === 'COMPLETED';
+                return {
+                  label: step.title,
+                  number: step.stepOrder,
+                  status: step.status === 'COMPLETED' ? 'completed' : step.status === 'IN_PROGRESS' ? 'active' : 'pending',
+                  disabled: step.status === 'NOT_STARTED' && !prevCompleted,
+                  meta: STEP_STATUS_LABELS[step.status],
+                  onClick: () => toggleStep(step.id),
+                };
+              })}
+            />
 
             <div className="space-y-3">
               {activeSelection.steps.map((step, idx) => {

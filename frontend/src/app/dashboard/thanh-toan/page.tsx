@@ -10,6 +10,7 @@ import { vi } from 'date-fns/locale';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useSearchParams } from 'next/navigation';
 import { getCompletedPaymentContracts } from '@/lib/workflow-template-api';
+import { WorkflowArrowStepper } from '@/components/WorkflowDocumentUI';
 
 const PACKAGE_TYPE_LABELS: Record<string, string> = {
   GOI_THAU_TU_VAN: 'Gói thầu tư vấn',
@@ -167,7 +168,7 @@ function ThanhToanPageInner() {
       <div className="bg-indigo-50 rounded-xl p-4 border border-indigo-100">
         <label className="block text-sm font-medium text-indigo-900 mb-2">Chọn dự án</label>
         <select
-          className="w-full max-w-xs bg-white border border-indigo-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-400 outline-none"
+          className="w-full max-w-xl bg-white border border-indigo-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-400 outline-none"
           value={selectedProject}
           onChange={e => setSelectedProject(e.target.value)}
         >
@@ -244,16 +245,16 @@ function ThanhToanPageInner() {
                     <div className="bg-green-500 h-2 rounded-full transition-all" style={{ width: progress + '%' }} />
                   </div>
 
-                  {/* Steps preview */}
-                  <div className="mt-3 flex gap-1.5 flex-wrap">
-                    {payment.steps.map((step: any) => (
-                      <span key={step.id}
-                        className={'inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ' + STEP_STATUS_COLORS[step.status]}
-                        title={step.title}
-                      >
-                        {step.status === 'COMPLETED' ? '✓' : step.stepOrder}
-                      </span>
-                    ))}
+                  <div className="mt-3">
+                    <WorkflowArrowStepper
+                      title=""
+                      stages={payment.steps.map((step: any) => ({
+                        label: step.title,
+                        number: step.stepOrder,
+                        status: step.status === 'COMPLETED' ? 'completed' : step.status === 'IN_PROGRESS' ? 'active' : 'pending',
+                        meta: step.status === 'COMPLETED' ? 'Hoàn thành' : step.status === 'IN_PROGRESS' ? 'Đang thực hiện' : 'Chưa bắt đầu',
+                      }))}
+                    />
                   </div>
                 </motion.div>
               </Link>

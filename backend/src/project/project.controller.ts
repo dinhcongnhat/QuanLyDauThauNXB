@@ -3,6 +3,8 @@ import {
 } from '@nestjs/common';
 import { IsString, IsEnum, IsOptional, IsInt, Min, IsArray } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { PermissionsGuard } from '../auth/permissions.guard';
+import { RequirePermissions } from '../auth/permissions.decorator';
 import { ProjectService } from './project.service';
 import { ProjectStatus, ProcurementType } from '@prisma/client';
 
@@ -19,6 +21,7 @@ class AddMemberDto {
 class UpdateProjectDto {
   @IsOptional() @IsEnum(ProjectStatus) status?: ProjectStatus;
   @IsOptional() @IsString() tenDuAn?: string;
+  @IsOptional() @IsArray() @IsString({ each: true }) memberIds?: string[];
 }
 
 class PaginationDto {
@@ -27,13 +30,18 @@ class PaginationDto {
 }
 
 @Controller('projects')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@RequirePermissions(
+  'feature:projects',
+  'feature:book-procurement',
+  'feature:equipment-procurement',
+)
 export class ProjectController {
   constructor(private readonly svc: ProjectService) {}
 
   @Get('stats')
-  async getStats() {
-    return this.svc.getStats();
+  async getStats(@Request() req: any) {
+    return this.svc.getStats(req.user.sub, req.user.role);
   }
 
   @Get()
@@ -46,18 +54,18 @@ export class ProjectController {
   }
 
   @Get(':id')
-  async findOne(@Param('id') id: string) {
-    return this.svc.findOne(id);
+  async findOne(@Param('id') id: string, @Request() req: any) {
+    return this.svc.findOne(id, req.user.sub, req.user.role);
   }
 
   @Get(':id/summary')
-  async getSummary(@Param('id') id: string) {
-    return this.svc.getProjectSummary(id);
+  async getSummary(@Param('id') id: string, @Request() req: any) {
+    return this.svc.getProjectSummary(id, req.user.sub, req.user.role);
   }
 
   @Get(':id/logs')
-  async getLogs(@Param('id') id: string, @Query('stepKey') stepKey?: string) {
-    return this.svc.getLogs(id, stepKey);
+  async getLogs(@Param('id') id: string, @Request() req: any, @Query('stepKey') stepKey?: string) {
+    return this.svc.getLogs(id, req.user.sub, req.user.role, stepKey);
   }
 
   @Post()
@@ -67,8 +75,8 @@ export class ProjectController {
 
   // ── Project Members ──
   @Get(':id/members')
-  async getMembers(@Param('id') id: string) {
-    return this.svc.getMembers(id);
+  async getMembers(@Param('id') id: string, @Request() req: any) {
+    return this.svc.getMembers(id, req.user.sub, req.user.role);
   }
 
   @Post(':id/members')
@@ -82,12 +90,12 @@ export class ProjectController {
   }
 
   @Put(':id')
-  async update(@Param('id') id: string, @Body() dto: UpdateProjectDto) {
-    return this.svc.update(id, dto);
+  async update(@Param('id') id: string, @Body() dto: UpdateProjectDto, @Request() req: any) {
+    return this.svc.update(id, dto, req.user.sub, req.user.role);
   }
 
   @Delete(':id')
-  async delete(@Param('id') id: string) {
-    return this.svc.delete(id);
+  async delete(@Param('id') id: string, @Request() req: any) {
+    return this.svc.delete(id, req.user.sub, req.user.role);
   }
 }

@@ -42,6 +42,12 @@ const permissionData = [
   { key: 'lcnt:read', displayName: 'Xem LCNT', description: 'Xem quy trình lựa chọn nhà thầu', category: 'lcnt' },
   { key: 'lcnt:approve', displayName: 'Duyệt LCNT', description: 'Duyệt các bước LCNT', category: 'lcnt' },
   { key: 'lcnt:reject', displayName: 'Từ chối LCNT', description: 'Từ chối các bước LCNT', category: 'lcnt' },
+  // Feature visibility and dossier approval
+  { key: 'feature:projects', displayName: 'Hiển thị Quản lý dự án', description: 'Mở module Quản lý dự án', category: 'features' },
+  { key: 'feature:book-procurement', displayName: 'Hiển thị Thầu sách', description: 'Mở các nghiệp vụ Thầu sách', category: 'features' },
+  { key: 'feature:equipment-procurement', displayName: 'Hiển thị Thầu thiết bị', description: 'Mở các nghiệp vụ Thầu thiết bị', category: 'features' },
+  { key: 'approval:review', displayName: 'Phê duyệt trung gian', description: 'Nhận, sửa, trả lại và chuyển tiếp bộ hồ sơ', category: 'approval' },
+  { key: 'approval:final', displayName: 'Phê duyệt cuối', description: 'Phê duyệt cuối cùng bộ hồ sơ', category: 'approval' },
 ];
 
 const roleData = [
@@ -66,6 +72,8 @@ const rolePermissions: Record<string, string[]> = {
     'datsach:create', 'datsach:read', 'datsach:approve',
     'payment:create', 'payment:read', 'payment:approve',
     'lcnt:create', 'lcnt:read', 'lcnt:approve', 'lcnt:reject',
+    'feature:projects', 'feature:book-procurement', 'feature:equipment-procurement',
+    'approval:review', 'approval:final',
   ],
   ke_toan: [
     'doc:read', 'budget:read', 'budget:create', 'payment:read', 'payment:create', 'payment:approve',
@@ -89,6 +97,7 @@ const rolePermissions: Record<string, string[]> = {
     'datsach:read', 'datsach:create',
     'payment:read', 'payment:create',
     'lcnt:read', 'lcnt:create',
+    'feature:projects',
   ],
   thau_thiet_bi: [
     'doc:read', 'doc:create', 'doc:edit',
@@ -97,6 +106,7 @@ const rolePermissions: Record<string, string[]> = {
     'datsach:read',
     'payment:read', 'payment:create',
     'lcnt:read', 'lcnt:create',
+    'feature:equipment-procurement',
   ],
   thau_sach: [
     'doc:read', 'doc:create', 'doc:edit',
@@ -105,6 +115,7 @@ const rolePermissions: Record<string, string[]> = {
     'datsach:read', 'datsach:create',
     'payment:read', 'payment:create',
     'lcnt:read', 'lcnt:create',
+    'feature:book-procurement',
   ],
 };
 
@@ -162,6 +173,21 @@ export async function seedRbac(prisma: PrismaClient, adminId?: string) {
         where: { userId_roleId: { userId: adminId, roleId } },
         update: {},
         create: { userId: adminId, roleId },
+      });
+    }
+    for (const permissionKey of [
+      'feature:projects',
+      'feature:book-procurement',
+      'feature:equipment-procurement',
+      'approval:review',
+      'approval:final',
+    ]) {
+      const permId = createdPermissions[permissionKey];
+      if (!permId) continue;
+      await prisma.userPermission.upsert({
+        where: { userId_permId: { userId: adminId, permId } },
+        update: {},
+        create: { userId: adminId, permId },
       });
     }
     console.log('[RBAC] Admin assigned to admin + ke_toan + nhan_vien');

@@ -16,7 +16,7 @@ import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import { OnlyOfficePreview } from '@/components/OnlyOfficePreview';
 import { HistoryModal } from '@/components/HistoryModal';
-import { ProjectChat } from '@/components/ProjectChat';
+import { ApproverSelect } from '@/components/ApproverSelect';
 import {
   LegalBasisField,
   LegalBasisSelection,
@@ -36,10 +36,11 @@ import {
 
 const statusLabels: Record<DocStatus, string> = {
   DRAFT: 'Bản nháp', PENDING_APPROVAL: 'Chờ phê duyệt',
-  APPROVED: 'Đã phê duyệt', REJECTED: 'Cần làm lại',
+  COMPLETED: 'Hoàn thành', APPROVED: 'Đã phê duyệt', REJECTED: 'Cần làm lại',
 };
 const statusColors: Record<DocStatus, string> = {
   DRAFT: 'bg-gray-100 text-gray-700', PENDING_APPROVAL: 'bg-yellow-100 text-yellow-700',
+  COMPLETED: 'bg-blue-100 text-blue-700',
   APPROVED: 'bg-green-100 text-green-700',
   REJECTED: 'bg-red-100 text-red-700',
 };
@@ -68,6 +69,7 @@ function LegacyKHLCNTDetailPageInner() {
   const [selectedTTRef, setSelectedTTRef] = useState('');
   const [editingDoc, setEditingDoc] = useState<Doc | null>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const [selectedApproverId, setSelectedApproverId] = useState('');
 
   // TT KHLCNT form
   const [ttData, setTtData] = useState({
@@ -146,14 +148,18 @@ function LegacyKHLCNTDetailPageInner() {
     api.getUsers().then((res: any) => setUsers(Array.isArray(res) ? res : (res?.users || []))).catch(() => {});
   }, [parentId]);
 
-  const ttApproved = children.some(d => d.type === 'TT_KHLCNT' && d.status === 'APPROVED');
+  const ttApproved = children.some(
+    d => d.type === 'TT_KHLCNT' && ['COMPLETED', 'APPROVED'].includes(d.status),
+  );
   const canCreateQD = ttApproved;
   const hasTT = children.some(d => d.type === 'TT_KHLCNT' && d.status !== 'REJECTED');
   const hasQD = children.some(d => d.type === 'QD_KHLCNT');
   const canApprove = user?.role === 'ADMIN' || user?.canApprove === true;
 
   // Approved children for linking
-  const approvedTTs = children.filter(d => d.type === 'TT_KHLCNT' && d.status === 'APPROVED');
+  const approvedTTs = children.filter(
+    d => d.type === 'TT_KHLCNT' && ['COMPLETED', 'APPROVED'].includes(d.status),
+  );
 
   // When user selects approved TT to link into QD form
   const handleSelectTTForQD = (ttId: string) => {
@@ -181,8 +187,23 @@ function LegacyKHLCNTDetailPageInner() {
 
   const handleCreate = async (type: FormType) => {
     const dataMap = { TT_KHLCNT: ttData, QD_KHLCNT: qdData };
+    if (type === 'QD_KHLCNT' && !selectedTTRef) {
+      toast.error('Vui lòng chọn Tờ trình KHLCNT đã hoàn thành');
+      return;
+    }
+    if (type === 'QD_KHLCNT' && !selectedApproverId) {
+      toast.error('Vui lòng chọn người phê duyệt');
+      return;
+    }
     try {
-      await api.createDocument(type, dataMap[type], parentId, undefined, projectId);
+      await api.createDocument(
+        type,
+        dataMap[type],
+        parentId,
+        type === 'QD_KHLCNT' ? selectedApproverId : undefined,
+        projectId,
+        type === 'QD_KHLCNT' ? selectedTTRef : undefined,
+      );
       toast.success(`Tạo ${typeLabels[type]} thành công`);
       setShowForm(null);
       fetchData();
@@ -471,6 +492,12 @@ function LegacyKHLCNTDetailPageInner() {
           ))}
           <button onClick={() => setQdData({...qdData, goiThau: [...qdData.goiThau, { tenGoiThau: '', tomTatCongViec: '', giaGoiThau: 0, nguonVon: '', hinhThucLuaChon: '', phuongThucLuaChon: '', loaiHopDong: '', thoiGianToChuc: '', thoiGianBatDau: '', thoiGianThucHien: '', tuyChonMuaThem: '', giamSatDauThau: '', tenChuDauTu: '' }]})} className="text-sm text-primary-600 mt-1">+ Thêm gói thầu</button>
 
+          <div className="mt-6">
+            <ApproverSelect
+              value={selectedApproverId}
+              onChange={setSelectedApproverId}
+            />
+          </div>
           <div className="flex gap-2 mt-6 justify-end">
             <button onClick={() => handleCreate('QD_KHLCNT')} className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700">Tạo & Gửi</button>
             <button onClick={() => setShowForm(null)} className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg">Hủy</button>
@@ -655,13 +682,6 @@ function LegacyKHLCNTDetailPageInner() {
         title="Lịch sử Kế hoạch lựa chọn nhà thầu"
       />
 
-      {(parent?.projectId || projectId) && (
-        <ProjectChat
-          projectId={parent?.projectId || projectId!}
-          module="KHLCNT"
-          projectName={parent?.data?.tenDuAn || (parent as any)?.tenDuAn}
-        />
-      )}
     </div>
   );
 }
@@ -673,6 +693,7 @@ const WORKFLOW_INPUT_CLASS =
 interface EquipmentKhlcntData {
   SoVanBan: string;
   NgayBanHanh: string;
+  NgayKy: string;
   TenDuAn: string;
   NguoiSoanVanBan: string;
   ThuTruongDonVi: string;
@@ -904,6 +925,15 @@ function normalizeEquipmentKhlcntData(
         'ngayBanHanh',
         'ngayLap',
       ).slice(0, 10) || WORKFLOW_TODAY,
+    NgayKy:
+      workflowFirstValue(
+        data,
+        'NgayKy',
+        'ngayKy',
+        'NgayBanHanh',
+        'ngayBanHanh',
+        'ngayLap',
+      ).slice(0, 10) || WORKFLOW_TODAY,
     TenDuAn: workflowFirstValue(data, 'TenDuAn', 'tenDuAn'),
     NguoiSoanVanBan: workflowFirstValue(
       data,
@@ -1024,6 +1054,7 @@ function EquipmentKHLCNTDetail({
   const [showHistory, setShowHistory] = useState(false);
   const [users, setUsers] = useState<User[]>([]);
   const [delegateUserId, setDelegateUserId] = useState('');
+  const [selectedApproverId, setSelectedApproverId] = useState('');
 
   const fetchChildren = useCallback(async () => {
     setLoading(true);
@@ -1054,10 +1085,10 @@ function EquipmentKHLCNTDetail({
       .catch(() => undefined);
   }, [fetchChildren]);
 
-  const approvedTTs = children.filter(
+  const completedTTs = children.filter(
     (document) =>
       document.type === 'TT_KHLCNT' &&
-      document.status === 'APPROVED',
+      ['COMPLETED', 'APPROVED'].includes(document.status),
   );
   const hasActiveTT = children.some(
     (document) =>
@@ -1074,10 +1105,12 @@ function EquipmentKHLCNTDetail({
       initialParent.data || {},
     );
     inherited.TenDuAn = projectName || inherited.TenDuAn;
+    inherited.NgayKy = WORKFLOW_TODAY;
     setShowForm(null);
     setDraftStep('COVER');
     setEditingDoc(null);
     setSelectedTTRef('');
+    setSelectedApproverId('');
     setTtData(inherited);
     setQdData(inherited);
   };
@@ -1090,7 +1123,7 @@ function EquipmentKHLCNTDetail({
 
   const selectTTForDecision = (id: string) => {
     setSelectedTTRef(id);
-    const proposal = approvedTTs.find((item) => item.id === id);
+    const proposal = completedTTs.find((item) => item.id === id);
     if (!proposal?.data) return;
 
     const inherited = normalizeEquipmentKhlcntData(proposal.data);
@@ -1107,7 +1140,9 @@ function EquipmentKHLCNTDetail({
     );
     setEditingDoc(document);
     setShowForm(document.type as FormType);
-    setDraftStep('DOCUMENT');
+    setDraftStep(
+      document.type === 'TT_KHLCNT' ? 'COVER' : 'DOCUMENT',
+    );
     setSelectedTTRef(document.sourceDocumentId || '');
     if (document.type === 'TT_KHLCNT') setTtData(normalized);
     if (document.type === 'QD_KHLCNT') setQdData(normalized);
@@ -1129,7 +1164,7 @@ function EquipmentKHLCNTDetail({
       return false;
     }
     if (type === 'QD_KHLCNT' && !selectedTTRef && !editingDoc) {
-      toast.error('Vui lòng chọn Tờ trình KHLCNT đã duyệt');
+      toast.error('Vui lòng chọn Tờ trình KHLCNT đã hoàn thành');
       return false;
     }
     if (type === 'QD_KHLCNT' && !data.SoVanBan.trim()) {
@@ -1152,6 +1187,10 @@ function EquipmentKHLCNTDetail({
       toast.error('Vui lòng nhập Thủ trưởng đơn vị');
       return;
     }
+    if (!ttData.NgayKy) {
+      toast.error('Vui lòng chọn Ngày ký Phiếu trình');
+      return;
+    }
     if (
       ttData.packages.length === 0 ||
       ttData.packages.some((item) => !item.tenGoiThau.trim())
@@ -1166,12 +1205,23 @@ function EquipmentKHLCNTDetail({
   const saveDocument = async (type: FormType) => {
     const data = type === 'TT_KHLCNT' ? ttData : qdData;
     if (!validate(type, data)) return;
+    if (type === 'QD_KHLCNT' && !selectedApproverId) {
+      toast.error('Vui lòng chọn người phê duyệt');
+      return;
+    }
 
     setSubmitting(true);
     try {
       const payload = cleanEquipmentKhlcntData(data);
       if (editingDoc) {
-        await api.resubmitDocument(editingDoc.id, payload);
+        const saved = await api.resubmitDocument(editingDoc.id, payload);
+        if (type === 'QD_KHLCNT') {
+          await api.submitApproval({
+            targetType: 'DOCUMENT',
+            targetId: saved.id,
+            approverId: selectedApproverId,
+          });
+        }
         toast.success(
           editingDoc.status === 'REJECTED'
             ? 'Đã lưu và gửi lại văn bản'
@@ -1182,7 +1232,7 @@ function EquipmentKHLCNTDetail({
           type,
           payload,
           initialParent.id,
-          undefined,
+          type === 'QD_KHLCNT' ? selectedApproverId : undefined,
           projectId || undefined,
           type === 'QD_KHLCNT' ? selectedTTRef : undefined,
         );
@@ -1358,7 +1408,7 @@ function EquipmentKHLCNTDetail({
             label: 'Tờ trình KHLCNT',
             description: 'Nhập nội dung, căn cứ và các gói thầu.',
             status:
-              approvedTTs.length > 0
+              completedTTs.length > 0
                 ? 'completed'
                 : (showForm === 'TT_KHLCNT' &&
                       draftStep === 'DOCUMENT') ||
@@ -1369,10 +1419,10 @@ function EquipmentKHLCNTDetail({
           {
             number: 3,
             label: 'Quyết định KHLCNT',
-            description: 'Kế thừa Tờ trình KHLCNT đã được duyệt.',
+            description: 'Kế thừa Tờ trình KHLCNT đã hoàn thành.',
             status: hasQD
               ? 'completed'
-              : showForm === 'QD_KHLCNT' || approvedTTs.length > 0
+              : showForm === 'QD_KHLCNT' || completedTTs.length > 0
                 ? 'active'
                 : 'pending',
           },
@@ -1389,7 +1439,7 @@ function EquipmentKHLCNTDetail({
             + Bắt đầu hồ sơ KHLCNT
           </button>
         )}
-        {approvedTTs.length > 0 && !hasQD && !showForm && (
+        {completedTTs.length > 0 && !hasQD && !showForm && (
           <button
             type="button"
             onClick={() => openCreate('QD_KHLCNT')}
@@ -1398,14 +1448,14 @@ function EquipmentKHLCNTDetail({
             + Quyết định KHLCNT
           </button>
         )}
-        {approvedTTs.length === 0 && !hasQD && (
+        {completedTTs.length === 0 && !hasQD && (
           <span className="rounded-lg bg-gray-100 px-4 py-2 text-sm text-gray-400">
-            Quyết định KHLCNT cần Tờ trình đã duyệt
+            Quyết định KHLCNT cần Tờ trình đã hoàn thành
           </span>
         )}
       </div>
 
-      {user?.role === 'ADMIN' && approvedTTs.length > 0 && !hasQD && (
+      {user?.role === 'ADMIN' && completedTTs.length > 0 && !hasQD && (
         <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-4">
           <label className="mb-2 block text-sm font-medium text-yellow-900">
             Ủy quyền tạo Quyết định KHLCNT
@@ -1454,18 +1504,13 @@ function EquipmentKHLCNTDetail({
                     typeLabels[showForm]
                   }`}
             </h2>
-            <p className="mt-1 text-xs text-slate-600">
-              {showForm === 'TT_KHLCNT' && draftStep === 'COVER'
-                ? 'Hoàn thành đúng các trường của mẫu số 1 trước khi sang Tờ trình.'
-                : 'Khung bên phải hiển thị PDF được chuyển trực tiếp từ DOCX mẫu.'}
-            </p>
           </div>
           <div className="grid items-start gap-5 p-3 sm:p-5 xl:grid-cols-[minmax(0,1.08fr)_minmax(420px,0.92fr)] 2xl:gap-6 2xl:p-6 2xl:grid-cols-[minmax(0,1fr)_minmax(520px,0.95fr)]">
             <div className="space-y-6">
               {showForm === 'QD_KHLCNT' && !editingDoc && (
                 <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
                   <label className="mb-2 block text-sm font-medium text-blue-900">
-                    Tờ trình KHLCNT đã duyệt
+                    Tờ trình KHLCNT đã hoàn thành
                   </label>
                   <select
                     value={selectedTTRef}
@@ -1475,7 +1520,7 @@ function EquipmentKHLCNTDetail({
                     className={WORKFLOW_INPUT_CLASS}
                   >
                     <option value="">— Chọn văn bản nguồn —</option>
-                    {approvedTTs.map((proposal) => (
+                    {completedTTs.map((proposal) => (
                       <option key={proposal.id} value={proposal.id}>
                         {workflowFirstValue(
                           proposal.data,
@@ -1507,6 +1552,14 @@ function EquipmentKHLCNTDetail({
                   }
                   packagesReadOnly={showForm === 'QD_KHLCNT'}
                   projectName={projectName}
+                />
+              )}
+
+              {showForm === 'QD_KHLCNT' && (
+                <ApproverSelect
+                  value={selectedApproverId}
+                  onChange={setSelectedApproverId}
+                  disabled={submitting}
                 />
               )}
 
@@ -1747,17 +1800,6 @@ function EquipmentKHLCNTDetail({
         title="Lịch sử Kế hoạch lựa chọn nhà thầu"
       />
 
-      {projectId && (
-        <ProjectChat
-          projectId={projectId}
-          module="KHLCNT"
-          projectName={workflowFirstValue(
-            initialParent.data,
-            'TenDuAn',
-            'tenDuAn',
-          )}
-        />
-      )}
     </div>
   );
 }
@@ -1774,7 +1816,6 @@ function KhlcntCoverForm({
   return (
     <WorkflowFormSection
       title="1. Mẫu phiếu trình ký phê duyệt KHGDCBDT"
-      description="Màn hình khớp đúng bốn placeholder của mẫu Word: TenDuAn, TenCacGoiThau, NguoiSoanVanBan và ThuTruongDonVi."
     >
       <div className="space-y-5">
         <WorkflowField label="Tên dự án (kế thừa từ Quản lý dự án)">
@@ -1786,6 +1827,22 @@ function KhlcntCoverForm({
         </WorkflowField>
 
         <div className="grid gap-4 md:grid-cols-2">
+          <div className="md:col-span-2">
+            <WorkflowField label="Ngày ký Phiếu trình">
+              <input
+                type="date"
+                value={value.NgayKy}
+                onChange={(event) =>
+                  onChange({
+                    ...value,
+                    TenDuAn: projectName || value.TenDuAn,
+                    NgayKy: event.target.value,
+                  })
+                }
+                className={WORKFLOW_INPUT_CLASS}
+              />
+            </WorkflowField>
+          </div>
           <WorkflowField label="Người soạn văn bản">
             <input
               value={value.NguoiSoanVanBan}
@@ -1833,11 +1890,6 @@ function KhlcntCoverForm({
               </div>
             ))}
           </div>
-        </div>
-
-        <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-xs leading-5 text-blue-800">
-          Các thông tin tại mẫu số 1 được giữ nguyên khi chuyển sang Tờ trình
-          KHLCNT; tên dự án và tên gói thầu không phải nhập lại.
         </div>
       </div>
     </WorkflowFormSection>
@@ -1890,7 +1942,6 @@ function EquipmentKhlcntForm({
     <>
       <WorkflowFormSection
         title="I. Mô tả tóm tắt dự án/Kế hoạch lựa chọn nhà thầu"
-        description="Các trường dùng chung cho Phiếu trình ký, Tờ trình và Quyết định KHLCNT."
       >
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <WorkflowField label="Số văn bản">
@@ -1922,24 +1973,6 @@ function EquipmentKhlcntForm({
               />
             </WorkflowField>
           </div>
-          <WorkflowField label="Người soạn văn bản">
-            <input
-              value={value.NguoiSoanVanBan}
-              onChange={(event) =>
-                setField('NguoiSoanVanBan', event.target.value)
-              }
-              className={WORKFLOW_INPUT_CLASS}
-            />
-          </WorkflowField>
-          <WorkflowField label="Thủ trưởng đơn vị">
-            <input
-              value={value.ThuTruongDonVi}
-              onChange={(event) =>
-                setField('ThuTruongDonVi', event.target.value)
-              }
-              className={WORKFLOW_INPUT_CLASS}
-            />
-          </WorkflowField>
           <WorkflowField label="Tổng mức đầu tư">
             <input
               inputMode="decimal"
@@ -1998,7 +2031,6 @@ function EquipmentKhlcntForm({
 
       <WorkflowFormSection
         title="II. Căn cứ pháp lý"
-        description="Mỗi căn cứ sẽ được xuất thành một paragraph riêng tại {{CanCu}}."
       >
         <LegalBasisField
           label="Danh sách căn cứ"
@@ -2009,18 +2041,12 @@ function EquipmentKhlcntForm({
 
       <WorkflowFormSection
         title="III. Nội dung kế hoạch lựa chọn nhà thầu"
-        description="Mỗi gói thầu tương ứng một dòng trong bảng phụ lục của mẫu Word."
       >
         <div className="mb-3 flex items-center justify-between gap-3">
           <div>
             <h3 className="text-sm font-semibold text-gray-700">
               Phụ lục các gói thầu
             </h3>
-            <p className="mt-0.5 text-xs text-gray-500">
-              {packagesReadOnly
-                ? 'Dữ liệu được khóa theo Tờ trình KHLCNT đã duyệt.'
-                : 'Điền đủ các cột của mẫu KHLCNT; tiền được giữ ở dạng chuỗi.'}
-            </p>
           </div>
           {!packagesReadOnly && (
             <button

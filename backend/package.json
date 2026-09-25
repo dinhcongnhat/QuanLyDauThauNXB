@@ -10,7 +10,10 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "ts-node prisma/seed.ts",
-    "test:device-workflow-docx": "ts-node scripts/test-device-workflow-docx.ts"
+    "data:clear": "ts-node scripts/clear-all-data.ts",
+    "test:device-workflow-docx": "ts-node scripts/test-device-workflow-docx.ts",
+    "test:approval-chat": "ts-node scripts/test-approval-chat-invariants.ts",
+    "test:dossier-invariants": "ts-node scripts/test-dossier-invariants.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.3.0",

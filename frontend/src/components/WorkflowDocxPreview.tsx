@@ -1,7 +1,7 @@
 'use client';
 
 import { AlertCircle, Eye, FileText, Loader2, RefreshCw } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 
 export interface WorkflowDocxPreviewDocument {
@@ -10,20 +10,26 @@ export interface WorkflowDocxPreviewDocument {
   type?: string;
   data?: Record<string, any>;
   loadPreview?: () => Promise<Blob>;
+  /** Dữ liệu dùng để tạo preview; đồng thời là khóa làm mới sau debounce. */
+  previewData?: Record<string, any>;
 }
 
 export function WorkflowDocxPreview({
   documents,
   debounceMs = 550,
+  activeDocumentId,
 }: {
   documents: WorkflowDocxPreviewDocument[];
   debounceMs?: number;
+  activeDocumentId?: string;
 }) {
   const [selectedId, setSelectedId] = useState(documents[0]?.id || '');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
   const [previewUrl, setPreviewUrl] = useState('');
+  const lastActiveDocumentId = useRef<string>();
+  const selectedRef = useRef<WorkflowDocxPreviewDocument>();
 
   useEffect(() => {
     if (!documents.some((document) => document.id === selectedId)) {
@@ -31,26 +37,44 @@ export function WorkflowDocxPreview({
     }
   }, [documents, selectedId]);
 
+  useEffect(() => {
+    if (activeDocumentId === lastActiveDocumentId.current) return;
+    lastActiveDocumentId.current = activeDocumentId;
+    if (
+      activeDocumentId
+      && documents.some((document) => document.id === activeDocumentId)
+    ) {
+      setSelectedId(activeDocumentId);
+    }
+  }, [activeDocumentId, documents]);
+
   const selected = useMemo(
     () =>
       documents.find((document) => document.id === selectedId) ||
       documents[0],
     [documents, selectedId],
   );
+  selectedRef.current = selected;
+  const previewDataKey = useMemo(
+    () => JSON.stringify(selected?.previewData ?? selected?.data ?? null),
+    [selected?.previewData, selected?.data],
+  );
 
   useEffect(() => {
-    if (!selected) return;
+    if (!selectedRef.current) return;
 
     let cancelled = false;
     const timer = window.setTimeout(async () => {
+      const current = selectedRef.current;
+      if (!current) return;
       setLoading(true);
       setError('');
       try {
-        const blob = selected.loadPreview
-          ? await selected.loadPreview()
+        const blob = current.loadPreview
+          ? await current.loadPreview()
           : await api.previewDocumentPdf(
-              selected.type || '',
-              selected.data || {},
+              current.type || '',
+              current.data || {},
             );
         const nextUrl = URL.createObjectURL(blob);
         if (cancelled) {
@@ -75,7 +99,7 @@ export function WorkflowDocxPreview({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [selected, debounceMs, reloadKey]);
+  }, [selected?.id, previewDataKey, debounceMs, reloadKey]);
 
   useEffect(
     () => () => {
@@ -98,10 +122,6 @@ export function WorkflowDocxPreview({
                   Xem trước từ mẫu Word
                 </h3>
               </div>
-              <p className="mt-1 text-xs leading-5 text-slate-500">
-                DOCX thật được điền dữ liệu và chuyển sang PDF để giữ bố cục.
-                Khung xem trước sẽ đi theo khi cuộn biểu mẫu.
-              </p>
             </div>
             <button
               type="button"

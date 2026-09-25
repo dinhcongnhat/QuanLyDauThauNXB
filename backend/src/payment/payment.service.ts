@@ -1,7 +1,16 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
-import { ContractPackageType, NotificationType } from '@prisma/client';
+import {
+  ContractPackageType,
+  NotificationType,
+  Role,
+} from '@prisma/client';
 import { NotificationService } from '../notifications/notification.service';
 import {
   generatePaymentDocx,
@@ -15,6 +24,19 @@ function asRecord(value: unknown): Record<string, any> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, any>
     : {};
+}
+
+function asAttachmentArray(value: unknown): any[] {
+  const values = Array.isArray(value)
+    ? [...value]
+    : value == null || value === ''
+      ? []
+      : [value];
+  return values.filter(
+    (item) =>
+      typeof item !== 'string'
+      || !/\[object Object\]/i.test(item),
+  );
 }
 
 function firstMeaningful(...values: any[]): any {
@@ -54,6 +76,8 @@ function buildPaymentWorkflowPayload(
     paymentData,
     ...stepDataSources.map(asRecord),
   ) as Record<string, any>;
+  delete merged._attachments;
+  delete merged.attachmentPath;
 
   const contractNumber = firstMeaningful(
     selection.soHopDong,
@@ -151,6 +175,41 @@ export class PaymentService {
     private notificationService: NotificationService,
     private jwtService: JwtService,
   ) {}
+
+  private async assertProjectAccess(
+    userId: string,
+    projectId?: string | null,
+  ): Promise<void> {
+    if (!projectId) {
+      throw new BadRequestException(
+        'Không xác định được dự án của hồ sơ thanh toán',
+      );
+    }
+
+    const actor = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+    if (!actor) {
+      throw new ForbiddenException('Tài khoản không còn tồn tại');
+    }
+    if (actor.role === Role.ADMIN) return;
+
+    const membership = await this.prisma.projectMember.findUnique({
+      where: {
+        projectId_userId: {
+          projectId,
+          userId,
+        },
+      },
+      select: { userId: true },
+    });
+    if (!membership) {
+      throw new ForbiddenException(
+        'Bạn không phải thành viên của dự án này',
+      );
+    }
+  }
 
   // ====================== LIST / GET ======================
 
@@ -276,6 +335,19 @@ export class PaymentService {
 
   /** Create a payment process from a completed contract */
   async createPayment(userId: string, contractorSelectionId: string, projectId?: string) {
+    const selection = await this.prisma.contractorSelection.findUnique({
+      where: { id: contractorSelectionId },
+      include: { steps: { where: { stepKey: 'hop_dong' } } },
+    });
+    if (!selection) throw new NotFoundException('Không tìm thấy hợp đồng');
+    if (projectId && selection.projectId && projectId !== selection.projectId) {
+      throw new BadRequestException(
+        'Hợp đồng không thuộc dự án đã chọn',
+      );
+    }
+    const resolvedProjectId = projectId || selection.projectId;
+    await this.assertProjectAccess(userId, resolvedProjectId);
+
     const existingPayment = await this.prisma.payment.findFirst({
       where: { contractorSelectionId },
       include: {
@@ -287,11 +359,6 @@ export class PaymentService {
       return existingPayment;
     }
 
-    const selection = await this.prisma.contractorSelection.findUnique({
-      where: { id: contractorSelectionId },
-      include: { steps: { where: { stepKey: 'hop_dong' } } },
-    });
-    if (!selection) throw new NotFoundException('Không tìm thấy hợp đồng');
     if (!selection.contractPackageType) {
       throw new BadRequestException('Hợp đồng chưa chọn loại gói thầu');
     }
@@ -318,7 +385,7 @@ export class PaymentService {
     const payment = await this.prisma.payment.create({
       data: {
         contractorSelectionId,
-        projectId: projectId || selection.projectId,
+        projectId: resolvedProjectId,
         contractPackageType: packageType,
         maSoHD,
         data: { SoHopDong: maSoHD },
@@ -355,9 +422,13 @@ export class PaymentService {
 
   // ====================== UPDATE STEP DATA ======================
 
-  async updateStepData(stepId: string, data: any, userId?: string) {
-    const step = await this.prisma.paymentStep.findUnique({ where: { id: stepId } });
+  async updateStepData(stepId: string, data: any, userId: string) {
+    const step = await this.prisma.paymentStep.findUnique({
+      where: { id: stepId },
+      include: { payment: { select: { projectId: true } } },
+    });
     if (!step) throw new NotFoundException('Không tìm thấy bước');
+    await this.assertProjectAccess(userId, step.payment.projectId);
     if (step.status === 'COMPLETED') {
       throw new BadRequestException('Bước đã hoàn thành');
     }
@@ -373,21 +444,20 @@ export class PaymentService {
       },
     });
 
-    if (userId) {
-      await this.writeLog(step.paymentId, 'UPDATE_STEP', `Cập nhật dữ liệu bước thanh toán "${step.title}"`, userId);
-    }
+    await this.writeLog(step.paymentId, 'UPDATE_STEP', `Cập nhật dữ liệu bước thanh toán "${step.title}"`, userId);
 
     return res;
   }
 
   // ====================== STEP COMPLETION ======================
 
-  async completeStep(stepId: string, userId?: string) {
+  async completeStep(stepId: string, userId: string) {
     const step = await this.prisma.paymentStep.findUnique({
       where: { id: stepId },
       include: { payment: { include: { contractorSelection: true } } },
     });
     if (!step) throw new NotFoundException('Không tìm thấy bước');
+    await this.assertProjectAccess(userId, step.payment.projectId);
 
     // Verify previous steps completed
     const allSteps = await this.prisma.paymentStep.findMany({
@@ -412,14 +482,18 @@ export class PaymentService {
       link: '/dashboard/mua-sam/hop-dong',
     });
 
-    await this.writeLog(step.paymentId, 'COMPLETE_STEP', `Hoàn thành bước thanh toán "${step.title}"`, userId || 'SYSTEM');
+    await this.writeLog(step.paymentId, 'COMPLETE_STEP', `Hoàn thành bước thanh toán "${step.title}"`, userId);
 
     return updated;
   }
 
-  async reopenStep(stepId: string, userId?: string) {
-    const step = await this.prisma.paymentStep.findUnique({ where: { id: stepId } });
+  async reopenStep(stepId: string, userId: string) {
+    const step = await this.prisma.paymentStep.findUnique({
+      where: { id: stepId },
+      include: { payment: { select: { projectId: true } } },
+    });
     if (!step) throw new NotFoundException('Không tìm thấy bước');
+    await this.assertProjectAccess(userId, step.payment.projectId);
     if (step.status !== 'COMPLETED') {
       throw new BadRequestException('Bước chưa hoàn thành');
     }
@@ -428,7 +502,7 @@ export class PaymentService {
       data: { status: 'IN_PROGRESS', completedAt: null },
     });
 
-    await this.writeLog(step.paymentId, 'REOPEN_STEP', `Mở lại bước thanh toán "${step.title}"`, userId || 'SYSTEM');
+    await this.writeLog(step.paymentId, 'REOPEN_STEP', `Mở lại bước thanh toán "${step.title}"`, userId);
 
     return res;
   }
@@ -591,12 +665,16 @@ export class PaymentService {
     };
   }
 
-  async generateAndSaveDocx(stepId: string): Promise<string> {
+  async generateAndSaveDocx(
+    stepId: string,
+    userId: string,
+  ): Promise<string> {
     const step = await this.prisma.paymentStep.findUnique({
       where: { id: stepId },
       include: { payment: true },
     });
     if (!step) throw new NotFoundException('Không tìm thấy bước');
+    await this.assertProjectAccess(userId, step.payment.projectId);
 
     const buffer = await this.generateStepDocx(stepId);
     const objectName = `payment/${step.payment.id}/${step.stepKey}/document.docx`;
@@ -612,7 +690,7 @@ export class PaymentService {
 
   // ====================== FILE UPLOAD ======================
 
-  async uploadAttachment(stepId: string, file: { buffer: Buffer; originalname: string; mimetype: string }, userId?: string) {
+  async uploadAttachment(stepId: string, file: { buffer: Buffer; originalname: string; mimetype: string }, userId: string) {
     // File type validation - whitelist only safe document types
     const ALLOWED_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'jpg', 'jpeg', 'png']);
     const ALLOWED_MIME_TYPES = new Set([
@@ -643,13 +721,14 @@ export class PaymentService {
       include: { payment: true },
     });
     if (!step) throw new NotFoundException('Không tìm thấy bước');
+    await this.assertProjectAccess(userId, step.payment.projectId);
 
     const safeName = file.originalname.replace(/[^a-zA-Z0-9._\u00C0-\u024F\u1E00-\u1EFF-]/g, '_');
     const objectName = `payment/${step.payment.id}/${step.stepKey}/${safeName}`;
     await this.minio.upload(objectName, file.buffer, file.mimetype);
 
     const existingData = (step.data as any) || {};
-    const attachments: any[] = existingData._attachments || [];
+    const attachments = asAttachmentArray(existingData._attachments);
     attachments.push({ path: objectName, fileName: file.originalname });
 
     await this.prisma.paymentStep.update({
@@ -660,19 +739,21 @@ export class PaymentService {
       },
     });
 
-    if (userId) {
-      await this.writeLog(step.payment.id, 'UPLOAD_FILE', `Đính kèm tài liệu "${file.originalname}" vào bước "${step.title}"`, userId);
-    }
+    await this.writeLog(step.payment.id, 'UPLOAD_FILE', `Đính kèm tài liệu "${file.originalname}" vào bước "${step.title}"`, userId);
 
     return objectName;
   }
 
-  async deleteAttachment(stepId: string, objectPath: string, userId?: string) {
-    const step = await this.prisma.paymentStep.findUnique({ where: { id: stepId } });
+  async deleteAttachment(stepId: string, objectPath: string, userId: string) {
+    const step = await this.prisma.paymentStep.findUnique({
+      where: { id: stepId },
+      include: { payment: { select: { projectId: true } } },
+    });
     if (!step) throw new NotFoundException('Không tìm thấy bước');
+    await this.assertProjectAccess(userId, step.payment.projectId);
 
     const data = (step.data as any) || {};
-    const attachments: any[] = data._attachments || [];
+    const attachments = asAttachmentArray(data._attachments);
     const idx = attachments.findIndex((a: any) => (typeof a === 'string' ? a : a.path) === objectPath);
     if (idx !== -1) attachments.splice(idx, 1);
 
@@ -681,10 +762,8 @@ export class PaymentService {
       data: { data: { ...data, _attachments: attachments } },
     });
 
-    if (userId) {
-      const fileName = objectPath.split('/').pop() || 'tài liệu';
-      await this.writeLog(step.paymentId, 'DELETE_FILE', `Xóa tài liệu đính kèm "${fileName}" khỏi bước "${step.title}"`, userId);
-    }
+    const fileName = objectPath.split('/').pop() || 'tài liệu';
+    await this.writeLog(step.paymentId, 'DELETE_FILE', `Xóa tài liệu đính kèm "${fileName}" khỏi bước "${step.title}"`, userId);
 
     try { await this.minio.delete(objectPath); } catch { /* ignore */ }
   }
@@ -722,7 +801,7 @@ export class PaymentService {
       files.push({ stepId: step.id, stepTitle: step.title, filename: `${step.title} - ${tenGoiThau}.docx`, type: 'docx', source: 'generate' });
       // User-uploaded attachments
       const data = (step.data as any) || {};
-      const attachments: any[] = data._attachments || [];
+      const attachments = asAttachmentArray(data._attachments);
       for (const att of attachments) {
         const attObj = typeof att === 'string' ? { path: att, fileName: att.split('/').pop() } : att;
         files.push({ stepId: step.id, stepTitle: step.title, filename: `${step.title} - ${attObj.fileName || attObj.path.split('/').pop()}`, type: 'attachment', source: 'minio', objectPath: attObj.path });

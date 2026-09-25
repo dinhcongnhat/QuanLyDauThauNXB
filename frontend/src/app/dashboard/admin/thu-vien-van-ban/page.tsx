@@ -3,6 +3,7 @@
 import {
   BookOpen,
   Edit3,
+  Eye,
   Loader2,
   Plus,
   Search,
@@ -20,6 +21,7 @@ import {
 } from '@/lib/legal-document-api';
 import { useAuthStore } from '@/lib/store';
 import { LegalDocumentOcrPanel } from '@/components/admin/LegalDocumentOcrPanel';
+import { LegalDocumentDetailModal } from '@/components/LegalDocumentDetailModal';
 import type { LegalDocumentOcrResult } from '@/lib/vietnamese-legal-document-ocr';
 
 const EMPTY_FORM: LegalDocumentInput = {
@@ -66,6 +68,8 @@ export default function ThuVienVanBanPage() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<LegalDocument | null>(null);
   const [form, setForm] = useState<LegalDocumentInput>(EMPTY_FORM);
+  const [sourceFile, setSourceFile] = useState<File | null>(null);
+  const [detailDocumentId, setDetailDocumentId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -116,6 +120,7 @@ export default function ThuVienVanBanPage() {
   const openCreate = () => {
     setEditing(null);
     setForm({ ...EMPTY_FORM });
+    setSourceFile(null);
     setShowForm(true);
   };
 
@@ -130,6 +135,7 @@ export default function ThuVienVanBanPage() {
       trichYeuNoiDung: document.trichYeuNoiDung,
       ngayBanHanh: document.ngayBanHanh.slice(0, 10),
     });
+    setSourceFile(null);
     setShowForm(true);
   };
 
@@ -138,6 +144,7 @@ export default function ThuVienVanBanPage() {
     setShowForm(false);
     setEditing(null);
     setForm({ ...EMPTY_FORM });
+    setSourceFile(null);
   };
 
   const handleSave = async (event: React.FormEvent) => {
@@ -147,10 +154,10 @@ export default function ThuVienVanBanPage() {
     setSaving(true);
     try {
       if (editing) {
-        await legalDocumentApi.update(editing.id, form);
+        await legalDocumentApi.update(editing.id, form, sourceFile);
         toast.success('Đã cập nhật văn bản pháp lý');
       } else {
-        await legalDocumentApi.create(form);
+        await legalDocumentApi.create(form, sourceFile);
         toast.success('Đã thêm văn bản pháp lý');
       }
       closeFormAfterSave();
@@ -170,6 +177,7 @@ export default function ThuVienVanBanPage() {
     setShowForm(false);
     setEditing(null);
     setForm({ ...EMPTY_FORM });
+    setSourceFile(null);
   };
 
   const handleDelete = async (document: LegalDocument) => {
@@ -376,6 +384,14 @@ export default function ThuVienVanBanPage() {
                         </span>
                       )}
                       {document.trichYeuNoiDung}
+                      <button
+                        type="button"
+                        onClick={() => setDetailDocumentId(document.id)}
+                        className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-primary-700 hover:bg-primary-50"
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                        Xem chi tiết
+                      </button>
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-700">
                       {formatDisplayDate(document.ngayBanHanh)}
@@ -492,8 +508,16 @@ export default function ThuVienVanBanPage() {
             <form onSubmit={handleSave} className="space-y-5 p-6">
               <LegalDocumentOcrPanel
                 onExtract={applyOcrResult}
+                onFileSelected={setSourceFile}
                 disabled={saving}
               />
+              {sourceFile && (
+                <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-800">
+                  Tệp gốc sẽ được lưu cùng văn bản:{' '}
+                  <strong>{sourceFile.name}</strong> (
+                  {(sourceFile.size / (1024 * 1024)).toFixed(1)} MB)
+                </div>
+              )}
 
               <FormField label="Tên căn cứ" required={false}>
                 <input
@@ -634,6 +658,11 @@ export default function ThuVienVanBanPage() {
           </div>
         </div>
       )}
+
+      <LegalDocumentDetailModal
+        documentId={detailDocumentId}
+        onClose={() => setDetailDocumentId(null)}
+      />
 
     </div>
   );

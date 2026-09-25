@@ -9,6 +9,12 @@ import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import { ZipDownloadModal } from '@/components/ZipDownloadModal';
 import { OnlyOfficeFilePreview } from '@/components/OnlyOfficeFilePreview';
+import { WorkflowArrowStepper } from '@/components/WorkflowDocumentUI';
+import {
+  getPaymentTemplateFieldKeys,
+  getWorkflowDisplayEntries,
+  normalizeWorkflowAttachments,
+} from '@/lib/workflow-template-api';
 
 const PACKAGE_TYPE_LABELS: Record<string, string> = {
   GOI_THAU_TU_VAN: 'Gói thầu tư vấn',
@@ -30,11 +36,6 @@ const STEP_STATUS_COLORS: Record<string, string> = {
 // Steps that are attachment-only (no template file)
 const ATTACHMENT_ONLY = new Set(['bang_tien_do_cung_cap']);
 
-function displayFilename(path: string): string {
-  const raw = path.split('/').pop() || path;
-  try { return decodeURIComponent(raw); } catch { return raw; }
-}
-
 export default function PaymentDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -49,6 +50,7 @@ export default function PaymentDetailPage() {
   const [generating, setGenerating] = useState<string | null>(null);
   const [showZipModal, setShowZipModal] = useState(false);
   const [previewPath, setPreviewPath] = useState<string | null>(null);
+  const [selectedTemplateKeys, setSelectedTemplateKeys] = useState<string[]>([]);
 
   const loadPayment = useCallback(async () => {
     try {
@@ -59,6 +61,24 @@ export default function PaymentDetailPage() {
   }, [paymentId]);
 
   useEffect(() => { loadPayment(); }, [loadPayment]);
+
+  useEffect(() => {
+    if (!selectedStepId) {
+      setSelectedTemplateKeys([]);
+      return;
+    }
+    let active = true;
+    getPaymentTemplateFieldKeys(selectedStepId)
+      .then((keys) => {
+        if (active) setSelectedTemplateKeys(keys);
+      })
+      .catch(() => {
+        if (active) setSelectedTemplateKeys([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedStepId]);
 
   const handleUploadFile = async (stepId: string, file: File) => {
     setUploading(true);
@@ -109,6 +129,24 @@ export default function PaymentDetailPage() {
     } catch (err: any) { toast.error(err.message); }
   };
 
+  const handlePreviewGeneratedDocx = async (step: any) => {
+    setGenerating(step.id);
+    try {
+      let objectPath = String(step.attachmentPath || '');
+      if (!objectPath) {
+        const generated = await api.generatePaymentDocx(step.id);
+        objectPath = generated.objectName;
+        await loadPayment();
+      }
+      if (!objectPath) throw new Error('Không tạo được file DOCX');
+      setPreviewPath(objectPath);
+    } catch (err: any) {
+      toast.error(err.message || 'Không thể xem file DOCX');
+    } finally {
+      setGenerating(null);
+    }
+  };
+
   const handlePreviewFile = async (objectPath: string) => {
     const ext = objectPath.split('.').pop()?.toLowerCase();
     const officeExtensions = ['docx', 'doc', 'xlsx', 'xls', 'pptx', 'ppt', 'pdf'];
@@ -135,8 +173,7 @@ export default function PaymentDetailPage() {
   };
 
   const getAttachments = (step: any): any[] => {
-    const raw = (step.data)?._attachments || [];
-    return raw.map((att: any) => typeof att === 'string' ? { path: att, fileName: displayFilename(att), ghiChu: '' } : att);
+    return normalizeWorkflowAttachments(step?.data?._attachments);
   };
 
   if (loading) {
@@ -157,8 +194,11 @@ export default function PaymentDetailPage() {
     );
   }
 
-  const completedCount = payment.steps.filter((s: any) => s.status === 'COMPLETED').length;
-  const progress = (completedCount / payment.steps.length) * 100;
+  const paymentSteps = Array.isArray(payment.steps) ? payment.steps : [];
+  const completedCount = paymentSteps.filter((s: any) => s.status === 'COMPLETED').length;
+  const progress = paymentSteps.length
+    ? (completedCount / paymentSteps.length) * 100
+    : 0;
   const tenGoiThau = payment.contractorSelection?.tenGoiThau || 'N/A';
   const qdData = payment.contractorSelection?.qdKhlcnt?.data || {};
   const selData = payment.contractorSelection?.data || {};
@@ -200,7 +240,7 @@ export default function PaymentDetailPage() {
               <span className="text-sm text-gray-500">HĐ: {payment.maSoHD}</span>
             )}
             <span className="text-sm text-gray-500">
-              {completedCount}/{payment.steps.length} bước hoàn thành
+              {completedCount}/{paymentSteps.length} bước hoàn thành
             </span>
           </div>
         </div>
@@ -209,7 +249,7 @@ export default function PaymentDetailPage() {
             <span className="text-2xl font-bold text-primary-600">{Math.round(progress)}%</span>
             <p className="text-xs text-gray-500">Tiến độ</p>
           </div>
-          {payment.steps.every((s: any) => s.status === 'COMPLETED') && (
+          {paymentSteps.length > 0 && paymentSteps.every((s: any) => s.status === 'COMPLETED') && (
             <button onClick={() => setShowZipModal(true)}
               className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 flex items-center gap-2">
               📦 Tải toàn bộ file
@@ -258,68 +298,37 @@ export default function PaymentDetailPage() {
       </div>
 
       {/* Steps Timeline */}
-      <div className="bg-white rounded-xl shadow-sm border p-4">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold text-gray-700">Tiến trình thanh toán</h3>
-          <div className="flex items-center gap-2">
-            <div className="w-24 bg-gray-200 rounded-full h-2">
-              <div className="bg-green-500 h-2 rounded-full transition-all" style={{ width: progress + '%' }} />
-            </div>
-            <span className="text-xs font-bold text-primary-600">{Math.round(progress)}%</span>
-          </div>
-        </div>
-        <div className="flex items-center gap-1 overflow-x-auto pb-2">
-          {payment.steps.map((step: any, idx: number) => {
-            const isActive = selectedStepId === step.id;
-            const isCompleted = step.status === 'COMPLETED';
-            const isInProgress = step.status === 'IN_PROGRESS';
-            const prevCompleted = idx === 0 || payment.steps[idx - 1]?.status === 'COMPLETED';
-            const isDisabled = step.status === 'NOT_STARTED' && !prevCompleted;
-
-            return (
-              <div key={step.id} className="flex items-center">
-                <button
-                  onClick={() => !isDisabled && setSelectedStepId(isActive ? null : step.id)}
-                  disabled={isDisabled}
-                  className={`flex flex-col items-center px-3 py-2 rounded-lg text-xs transition-all min-w-[110px] ${
-                    isActive ? 'bg-indigo-50 border-2 border-indigo-400 text-indigo-700' :
-                    isDisabled ? 'opacity-40 cursor-not-allowed' :
-                    'hover:bg-gray-50 border border-gray-200'
-                  }`}
-                >
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center mb-1 text-xs font-bold ${
-                    isCompleted ? 'bg-green-500 text-white' :
-                    isInProgress ? 'bg-yellow-500 text-white' :
-                    'bg-gray-200 text-gray-500'
-                  }`}>
-                    {isCompleted ? '✓' : step.stepOrder}
-                  </div>
-                  <span className="text-center leading-tight">{step.title}</span>
-                  <span className={`mt-1 px-2 py-0.5 rounded-full text-[10px] ${STEP_STATUS_COLORS[step.status]}`}>
-                    {STEP_STATUS_LABELS[step.status]}
-                  </span>
-                </button>
-                {idx < payment.steps.length - 1 && (
-                  <div className={`w-6 h-0.5 ${isCompleted ? 'bg-green-400' : 'bg-gray-200'}`} />
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      <WorkflowArrowStepper
+        title={`Tiến trình thanh toán · ${Math.round(progress)}%`}
+        stages={paymentSteps.map((step: any, idx: number) => {
+          const prevCompleted = idx === 0 || paymentSteps[idx - 1]?.status === 'COMPLETED';
+          return {
+            label: step.title,
+            number: step.stepOrder,
+            status: step.status === 'COMPLETED' ? 'completed' : step.status === 'IN_PROGRESS' ? 'active' : 'pending',
+            selected: selectedStepId === step.id,
+            disabled: step.status === 'NOT_STARTED' && !prevCompleted,
+            meta: STEP_STATUS_LABELS[step.status],
+            onClick: () => setSelectedStepId(selectedStepId === step.id ? null : step.id),
+          };
+        })}
+      />
 
       {/* Step Detail Inline */}
       {selectedStepId && (() => {
-        const step = payment.steps.find((s: any) => s.id === selectedStepId);
+        const step = paymentSteps.find((s: any) => s.id === selectedStepId);
         if (!step) return null;
         const isAttachment = ATTACHMENT_ONLY.has(step.stepKey);
         const isCompleted = step.status === 'COMPLETED';
-        const stepIdx = payment.steps.findIndex((s: any) => s.id === selectedStepId);
-        const prevCompleted = stepIdx === 0 || payment.steps[stepIdx - 1]?.status === 'COMPLETED';
+        const stepIdx = paymentSteps.findIndex((s: any) => s.id === selectedStepId);
+        const prevCompleted = stepIdx === 0 || paymentSteps[stepIdx - 1]?.status === 'COMPLETED';
         const canWork = prevCompleted && !isCompleted;
         const attachments = getAttachments(step);
         const stepData = (step.data || {}) as Record<string, any>;
-        const dataEntries = Object.entries(stepData).filter(([k]) => !k.startsWith('_'));
+        const dataEntries = getWorkflowDisplayEntries(
+          stepData,
+          selectedTemplateKeys,
+        );
 
         return (
           <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
@@ -350,14 +359,14 @@ export default function PaymentDetailPage() {
                 <div>
                   <p className="text-xs font-medium text-gray-500 mb-2">Dữ liệu đã nhập:</p>
                   <div className="bg-gray-50 rounded-lg p-4 grid grid-cols-1 md:grid-cols-2 gap-2">
-                    {dataEntries.slice(0, 10).map(([k, v]) => (
-                      <div key={k} className="flex gap-2 text-sm">
-                        <span className="text-gray-500 min-w-32 shrink-0">{k}:</span>
-                        <span className="text-gray-900 font-medium truncate">{String(v ?? '')}</span>
+                    {dataEntries.slice(0, 12).map((entry) => (
+                      <div key={entry.key} className="flex gap-2 text-sm">
+                        <span className="text-gray-500 min-w-40 shrink-0">{entry.label}:</span>
+                        <span className="text-gray-900 font-medium break-words">{entry.value}</span>
                       </div>
                     ))}
-                    {dataEntries.length > 10 && (
-                      <p className="text-xs text-gray-400 col-span-2">... và {dataEntries.length - 10} trường khác</p>
+                    {dataEntries.length > 12 && (
+                      <p className="text-xs text-gray-400 col-span-2">... và {dataEntries.length - 12} trường khác</p>
                     )}
                   </div>
                 </div>
@@ -365,11 +374,20 @@ export default function PaymentDetailPage() {
 
               {/* Quick actions */}
               <div className="flex items-center gap-2 flex-wrap">
-                {!isAttachment && dataEntries.length > 0 && (
-                  <button onClick={() => handleDownloadDocx(step.id)}
-                    className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">
-                    📥 Tải DOCX
-                  </button>
+                {!isAttachment && (
+                  <>
+                    <button
+                      onClick={() => void handlePreviewGeneratedDocx(step)}
+                      disabled={generating === step.id}
+                      className="px-3 py-1.5 bg-sky-600 text-white rounded-lg text-sm hover:bg-sky-700 disabled:opacity-50"
+                    >
+                      {generating === step.id ? '⏳ Đang tạo...' : '👁 Xem DOCX'}
+                    </button>
+                    <button onClick={() => handleDownloadDocx(step.id)}
+                      className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">
+                      📥 Tải DOCX
+                    </button>
+                  </>
                 )}
                 {canWork && (
                   <button onClick={() => triggerFileUpload(step.id)}

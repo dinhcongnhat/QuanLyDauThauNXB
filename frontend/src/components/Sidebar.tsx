@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
@@ -10,6 +10,8 @@ import { Role } from '@/lib/types';
 import toast from 'react-hot-toast';
 import { AnimatePresence, motion } from 'framer-motion';
 import NotificationBell from './NotificationBell';
+import { useSocket } from '@/lib/socket';
+import { useNotificationStore } from '@/lib/notifications';
 import {
   BadgeCheck,
   Archive,
@@ -25,6 +27,7 @@ import {
   ShoppingCart,
   UsersRound,
   WalletCards,
+  X,
 } from 'lucide-react';
 
 const roleLabels: Record<Role, string> = {
@@ -129,9 +132,11 @@ const Icon = {
 
 interface SidebarProps {
   onOpenNotifications: () => void;
+  isOpen?: boolean;
+  onClose?: () => void;
 }
 
-export function Sidebar({ onOpenNotifications }: SidebarProps) {
+export function Sidebar({ onOpenNotifications, isOpen = false, onClose }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout, activeView, setActiveView } = useAuthStore();
@@ -148,6 +153,48 @@ export function Sidebar({ onOpenNotifications }: SidebarProps) {
   const [showChangePw, setShowChangePw] = useState(false);
   const [pwForm, setPwForm] = useState({ old: '', new: '', confirm: '' });
   const [pwLoading, setPwLoading] = useState(false);
+  const [approvalCount, setApprovalCount] = useState(0);
+  const addNotification = useNotificationStore(
+    (state) => state.addNotification,
+  );
+  const setUnreadCount = useNotificationStore(
+    (state) => state.setUnreadCount,
+  );
+
+  const handleApprovalCount = useCallback((count: number) => {
+    setApprovalCount(Math.max(0, count));
+  }, []);
+  const handleNotification = useCallback(
+    (notification: Parameters<typeof addNotification>[0]) => {
+      addNotification(notification);
+    },
+    [addNotification],
+  );
+  const handleUnreadCount = useCallback(
+    (count: number) => setUnreadCount(Math.max(0, count)),
+    [setUnreadCount],
+  );
+  useSocket(
+    handleNotification,
+    handleUnreadCount,
+    undefined,
+    handleApprovalCount,
+  );
+
+  useEffect(() => {
+    const canUseApproval =
+      user?.canApprove ||
+      user?.permissions?.includes('approval:review') ||
+      user?.permissions?.includes('approval:final');
+    if (!canUseApproval) {
+      setApprovalCount(0);
+      return;
+    }
+    api
+      .getApprovalPendingCount()
+      .then((result) => setApprovalCount(result.count || 0))
+      .catch(() => setApprovalCount(0));
+  }, [user?.id, user?.canApprove, user?.permissions]);
 
   useEffect(() => {
     if (!user || user.role === 'ADMIN') return;
@@ -187,70 +234,117 @@ export function Sidebar({ onOpenNotifications }: SidebarProps) {
   };
 
   const isAdmin = user.role === 'ADMIN';
-  const canCDT = !!user.isInvestor || !!user.isContractor;
+  const permissionSet = new Set(user.permissions || []);
+  const hasFeature = (key: string) =>
+    isAdmin ||
+    permissionSet.has(key) ||
+    ((user.permissions?.length || 0) === 0 && !!user.isInvestor);
+  const canProjects = hasFeature('feature:projects');
+  const canBookProcurement = hasFeature('feature:book-procurement');
+  const canEquipmentProcurement = hasFeature('feature:equipment-procurement');
+  const canUseApproval =
+    isAdmin ||
+    !!user.canApprove ||
+    permissionSet.has('approval:review') ||
+    permissionSet.has('approval:final');
+  const canOpenAssignedDossiers =
+    canUseApproval ||
+    canProjects ||
+    canBookProcurement ||
+    canEquipmentProcurement;
+  const canCDT =
+    canProjects ||
+    canBookProcurement ||
+    canEquipmentProcurement ||
+    !!user.isContractor;
   const canNT = !!user.isContractor;
   const canSwitch = !isAdmin && canCDT && canNT;
-  const isCDT = !isAdmin && canCDT && activeView === 'chu-dau-tu';
+  const isCDT = isAdmin || (!isAdmin && canCDT && activeView === 'chu-dau-tu');
   const isNT = !isAdmin && canNT && (activeView === 'nha-thau' || (!canCDT && canNT));
 
   const isActive = (href: string) =>
     pathname === href || (href !== '/dashboard' && pathname.startsWith(href));
 
   const linkCls = (href: string) =>
-    `flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm transition-all duration-150 ${
+    `flex min-h-10 items-center gap-3 rounded-md border-l-[3px] px-3 py-2 text-sm transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#AEB8C4] ${
       isActive(href)
-        ? 'bg-red-50 text-red-800 font-semibold ring-1 ring-inset ring-red-100'
-        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-950 font-medium'
+        ? 'border-primary-700 bg-primary-100 text-primary-800 font-semibold'
+        : 'border-transparent text-[#475467] hover:bg-[#F3F7F9] hover:text-[#2F4858] font-medium'
     }`;
 
   const roleDisplay = activeView === 'chu-dau-tu' ? 'Chủ đầu tư' : 'Nhà thầu';
 
   const dropdownCls = (isOpen: boolean) =>
-    `w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm transition-colors duration-150 ${
+    `flex min-h-10 w-full items-center justify-between rounded-md border-l-[3px] px-3 py-2 text-sm transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#AEB8C4] ${
       isOpen
-        ? 'bg-slate-100 text-slate-950 font-semibold'
-        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-medium'
+        ? 'border-[#3F5F73] bg-[#F3F7F9] text-[#2F4858] font-semibold'
+        : 'border-transparent text-[#475467] hover:bg-[#F3F7F9] hover:text-[#2F4858] font-medium'
     }`;
 
   const subLinkCls = (href: string) =>
-    `flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] transition-all duration-150 ${
+    `grid min-h-10 w-full grid-cols-[18px_minmax(0,1fr)] items-center gap-2.5 whitespace-nowrap rounded-md border-l-[3px] px-3 py-2 text-[13px] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#AEB8C4] ${
       isActive(href)
-        ? 'bg-blue-50 text-blue-800 font-semibold ring-1 ring-inset ring-blue-100'
-        : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900 font-medium'
+        ? 'border-primary-700 bg-primary-100 text-primary-800 font-semibold'
+        : 'border-transparent text-[#667085] hover:bg-[#F3F7F9] hover:text-[#2F4858] font-medium'
     }`;
 
   return (
-    <aside className="sticky top-0 flex h-screen w-[244px] shrink-0 flex-col border-r border-slate-200/80 bg-white shadow-[4px_0_24px_rgba(15,23,42,0.035)] xl:w-[252px] 2xl:w-[272px]">
+    <aside
+      aria-label="Điều hướng chính"
+      className={`fixed inset-y-0 left-0 z-40 flex h-screen w-64 shrink-0 flex-col border-r border-[#E4E7EC] bg-white shadow-[4px_0_18px_rgba(16,24,40,0.06)] transition-transform duration-200 lg:sticky lg:top-0 lg:z-auto lg:translate-x-0 lg:shadow-none ${
+        isOpen ? 'translate-x-0' : '-translate-x-full'
+      }`}
+    >
       {/* ── Header / Logo ── */}
-      <div className="border-b border-slate-100 px-5 py-4">
-        <div className="flex items-center gap-3.5">
-          <Image src="/logo.png" alt="Logo" width={46} height={46} className="shrink-0 rounded-xl" />
-          <div className="min-w-0">
-            <p className="text-[13px] font-extrabold uppercase leading-tight tracking-tight text-slate-950">Hệ thống QLĐT</p>
-            <p className="mt-1 text-[10px] font-medium text-slate-500">Quản lý Đấu thầu NXB</p>
+      <div className="border-b border-[#E4E7EC] px-4 py-3.5">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-[#E4E7EC] bg-white p-1">
+            <Image src="/logo.png" alt="Biểu trưng Nhà xuất bản" width={38} height={38} className="object-contain" />
           </div>
+          <div className="min-w-0">
+            <p className="text-[13px] font-bold uppercase leading-tight tracking-[0.04em] text-primary-900">Hệ thống QLĐT</p>
+            <p className="mt-1 truncate text-[10px] font-medium text-[#667085]">NXB Chính trị quốc gia Sự thật</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[#667085] hover:bg-[#F2F4F7] lg:hidden"
+            aria-label="Đóng menu điều hướng"
+          >
+            <X className="h-5 w-5" />
+          </button>
         </div>
       </div>
 
       {/* ── Role indicator ── */}
       {!isAdmin && (isCDT || isNT) && (
-        <div className="mx-3 mb-2 mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-3">
-          <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-slate-400">Không gian làm việc</p>
-          <p className="mt-1 text-sm font-bold text-slate-800">{roleDisplay}</p>
+        <div className="mx-3 mb-1 mt-3 rounded-md border border-[#E4E7EC] bg-[#FAFAFA] px-3 py-2.5">
+          <p className="text-[9px] font-semibold uppercase tracking-[0.14em] text-[#667085]">Không gian làm việc</p>
+          <p className="mt-1 text-sm font-semibold text-[#344054]">{roleDisplay}</p>
         </div>
       )}
 
       {/* ── Navigation ── */}
       <nav className="flex flex-1 flex-col space-y-1 overflow-y-auto px-3 py-3">
         {/* Tổng quan */}
-        <Link href="/dashboard" className={linkCls('/dashboard')}>
-          <LayoutDashboard className="h-[18px] w-[18px]" /><span>Tổng quan</span>
-        </Link>
+        {(canCDT || canNT) && (
+          <Link href="/dashboard" className={linkCls('/dashboard')}>
+            <LayoutDashboard className="h-[18px] w-[18px]" /><span>Tổng quan</span>
+          </Link>
+        )}
 
         {/* Phê duyệt */}
-        <Link href="/dashboard/phe-duyet" className={linkCls('/dashboard/phe-duyet')}>
-          <BadgeCheck className="h-[18px] w-[18px]" /><span>Phê duyệt</span>
-        </Link>
+        {canOpenAssignedDossiers && (
+          <Link href="/dashboard/phe-duyet" className={linkCls('/dashboard/phe-duyet')}>
+            <BadgeCheck className="h-[18px] w-[18px]" />
+            <span>Phê duyệt</span>
+            {approvalCount > 0 && (
+              <span className="ml-auto inline-flex min-w-5 items-center justify-center rounded-full bg-primary-700 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                {approvalCount > 99 ? '99+' : approvalCount}
+              </span>
+            )}
+          </Link>
+        )}
 
         {/* ===== ADMIN NAV ===== */}
         {isAdmin && (
@@ -267,7 +361,7 @@ export function Sidebar({ onOpenNotifications }: SidebarProps) {
                 <span className={`text-[10px] transition-transform ${quanLyOpen ? 'rotate-90' : ''}`}>▶</span>
               </button>
               {quanLyOpen && (
-                <div className="ml-6 mt-1 space-y-1 border-l-2 border-gray-100 pl-3">
+                <div className="ml-6 mt-1 space-y-1 border-l border-[#E4E7EC] pl-3">
                   <Link href="/dashboard/admin/thu-vien-van-ban" className={linkCls('/dashboard/admin/thu-vien-van-ban')}>
                     <LibraryBig className="h-[18px] w-[18px]" /><span>Thư viện văn bản</span>
                   </Link>
@@ -287,12 +381,14 @@ export function Sidebar({ onOpenNotifications }: SidebarProps) {
         {isCDT && (
           <>
             {/* Quản lý Dự án */}
-            <Link href="/dashboard/du-an" className={linkCls('/dashboard/du-an')}>
-              <FolderKanban className="h-[18px] w-[18px]" /><span>Quản lý dự án</span>
-            </Link>
+            {canProjects && (
+              <Link href="/dashboard/du-an" className={linkCls('/dashboard/du-an')}>
+                <FolderKanban className="h-[18px] w-[18px]" /><span>Quản lý dự án</span>
+              </Link>
+            )}
 
             {/* Thầu Sách - expandable */}
-            <div>
+            {canBookProcurement && <div>
               <button
                 onClick={() => setQuanLyOpen(prev => {
                   const next = !prev;
@@ -307,7 +403,7 @@ export function Sidebar({ onOpenNotifications }: SidebarProps) {
                 <span className={`text-[10px] transition-transform ${quanLyOpen ? 'rotate-90' : ''}`}>▶</span>
               </button>
               {quanLyOpen && (
-                <div className="ml-6 mt-1 space-y-1 border-l-2 border-green-100 pl-3">
+                <div className="ml-6 mt-1 space-y-1 border-l border-[#E4E7EC] pl-3">
                   <Link href="/dashboard/mua-sam/sach/dat-sach" className={subLinkCls('/dashboard/mua-sam/sach/dat-sach')}>
                     <ShoppingCart className="h-4 w-4" /><span>Đặt sách</span>
                   </Link>
@@ -315,7 +411,7 @@ export function Sidebar({ onOpenNotifications }: SidebarProps) {
                     <FileCheck2 className="h-4 w-4" /><span>Phê duyệt dự toán</span>
                   </Link>
                   <Link href="/dashboard/mua-sam/sach/khlcnt" className={subLinkCls('/dashboard/mua-sam/sach/khlcnt')}>
-                    <ClipboardList className="h-4 w-4" /><span>Kế hoạch LCNT</span>
+                    <ClipboardList className="h-4 w-4" /><span>Phê duyệt KHLCNT</span>
                   </Link>
                   <Link href="/dashboard/lua-chon-nha-thau" className={subLinkCls('/dashboard/lua-chon-nha-thau')}>
                     <Gavel className="h-4 w-4" /><span>Lựa chọn nhà thầu</span>
@@ -325,10 +421,10 @@ export function Sidebar({ onOpenNotifications }: SidebarProps) {
                   </Link>
                 </div>
               )}
-            </div>
+            </div>}
 
             {/* Thầu Thiết Bị - expandable */}
-            <div>
+            {canEquipmentProcurement && <div>
               <button
                 onClick={() => setThietBiOpen(prev => {
                   const next = !prev;
@@ -343,12 +439,12 @@ export function Sidebar({ onOpenNotifications }: SidebarProps) {
                 <span className={`text-[10px] transition-transform ${thietBiOpen ? 'rotate-90' : ''}`}>▶</span>
               </button>
               {thietBiOpen && (
-                <div className="ml-6 mt-1 space-y-1 border-l-2 border-blue-100 pl-3">
+                <div className="ml-6 mt-1 space-y-1 border-l border-[#E4E7EC] pl-3">
                   <Link href="/dashboard/mua-sam/thiet-bi/du-toan" className={subLinkCls('/dashboard/mua-sam/thiet-bi/du-toan')}>
                     <FileCheck2 className="h-4 w-4" /><span>Phê duyệt dự toán</span>
                   </Link>
                   <Link href="/dashboard/mua-sam/thiet-bi/khlcnt" className={subLinkCls('/dashboard/mua-sam/thiet-bi/khlcnt')}>
-                    <ClipboardList className="h-4 w-4" /><span>Kế hoạch LCNT</span>
+                    <ClipboardList className="h-4 w-4" /><span>Phê duyệt KHLCNT</span>
                   </Link>
                   <Link href="/dashboard/lua-chon-nha-thau" className={subLinkCls('/dashboard/lua-chon-nha-thau')}>
                     <Gavel className="h-4 w-4" /><span>Lựa chọn nhà thầu</span>
@@ -358,7 +454,7 @@ export function Sidebar({ onOpenNotifications }: SidebarProps) {
                   </Link>
                 </div>
               )}
-            </div>
+            </div>}
           </>
         )}
 
@@ -376,7 +472,7 @@ export function Sidebar({ onOpenNotifications }: SidebarProps) {
 
         {(isAdmin || isCDT) && (
           <div
-            className="border-t border-slate-200 pt-3"
+            className="border-t border-[#E4E7EC] pt-3"
             style={{ marginTop: 'auto' }}
           >
             <Link href="/dashboard/kho-van-ban" className={linkCls('/dashboard/kho-van-ban')}>
@@ -387,29 +483,29 @@ export function Sidebar({ onOpenNotifications }: SidebarProps) {
       </nav>
 
       {/* ── Bottom: User + Role Switch + Settings ── */}
-      <div className="border-t border-gray-200">
+      <div className="border-t border-[#E4E7EC]">
         {canSwitch && (
           <button
             onClick={handleSwitchRole}
-            className="w-full flex items-center gap-3 px-5 py-3 text-sm text-gray-600 hover:bg-orange-50 hover:text-orange-700 transition-colors group"
+            className="group flex w-full items-center gap-3 px-5 py-3 text-sm text-[#475467] hover:bg-primary-50 hover:text-primary-800"
           >
-            <span className="text-gray-400 group-hover:text-orange-600 transition-colors">{Icon.switchRole}</span>
+            <span className="text-[#667085] transition-colors group-hover:text-primary-700">{Icon.switchRole}</span>
             <span>Đổi sang <strong>{activeView === 'chu-dau-tu' ? 'Nhà thầu' : 'Chủ đầu tư'}</strong></span>
           </button>
         )}
 
         <div className="flex items-center gap-3 px-4 py-3">
-          <div className="w-9 h-9 rounded-full bg-red-100 flex items-center justify-center text-red-700 font-bold text-sm shrink-0">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-100 text-sm font-semibold text-primary-800">
             {user.name?.charAt(0) ?? '?'}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-gray-900 truncate">{user.name}</p>
-            <p className="text-xs text-gray-500">{roleLabels[user.role]}</p>
+            <p className="truncate text-sm font-medium text-[#1F2328]">{user.name}</p>
+            <p className="text-xs text-[#667085]">{roleLabels[user.role]}</p>
           </div>
           <NotificationBell onOpenNotifications={onOpenNotifications} />
           <button
             onClick={() => setShowSettings(!showSettings)}
-            className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+            className="rounded-md p-1.5 text-[#667085] hover:bg-[#F2F4F7] hover:text-[#344054]"
             title="Cài đặt"
           >
             <Settings className="h-[18px] w-[18px]" />
@@ -422,12 +518,12 @@ export function Sidebar({ onOpenNotifications }: SidebarProps) {
               initial={{ height: 0, opacity: 0 }}
               animate={{ height: 'auto', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
-              className="overflow-hidden border-t border-gray-100"
+              className="overflow-hidden border-t border-[#E4E7EC]"
             >
               <div className="px-4 py-2 space-y-1">
                 <button
                   onClick={() => { setShowChangePw(true); setPwForm({ old: '', new: '', confirm: '' }); setShowSettings(false); }}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg transition-colors"
+                  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-[#475467] hover:bg-[#F7F7F8]"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
                     <path fillRule="evenodd" d="M10 1a4.5 4.5 0 0 0-4.5 4.5V9H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-.5V5.5A4.5 4.5 0 0 0 10 1Zm3 8V5.5a3 3 0 1 0-6 0V9h6Z" clipRule="evenodd" />
@@ -436,7 +532,7 @@ export function Sidebar({ onOpenNotifications }: SidebarProps) {
                 </button>
                 <button
                   onClick={() => { logout(); router.push('/login'); }}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                  className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-[#B42318] hover:bg-[#FEF3F2]"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
                     <path fillRule="evenodd" d="M3 4.25A2.25 2.25 0 0 1 5.25 2h5.5A2.25 2.25 0 0 1 13 4.25v2a.75.75 0 0 1-1.5 0v-2a.75.75 0 0 0-.75-.75h-5.5a.75.75 0 0 0-.75.75v11.5c0 .414.336.75.75.75h5.5a.75.75 0 0 0 .75-.75v-2a.75.75 0 0 1 1.5 0v2A2.25 2.25 0 0 1 10.75 18h-5.5A2.25 2.25 0 0 1 3 15.75V4.25Z" clipRule="evenodd" />
@@ -456,8 +552,8 @@ export function Sidebar({ onOpenNotifications }: SidebarProps) {
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setShowChangePw(false)}>
             <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-white rounded-2xl shadow-xl w-full max-w-sm mx-4 p-6" onClick={e => e.stopPropagation()}>
-              <h3 className="text-lg font-semibold mb-4">Đổi mật khẩu</h3>
+              className="mx-4 w-full max-w-sm rounded-lg border border-[#E4E7EC] bg-white p-6 shadow-xl" onClick={e => e.stopPropagation()}>
+              <h3 className="mb-4 text-lg font-semibold">Đổi mật khẩu</h3>
               <div className="space-y-3">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Mật khẩu hiện tại</label>
@@ -476,9 +572,9 @@ export function Sidebar({ onOpenNotifications }: SidebarProps) {
                 </div>
               </div>
               <div className="flex gap-2 mt-5 justify-end">
-                <button onClick={() => setShowChangePw(false)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm">Hủy</button>
+                <button onClick={() => setShowChangePw(false)} className="btn-neutral">Hủy</button>
                 <button onClick={handleChangePw} disabled={pwLoading}
-                  className="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 text-sm disabled:opacity-50">
+                  className="btn-primary disabled:opacity-50">
                   {pwLoading ? 'Đang xử lý...' : 'Đổi mật khẩu'}
                 </button>
               </div>

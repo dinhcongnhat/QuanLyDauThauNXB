@@ -1,8 +1,17 @@
-import { Injectable, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { MinioService } from '../minio/minio.service';
 import { JwtService } from '@nestjs/jwt';
-import { ProcurementMethod, NotificationType } from '@prisma/client';
+import {
+  ProcurementMethod,
+  NotificationType,
+  Role,
+} from '@prisma/client';
 import { NotificationService } from '../notifications/notification.service';
 import {
   generateContractorSelectionDocx,
@@ -10,15 +19,14 @@ import {
   isAttachmentOnlyStep,
 } from './lcnt-docx-generator';
 import { prepareWorkflowTemplateData } from '../utils/docx-template-renderer';
+import { getOnlyOfficeAppUrl } from '../utils/onlyoffice-url';
+import { randomUUID } from 'crypto';
 
 // Steps requiring approval (they have DOCX templates)
 const APPROVAL_REQUIRED_STEPS = new Set([
-  'to_trinh_kqlcnt',
   'quyet_dinh_kqlcnt',
-  'to_trinh_hsmt',
   'quyet_dinh_hsmt',
   'quyet_dinh_lcnt',
-  'hop_dong',
 ]);
 
 // Auto-fill field mappings: when moving to `nextStep`, auto-fill from `fromStep`
@@ -142,41 +150,41 @@ const CHI_DINH_THAU_STEPS = [
   { stepKey: 'cong_van_tham_gia', stepOrder: 1, title: 'Công văn xin tham gia của nhà thầu (Đính kèm)', requiresApproval: false },
   { stepKey: 'thu_moi_hoan_thien', stepOrder: 2, title: 'Thư mời tham gia thương thảo hợp đồng', requiresApproval: false },
   { stepKey: 'bien_ban_hoan_thien', stepOrder: 3, title: 'Biên bản thương thảo hợp đồng', requiresApproval: false },
-  { stepKey: 'to_trinh_kqlcnt', stepOrder: 4, title: 'Tờ trình phê duyệt kết quả lựa chọn nhà thầu', requiresApproval: true },
+  { stepKey: 'to_trinh_kqlcnt', stepOrder: 4, title: 'Tờ trình phê duyệt kết quả lựa chọn nhà thầu', requiresApproval: false },
   { stepKey: 'quyet_dinh_kqlcnt', stepOrder: 5, title: 'Quyết định phê duyệt kết quả lựa chọn nhà thầu', requiresApproval: true },
-  { stepKey: 'hop_dong', stepOrder: 6, title: 'Hợp đồng', requiresApproval: true },
+  { stepKey: 'hop_dong', stepOrder: 6, title: 'Hợp đồng', requiresApproval: false },
 ];
 
 const CHAO_HANG_CANH_TRANH_STEPS = [
   { stepKey: 'thong_tin_to_chuyen_gia', stepOrder: 1, title: 'Thông tin tổ chuyên gia và tổ thẩm định (Đính kèm)', requiresApproval: false },
   { stepKey: 'san_pham_hsmt', stepOrder: 2, title: 'Sản phẩm hồ sơ mời thầu (Đính kèm)', requiresApproval: false },
-  { stepKey: 'to_trinh_hsmt', stepOrder: 3, title: 'Tờ trình phê duyệt HSMT', requiresApproval: true },
+  { stepKey: 'to_trinh_hsmt', stepOrder: 3, title: 'Tờ trình phê duyệt HSMT', requiresApproval: false },
   { stepKey: 'bao_cao_tham_dinh_hsmt', stepOrder: 4, title: 'Báo cáo thẩm định HSMT (Đính kèm)', requiresApproval: false },
   { stepKey: 'quyet_dinh_hsmt', stepOrder: 5, title: 'Quyết định phê duyệt hồ sơ mời thầu', requiresApproval: true },
   { stepKey: 'dang_tai_hsmt', stepOrder: 6, title: 'Đăng tải HSMT lên mạng đấu thầu quốc gia (Đính kèm)', requiresApproval: false },
   { stepKey: 'bao_cao_danh_gia_hsdt', stepOrder: 7, title: 'Báo cáo đánh giá HSDT (Đính kèm)', requiresApproval: false },
   { stepKey: 'bien_ban_doi_chieu', stepOrder: 8, title: 'Biên bản đối chiếu tài liệu (Đính kèm)', requiresApproval: false },
-  { stepKey: 'to_trinh_kqlcnt', stepOrder: 9, title: 'Tờ trình phê duyệt KQLCNT', requiresApproval: true },
+  { stepKey: 'to_trinh_kqlcnt', stepOrder: 9, title: 'Tờ trình phê duyệt KQLCNT', requiresApproval: false },
   { stepKey: 'bao_cao_tham_dinh_kqlcnt', stepOrder: 10, title: 'Báo cáo thẩm định kết quả lựa chọn nhà thầu (Đính kèm)', requiresApproval: false },
   { stepKey: 'quyet_dinh_lcnt', stepOrder: 11, title: 'Quyết định lựa chọn nhà thầu', requiresApproval: true },
   { stepKey: 'dang_tai_lcnt', stepOrder: 12, title: 'Đăng tải thông tin lựa chọn nhà thầu lên mạng đấu thầu (Đính kèm)', requiresApproval: false },
-  { stepKey: 'hop_dong', stepOrder: 13, title: 'Hợp đồng', requiresApproval: true },
+  { stepKey: 'hop_dong', stepOrder: 13, title: 'Hợp đồng', requiresApproval: false },
 ];
 
 const DAU_THAU_RONG_RAI_STEPS = [
   { stepKey: 'thong_tin_to_chuyen_gia', stepOrder: 1, title: 'Thông tin tổ chuyên gia và tổ thẩm định (Đính kèm)', requiresApproval: false },
   { stepKey: 'san_pham_hsmt', stepOrder: 2, title: 'Sản phẩm hồ sơ mời thầu (Đính kèm)', requiresApproval: false },
-  { stepKey: 'to_trinh_hsmt', stepOrder: 3, title: 'Tờ trình phê duyệt HSMT', requiresApproval: true },
+  { stepKey: 'to_trinh_hsmt', stepOrder: 3, title: 'Tờ trình phê duyệt HSMT', requiresApproval: false },
   { stepKey: 'bao_cao_tham_dinh_hsmt', stepOrder: 4, title: 'Báo cáo thẩm định HSMT (Đính kèm)', requiresApproval: false },
   { stepKey: 'quyet_dinh_hsmt', stepOrder: 5, title: 'Quyết định phê duyệt hồ sơ mời thầu', requiresApproval: true },
   { stepKey: 'dang_tai_hsmt', stepOrder: 6, title: 'Đăng tải HSMT lên mạng đấu thầu quốc gia (Đính kèm)', requiresApproval: false },
   { stepKey: 'bao_cao_danh_gia_hsdt', stepOrder: 7, title: 'Báo cáo đánh giá HSDT (Đính kèm)', requiresApproval: false },
   { stepKey: 'bien_ban_doi_chieu', stepOrder: 8, title: 'Biên bản đối chiếu tài liệu (Đính kèm)', requiresApproval: false },
-  { stepKey: 'to_trinh_kqlcnt', stepOrder: 9, title: 'Tờ trình phê duyệt KQLCNT', requiresApproval: true },
+  { stepKey: 'to_trinh_kqlcnt', stepOrder: 9, title: 'Tờ trình phê duyệt KQLCNT', requiresApproval: false },
   { stepKey: 'bao_cao_tham_dinh_kqlcnt', stepOrder: 10, title: 'Báo cáo thẩm định kết quả lựa chọn nhà thầu (Đính kèm)', requiresApproval: false },
   { stepKey: 'quyet_dinh_lcnt', stepOrder: 11, title: 'Quyết định lựa chọn nhà thầu', requiresApproval: true },
   { stepKey: 'dang_tai_lcnt', stepOrder: 12, title: 'Đăng tải thông tin lựa chọn nhà thầu lên mạng đấu thầu (Đính kèm)', requiresApproval: false },
-  { stepKey: 'hop_dong', stepOrder: 13, title: 'Hợp đồng', requiresApproval: true },
+  { stepKey: 'hop_dong', stepOrder: 13, title: 'Hợp đồng', requiresApproval: false },
 ];
 
 function getSteps(method: ProcurementMethod) {
@@ -193,6 +201,40 @@ function asRecord(value: unknown): Record<string, any> {
     : {};
 }
 
+function asAttachmentArray(value: unknown): any[] {
+  const values = Array.isArray(value)
+    ? [...value]
+    : value == null || value === ''
+      ? []
+      : [value];
+  return values.filter(
+    (item) =>
+      typeof item !== 'string'
+      || !/\[object Object\]/i.test(item),
+  );
+}
+
+function getAttachmentPath(attachment: any): string {
+  if (typeof attachment === 'string') return attachment;
+  return typeof attachment?.path === 'string' ? attachment.path : '';
+}
+
+function filterStepAttachments(
+  value: unknown,
+  selectionId: string,
+  stepKey: string,
+): any[] {
+  const selectionPrefix = `lcnt/${selectionId}/`;
+  const stepPrefix = `${selectionPrefix}${stepKey}/`;
+  return asAttachmentArray(value).filter((attachment) => {
+    const path = getAttachmentPath(attachment);
+    return Boolean(path) && (
+      !path.startsWith(selectionPrefix)
+      || path.startsWith(stepPrefix)
+    );
+  });
+}
+
 function firstMeaningful(...values: any[]): any {
   return values.find((value) => {
     if (value === undefined || value === null || value === '') return false;
@@ -206,7 +248,7 @@ function formatTemplateDate(value: any): any {
   return `${value.getUTCDate()}/${value.getUTCMonth() + 1}/${value.getUTCFullYear()}`;
 }
 
-function buildWorkflowPayload(
+export function buildWorkflowPayload(
   selection: {
     data: unknown;
     tenGoiThau: string;
@@ -224,6 +266,10 @@ function buildWorkflowPayload(
     packageData,
     ...stepDataSources.map(asRecord),
   ) as Record<string, any>;
+  // Files belong to exactly one workflow step. They must never participate in
+  // auto-fill/DOCX payload inheritance for following steps.
+  delete merged._attachments;
+  delete merged.attachmentPath;
 
   const legalBasis = firstMeaningful(
     merged.CanCu,
@@ -343,33 +389,6 @@ function getContractIdentity(dataValue: unknown): {
     soHopDong: rawNumber === undefined ? undefined : String(rawNumber).trim(),
     ngayKyHopDong: parseContractDate(rawDate),
   };
-}
-
-/**
- * Check if user can approve based on canApprove flag or ADMIN role
- */
-async function userCanApprove(prisma: PrismaService, userId: string): Promise<boolean> {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { role: true, canApprove: true },
-  });
-  return user?.role === 'ADMIN' || user?.canApprove === true;
-}
-
-/**
- * Get all users who can approve (for notification purposes)
- */
-async function getApprovers(prisma: PrismaService): Promise<string[]> {
-  const users = await prisma.user.findMany({
-    where: {
-      OR: [
-        { role: 'ADMIN' },
-        { canApprove: true },
-      ],
-    },
-    select: { id: true },
-  });
-  return users.map(u => u.id);
 }
 
 /**
@@ -515,6 +534,40 @@ export class ContractorSelectionService {
     private jwtService: JwtService,
     private notificationService: NotificationService,
   ) {}
+
+  private async assertProjectAccess(
+    userId: string,
+    projectId?: string | null,
+  ): Promise<void> {
+    if (!projectId) {
+      throw new BadRequestException(
+        'Không xác định được dự án của quy trình LCNT',
+      );
+    }
+    const actor = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+    if (!actor) {
+      throw new ForbiddenException('Tài khoản không còn tồn tại');
+    }
+    if (actor.role === Role.ADMIN) return;
+
+    const membership = await this.prisma.projectMember.findUnique({
+      where: {
+        projectId_userId: {
+          projectId,
+          userId,
+        },
+      },
+      select: { userId: true },
+    });
+    if (!membership) {
+      throw new ForbiddenException(
+        'Bạn không phải thành viên của dự án này',
+      );
+    }
+  }
 
   // ====================== AUTO FILL LOGIC ======================
 
@@ -826,6 +879,42 @@ export class ContractorSelectionService {
       throw new BadRequestException('QĐ KHLCNT không hợp lệ hoặc chưa được phê duyệt');
     }
 
+    if (projectId && doc.projectId && projectId !== doc.projectId) {
+      throw new BadRequestException(
+        'Quyết định KHLCNT không thuộc dự án đã chọn',
+      );
+    }
+    const resolvedProjectId = projectId || doc.projectId;
+    if (!resolvedProjectId) {
+      throw new BadRequestException(
+        'Không xác định được dự án của Quyết định KHLCNT',
+      );
+    }
+
+    const actor = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    });
+    if (!actor) {
+      throw new ForbiddenException('Tài khoản không còn tồn tại');
+    }
+    if (actor.role !== Role.ADMIN) {
+      const membership = await this.prisma.projectMember.findUnique({
+        where: {
+          projectId_userId: {
+            projectId: resolvedProjectId,
+            userId,
+          },
+        },
+        select: { userId: true },
+      });
+      if (!membership) {
+        throw new ForbiddenException(
+          'Bạn không phải thành viên của dự án này',
+        );
+      }
+    }
+
     const data = asRecord(doc.data);
     const packages = Array.isArray(data.goiThau)
       ? data.goiThau
@@ -896,7 +985,7 @@ export class ContractorSelectionService {
         procurementMethod: method,
         data: goiThau,
         createdBy: userId,
-        projectId: projectId || doc.projectId,
+        projectId: resolvedProjectId,
         steps: {
           create: steps.map(s => ({
             stepKey: s.stepKey,
@@ -914,17 +1003,15 @@ export class ContractorSelectionService {
       },
     });
 
-    if (projectId) {
-      await this.prisma.projectLog.create({
-        data: {
-          projectId,
-          stepKey: 'lcnt',
-          action: 'CREATE_LCNT',
-          message: `Khởi tạo quy trình Lựa chọn nhà thầu cho gói thầu "${goiThau.tenGoiThau || `Gói thầu ${resolvedIndex + 1}`}"`,
-          userId,
-        }
-      });
-    }
+    await this.prisma.projectLog.create({
+      data: {
+        projectId: resolvedProjectId,
+        stepKey: 'lcnt',
+        action: 'CREATE_LCNT',
+        message: `Khởi tạo quy trình Lựa chọn nhà thầu cho gói thầu "${goiThau.tenGoiThau || `Gói thầu ${resolvedIndex + 1}`}"`,
+        userId,
+      },
+    });
 
     return selection;
   }
@@ -932,12 +1019,26 @@ export class ContractorSelectionService {
   // ====================== UPDATE STEP DATA ======================
 
   async updateStepData(stepId: string, data: any, userId: string) {
-    const step = await this.prisma.procurementStep.findUnique({ where: { id: stepId } });
+    const step = await this.prisma.procurementStep.findUnique({
+      where: { id: stepId },
+      include: {
+        contractorSelection: { select: { projectId: true } },
+      },
+    });
     if (!step) throw new NotFoundException('Không tìm thấy bước');
+    await this.assertProjectAccess(
+      userId,
+      step.contractorSelection.projectId,
+    );
 
     // Cannot edit completed steps (unless approval is rejected)
     if (step.status === 'COMPLETED') {
       throw new BadRequestException('Bước đã hoàn thành. Cần mở lại trước khi chỉnh sửa.');
+    }
+    if (step.approvalStatus === 'PENDING_APPROVAL') {
+      throw new BadRequestException(
+        'Quyết định đang chờ phê duyệt và đã được khóa nội dung',
+      );
     }
 
     // If step was rejected, reset approval status when editing
@@ -945,6 +1046,19 @@ export class ContractorSelectionService {
 
     const existingData = (step.data as any) || {};
     const updatedData = { ...existingData, ...data };
+    if (
+      Object.prototype.hasOwnProperty.call(existingData, '_attachments')
+      || Object.prototype.hasOwnProperty.call(data || {}, '_attachments')
+    ) {
+      updatedData._attachments = filterStepAttachments(
+        updatedData._attachments,
+        step.contractorSelectionId,
+        step.stepKey,
+      );
+    }
+    // Generated document paths are stored in the dedicated database column.
+    // Never accept a copied path inside the form payload.
+    delete updatedData.attachmentPath;
 
     const contractIdentity = step.stepKey === 'hop_dong'
       ? getContractIdentity(updatedData)
@@ -983,229 +1097,25 @@ export class ContractorSelectionService {
     return res;
   }
 
-  // ====================== APPROVAL WORKFLOW ======================
-
-  /** Request approval for a step (trình duyệt) */
-  async requestApproval(stepId: string, userId: string, comment?: string) {
-    // NOTE: Anyone can request approval - no role restriction
-    const step = await this.prisma.procurementStep.findUnique({ where: { id: stepId } });
-    if (!step) throw new NotFoundException('Không tìm thấy bước');
-
-    if (!step.requiresApproval) {
-      throw new BadRequestException('Bước này không yêu cầu phê duyệt');
-    }
-
-    if (step.approvalStatus === 'PENDING_APPROVAL') {
-      throw new BadRequestException('Bước đang chờ phê duyệt');
-    }
-
-    if (step.approvalStatus === 'APPROVED') {
-      throw new BadRequestException('Bước đã được phê duyệt. Cần mở lại để yêu cầu phê duyệt mới.');
-    }
-
-    // Update step status
-    await this.prisma.procurementStep.update({
-      where: { id: stepId },
-      data: { approvalStatus: 'PENDING_APPROVAL' },
-    });
-
-    await this.writeLog(step.contractorSelectionId, 'REQUEST_APPROVAL', `Trình duyệt bước "${step.title}"`, userId);
-
-    // Create approval request record
-    const request = await this.prisma.stepApprovalRequest.create({
-      data: {
-        stepId,
-        userId,
-        action: 'PENDING_APPROVAL',
-        comment,
-      },
-    });
-
-    // Notify approvers about the pending approval
-    const existingApprovers = await this.prisma.stepApprovalRequest.findMany({
-      where: { stepId, action: 'APPROVED' },
-      select: { userId: true },
-    });
-    const existingApproverIds = new Set(existingApprovers.map(a => a.userId));
-
-    const approverIds = await getApprovers(this.prisma);
-    const newApproverIds = approverIds.filter(id => !existingApproverIds.has(id));
-
-    const stepData = await this.getStep(stepId);
-    const selectionData = stepData.contractorSelection;
-    const projectName = (selectionData.data as any)?.tenGoiThau || (selectionData.data as any)?.tenDuAn || '';
-
-    await Promise.all(
-      newApproverIds.map((uid) =>
-        this.notificationService.create(uid, {
-          type: NotificationType.STEP_PENDING_APPROVAL,
-          title: 'Có bước LCNT chờ duyệt',
-          message: `Bước "${stepData.title}" của "${projectName}" cần được phê duyệt.`,
-          link: '/dashboard/mua-sam/lua-chon-nha-thau',
-        }),
-      ),
-    );
-
-    return stepData;
-  }
-
-  /** Approve a step */
-  async approveStep(stepId: string, userId: string, comment?: string) {
-    // Check if user can approve (has canApprove flag or is ADMIN)
-    const canApprove = await userCanApprove(this.prisma, userId);
-    if (!canApprove) {
-      throw new ForbiddenException('Bạn không có quyền phê duyệt bước này. Vui lòng liên hệ Admin để được cấp quyền phê duyệt.');
-    }
-
-    const step = await this.prisma.procurementStep.findUnique({ where: { id: stepId } });
-    if (!step) throw new NotFoundException('Không tìm thấy bước');
-
-    if (step.approvalStatus !== 'PENDING_APPROVAL') {
-      throw new BadRequestException('Bước không ở trạng thái chờ phê duyệt');
-    }
-
-    // NOTE: No role restriction - anyone with canApprove=true or ADMIN can approve any step
-
-    await this.prisma.$transaction(async (tx) => {
-      // Update step
-      await tx.procurementStep.update({
-        where: { id: stepId },
-        data: {
-          approvalStatus: 'APPROVED',
-          approvedBy: userId,
-          approvedAt: new Date(),
-          approvalComment: comment || null,
-        },
-      });
-
-      // Create approval record
-      await tx.stepApprovalRequest.create({
-        data: {
-          stepId,
-          userId,
-          action: 'APPROVED',
-          comment,
-        },
-      });
-    });
-
-    await this.writeLog(step.contractorSelectionId, 'APPROVE_STEP', `Phê duyệt bước "${step.title}"`, userId);
-
-    const stepData = await this.getStep(stepId);
-    const selectionData = stepData.contractorSelection;
-    const projectName = (selectionData.data as any)?.tenGoiThau || (selectionData.data as any)?.tenDuAn || '';
-
-    // Notify the requester about approval
-    const requester = await this.prisma.stepApprovalRequest.findFirst({
-      where: { stepId, action: 'PENDING_APPROVAL' },
-      orderBy: { createdAt: 'asc' },
-    });
-    if (requester) {
-      await this.notificationService.create(requester.userId, {
-        type: NotificationType.STEP_APPROVED,
-        title: 'Bước LCNT đã được phê duyệt',
-        message: `Bước "${stepData.title}" của "${projectName}" đã được phê duyệt.`,
-        link: '/dashboard/mua-sam/lua-chon-nha-thau',
-      });
-    }
-
-    return stepData;
-  }
-
-  /** Reject a step */
-  async rejectStep(stepId: string, userId: string, comment: string) {
-    // Check if user can reject (has canApprove flag or is ADMIN)
-    const canApprove = await userCanApprove(this.prisma, userId);
-    if (!canApprove) {
-      throw new ForbiddenException('Bạn không có quyền từ chối bước này. Vui lòng liên hệ Admin để được cấp quyền phê duyệt.');
-    }
-
-    const step = await this.prisma.procurementStep.findUnique({ where: { id: stepId } });
-    if (!step) throw new NotFoundException('Không tìm thấy bước');
-
-    if (step.approvalStatus !== 'PENDING_APPROVAL') {
-      throw new BadRequestException('Bước không ở trạng thái chờ phê duyệt');
-    }
-
-    await this.prisma.$transaction(async (tx) => {
-      await tx.procurementStep.update({
-        where: { id: stepId },
-        data: {
-          approvalStatus: 'REJECTED',
-          approvedBy: null,
-          approvedAt: null,
-          approverRole: null,
-        },
-      });
-
-      await tx.stepApprovalRequest.create({
-        data: {
-          stepId,
-          userId,
-          action: 'REJECTED',
-          comment,
-        },
-      });
-    });
-
-    await this.writeLog(step.contractorSelectionId, 'REJECT_STEP', `Từ chối bước "${step.title}". Lý do: ${comment}`, userId);
-
-    const stepData = await this.getStep(stepId);
-    const selectionData = stepData.contractorSelection;
-    const projectName = (selectionData.data as any)?.tenGoiThau || (selectionData.data as any)?.tenDuAn || '';
-
-    const requester = await this.prisma.stepApprovalRequest.findFirst({
-      where: { stepId, action: 'PENDING_APPROVAL' },
-      orderBy: { createdAt: 'asc' },
-    });
-    if (requester) {
-      await this.notificationService.create(requester.userId, {
-        type: NotificationType.STEP_REJECTED,
-        title: 'Bước LCNT bị từ chối',
-        message: `Bước "${stepData.title}" của "${projectName}" đã bị từ chối. Lý do: ${comment || 'Không có'}`.slice(0, 500),
-        link: '/dashboard/mua-sam/lua-chon-nha-thau',
-      });
-    }
-
-    return stepData;
-  }
-
-  /** Get steps pending approval (for approval dashboard) */
-  async getPendingApprovals(projectId?: string) {
-    const where: any = {
-      approvalStatus: 'PENDING_APPROVAL',
-      requiresApproval: true,
-    };
-    if (projectId) {
-      where.contractorSelection = { projectId };
-    }
-    const steps = await this.prisma.procurementStep.findMany({
-      where,
-      include: {
-        contractorSelection: {
-          include: {
-            project: { select: { id: true, tenDuAn: true, procurementType: true } },
-            qdKhlcnt: { select: { id: true, data: true } },
-            creator: { select: { id: true, name: true, role: true } },
-          },
-        },
-        approvalRequests: {
-          include: { user: { select: { id: true, name: true, role: true } } },
-          orderBy: { createdAt: 'asc' },
-        },
-      },
-      orderBy: { updatedAt: 'asc' },
-    });
-    return steps;
-  }
-
   // ====================== CONTRACT PACKAGE TYPE ======================
 
-  async setContractPackageType(selectionId: string, packageType: string) {
+  async setContractPackageType(
+    selectionId: string,
+    packageType: string,
+    userId: string,
+  ) {
     const valid = ['GOI_THAU_TU_VAN', 'GOI_THAU_PHI_TU_VAN', 'GOI_THAU_TRIEN_KHAI'];
     if (!valid.includes(packageType)) {
       throw new BadRequestException(`Loại gói thầu không hợp lệ: ${packageType}`);
     }
+    const selection = await this.prisma.contractorSelection.findUnique({
+      where: { id: selectionId },
+      select: { projectId: true },
+    });
+    if (!selection) {
+      throw new NotFoundException('Không tìm thấy quy trình LCNT');
+    }
+    await this.assertProjectAccess(userId, selection.projectId);
     return this.prisma.contractorSelection.update({
       where: { id: selectionId },
       data: { contractPackageType: packageType as any },
@@ -1214,12 +1124,16 @@ export class ContractorSelectionService {
 
   // ====================== STEP COMPLETION ======================
 
-  async completeStep(stepId: string, userId?: string) {
+  async completeStep(stepId: string, userId: string) {
     const step = await this.prisma.procurementStep.findUnique({
       where: { id: stepId },
       include: { contractorSelection: true },
     });
     if (!step) throw new NotFoundException('Không tìm thấy bước');
+    await this.assertProjectAccess(
+      userId,
+      step.contractorSelection.projectId,
+    );
 
     // Verify previous steps are completed
     const allSteps = await this.prisma.procurementStep.findMany({
@@ -1292,14 +1206,23 @@ export class ContractorSelectionService {
       });
     }
 
-    await this.writeLog(step.contractorSelectionId, 'COMPLETE_STEP', `Hoàn thành bước "${step.title}"`, userId || 'SYSTEM');
+    await this.writeLog(step.contractorSelectionId, 'COMPLETE_STEP', `Hoàn thành bước "${step.title}"`, userId);
 
     return updated;
   }
 
-  async reopenStep(stepId: string, userId?: string) {
-    const step = await this.prisma.procurementStep.findUnique({ where: { id: stepId } });
+  async reopenStep(stepId: string, userId: string) {
+    const step = await this.prisma.procurementStep.findUnique({
+      where: { id: stepId },
+      include: {
+        contractorSelection: { select: { projectId: true } },
+      },
+    });
     if (!step) throw new NotFoundException('Không tìm thấy bước');
+    await this.assertProjectAccess(
+      userId,
+      step.contractorSelection.projectId,
+    );
     if (step.status !== 'COMPLETED') {
       throw new BadRequestException('Bước này chưa hoàn thành, không cần mở lại');
     }
@@ -1317,7 +1240,7 @@ export class ContractorSelectionService {
       },
     });
 
-    await this.writeLog(step.contractorSelectionId, 'REOPEN_STEP', `Mở lại bước "${step.title}"`, userId || 'SYSTEM');
+    await this.writeLog(step.contractorSelectionId, 'REOPEN_STEP', `Mở lại bước "${step.title}"`, userId);
 
     return res;
   }
@@ -1370,16 +1293,25 @@ export class ContractorSelectionService {
     );
   }
 
-  async generateAndSaveDocx(stepId: string): Promise<string> {
+  async generateAndSaveDocx(
+    stepId: string,
+    userId: string,
+  ): Promise<string> {
     const step = await this.prisma.procurementStep.findUnique({
       where: { id: stepId },
       include: { contractorSelection: true },
     });
     if (!step) throw new NotFoundException('Không tìm thấy bước');
+    await this.assertProjectAccess(
+      userId,
+      step.contractorSelection.projectId,
+    );
 
     const buffer = await this.generateStepDocx(stepId);
-    const label = this.getStepDocFilename(step.stepKey, step.contractorSelection.tenGoiThau);
-    const objectName = `lcnt/${step.contractorSelection.id}/${step.stepKey}/${label}.docx`;
+    // Keep the object key short and ASCII-safe. The human-readable filename is
+    // still supplied by the download response/OnlyOffice title.
+    const objectName =
+      `lcnt/${step.contractorSelection.id}/${step.stepKey}/document.docx`;
     await this.minio.upload(objectName, buffer, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
 
     await this.prisma.procurementStep.update({
@@ -1392,7 +1324,7 @@ export class ContractorSelectionService {
 
   // ====================== FILE UPLOAD ======================
 
-  async uploadAttachment(stepId: string, file: { buffer: Buffer; originalname: string; mimetype: string; ghiChu?: string }, userId?: string): Promise<string> {
+  async uploadAttachment(stepId: string, file: { buffer: Buffer; originalname: string; mimetype: string; ghiChu?: string }, userId: string): Promise<string> {
     // File type validation - whitelist only safe document types
     const ALLOWED_EXTENSIONS = new Set(['pdf', 'doc', 'docx', 'xls', 'xlsx', 'jpg', 'jpeg', 'png']);
     const ALLOWED_MIME_TYPES = new Set([
@@ -1423,14 +1355,23 @@ export class ContractorSelectionService {
       include: { contractorSelection: true },
     });
     if (!step) throw new NotFoundException('Không tìm thấy bước');
+    await this.assertProjectAccess(
+      userId,
+      step.contractorSelection.projectId,
+    );
+    if (step.status === 'COMPLETED' || step.approvalStatus === 'PENDING_APPROVAL') {
+      throw new BadRequestException(
+        'Bước đã hoàn thành hoặc đang chờ phê duyệt và không thể thay đổi tệp đính kèm',
+      );
+    }
 
-    const safeName = file.originalname.replace(/[^a-zA-Z0-9._\u00C0-\u024F\u1E00-\u1EFF-]/g, '_');
-    const objectName = `lcnt/${step.contractorSelection.id}/${step.stepKey}/${safeName}`;
+    const objectName =
+      `lcnt/${step.contractorSelection.id}/${step.stepKey}/${randomUUID()}/${file.originalname}`;
 
     await this.minio.upload(objectName, file.buffer, file.mimetype);
 
     const existingData = (step.data as any) || {};
-    const attachments: any[] = existingData._attachments || [];
+    const attachments = asAttachmentArray(existingData._attachments);
     // Store each attachment with metadata (filename + ghi chu)
     const attachmentMeta: any = { path: objectName, fileName: file.originalname };
     if (file.ghiChu) attachmentMeta.ghiChu = file.ghiChu;
@@ -1444,33 +1385,44 @@ export class ContractorSelectionService {
       },
     });
 
-    if (userId) {
-      await this.writeLog(step.contractorSelection.id, 'UPLOAD_FILE', `Đính kèm tài liệu "${file.originalname}" vào bước "${step.title}"`, userId);
-    }
+    await this.writeLog(step.contractorSelection.id, 'UPLOAD_FILE', `Đính kèm tài liệu "${file.originalname}" vào bước "${step.title}"`, userId);
 
     return objectName;
   }
 
-  async deleteAttachment(stepId: string, objectPath: string, userId?: string) {
-    const step = await this.prisma.procurementStep.findUnique({ where: { id: stepId } });
+  async deleteAttachment(stepId: string, objectPath: string, userId: string) {
+    const step = await this.prisma.procurementStep.findUnique({
+      where: { id: stepId },
+      include: {
+        contractorSelection: { select: { projectId: true } },
+      },
+    });
     if (!step) throw new NotFoundException('Không tìm thấy bước');
+    await this.assertProjectAccess(
+      userId,
+      step.contractorSelection.projectId,
+    );
+    if (step.status === 'COMPLETED' || step.approvalStatus === 'PENDING_APPROVAL') {
+      throw new BadRequestException(
+        'Bước đã hoàn thành hoặc đang chờ phê duyệt và không thể thay đổi tệp đính kèm',
+      );
+    }
 
     const data = (step.data as any) || {};
-    const attachments: string[] = data._attachments || [];
-    const idx = attachments.indexOf(objectPath);
-    if (idx !== -1) {
-      attachments.splice(idx, 1);
-    }
+    const attachments = asAttachmentArray(data._attachments);
+    const remainingAttachments = attachments.filter((attachment) =>
+      typeof attachment === 'string'
+        ? attachment !== objectPath
+        : attachment?.path !== objectPath,
+    );
 
     await this.prisma.procurementStep.update({
       where: { id: stepId },
-      data: { data: { ...data, _attachments: attachments } },
+      data: { data: { ...data, _attachments: remainingAttachments } },
     });
 
-    if (userId) {
-      const fileName = objectPath.split('/').pop() || 'tài liệu';
-      await this.writeLog(step.contractorSelectionId, 'DELETE_FILE', `Xóa tài liệu đính kèm "${fileName}" khỏi bước "${step.title}"`, userId);
-    }
+    const fileName = objectPath.split('/').pop() || 'tài liệu';
+    await this.writeLog(step.contractorSelectionId, 'DELETE_FILE', `Xóa tài liệu đính kèm "${fileName}" khỏi bước "${step.title}"`, userId);
 
     try {
       await this.minio.delete(objectPath);
@@ -1486,7 +1438,7 @@ export class ContractorSelectionService {
   }
 
   async getOnlyofficeConfigForFile(objectPath: string) {
-    const appUrl = process.env.APP_URL || 'http://demo.jtsc.vn';
+    const appUrl = getOnlyOfficeAppUrl();
     const onlyofficeUrl = process.env.ONLYOFFICE_URL || 'https://jtsconlyoffice.duckdns.org';
     const onlyofficeSecret = process.env.ONLYOFFICE_JWT_SECRET || '10122002';
 
@@ -1601,7 +1553,7 @@ export class ContractorSelectionService {
       }
       // User-uploaded attachments
       const data = (step.data as any) || {};
-      const attachments: any[] = data._attachments || [];
+      const attachments = asAttachmentArray(data._attachments);
       for (const att of attachments) {
         const attObj = typeof att === 'string' ? { path: att, fileName: att.split('/').pop() } : att;
         files.push({ stepId: step.id, stepTitle: step.title, filename: `${step.title} - ${attObj.fileName || attObj.path.split('/').pop()}`, type: 'attachment', source: 'minio', objectPath: attObj.path });

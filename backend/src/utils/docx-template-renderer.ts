@@ -115,6 +115,38 @@ function formatScalar(value: any): string {
   return String(value);
 }
 
+function formatVietnameseIssueDate(value: any): string {
+  let year = 0;
+  let month = 0;
+  let day = 0;
+
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    year = value.getUTCFullYear();
+    month = value.getUTCMonth() + 1;
+    day = value.getUTCDate();
+  } else if (typeof value === 'string') {
+    const normalized = value.trim();
+    const isoDate = normalized.match(
+      /^(\d{4})-(\d{2})-(\d{2})(?:T[\d:.+-]+Z?)?$/,
+    );
+    const numericDate = normalized.match(
+      /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/,
+    );
+    if (isoDate) {
+      year = Number(isoDate[1]);
+      month = Number(isoDate[2]);
+      day = Number(isoDate[3]);
+    } else if (numericDate) {
+      day = Number(numericDate[1]);
+      month = Number(numericDate[2]);
+      year = Number(numericDate[3]);
+    }
+  }
+
+  if (!year || !month || !day) return formatScalar(value);
+  return `Ngày ${String(day).padStart(2, '0')} tháng ${month} năm ${year}`;
+}
+
 function readAliasedValue(data: Record<string, any>, rawKey: string): any {
   const trimmed = rawKey.trim();
   const compact = trimmed.replace(/\s+/g, '');
@@ -211,6 +243,12 @@ export function normalizeDocxRuns(xml: string): string {
 function replacePlaceholders(xml: string, data: Record<string, any>): string {
   return xml.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_token, inner: string) => {
     const value = readAliasedValue(data, inner);
+    const normalizedKey = inner
+      .replace(/\s+/g, '')
+      .toLocaleLowerCase('vi');
+    if (normalizedKey === 'ngaybanhanh' || normalizedKey === 'ngayky') {
+      return escapeXmlText(formatVietnameseIssueDate(value));
+    }
     if (Array.isArray(value)) {
       return escapeXmlText(value.map(formatScalar).filter(Boolean).join(', '));
     }
@@ -232,6 +270,14 @@ function normalizeCitation(value: string): string {
   citation = citation.replace(/[;,.]\s*$/, '').trim();
   if (!/^căn\s+cứ(?:\s|$)/i.test(citation)) citation = `Căn cứ ${citation}`;
   return `${citation};`;
+}
+
+function normalizeIntroCitation(value: unknown): string {
+  let citation = String(value ?? '').trim();
+  if (!citation) return '';
+  citation = citation.replace(/[;,.]\s*$/, '').trim();
+  if (!/^căn\s+cứ(?:\s|$)/i.test(citation)) citation = `Căn cứ ${citation}`;
+  return citation;
 }
 
 export function getLegalBasisCitations(data: Record<string, any>): string[] {
@@ -262,10 +308,15 @@ function expandLegalBasisParagraphs(
   xml: string,
   citations: string[],
   standaloneOnly = false,
+  introCitation = '',
 ): string {
   return xml.replace(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g, (paragraph) => {
     if (!paragraph.includes('{{CanCu}}')) return paragraph;
-    if (standaloneOnly && paragraphText(paragraph).trim() !== '{{CanCu}}') return '';
+    if (standaloneOnly && paragraphText(paragraph).trim() !== '{{CanCu}}') {
+      return introCitation
+        ? replacePlaceholders(paragraph, { CanCu: introCitation })
+        : '';
+    }
     if (citations.length === 0) return '';
     return citations
       .map((citation) => replacePlaceholders(paragraph, { CanCu: citation }))
@@ -603,6 +654,9 @@ export async function renderDocxTemplate(
   const data = prepareWorkflowTemplateData(rawData);
   const packages = getProcurementPackages(data);
   const citations = getLegalBasisCitations(data);
+  const introCitation = normalizeIntroCitation(
+    data.CanCuMoDau ?? data.canCuMoDau,
+  );
 
   for (const [name, file] of Object.entries(zip.files)) {
     if (!name.startsWith('word/') || !name.endsWith('.xml')) continue;
@@ -613,10 +667,20 @@ export async function renderDocxTemplate(
         xml = expandPackageRows(xml, packages, data);
       }
       xml = expandPackageParagraphs(xml, packages, data, options.repeatParagraphs || []);
-      xml = expandLegalBasisParagraphs(xml, citations, options.legalBasisStandaloneOnly);
+      xml = expandLegalBasisParagraphs(
+        xml,
+        citations,
+        options.legalBasisStandaloneOnly,
+        introCitation,
+      );
       xml = xml.replace(/gồm\s+04\s+gói thầu/g, `gồm ${packages.length} gói thầu`);
     } else {
-      xml = expandLegalBasisParagraphs(xml, citations, options.legalBasisStandaloneOnly);
+      xml = expandLegalBasisParagraphs(
+        xml,
+        citations,
+        options.legalBasisStandaloneOnly,
+        introCitation,
+      );
     }
 
     xml = replacePlaceholders(xml, data);

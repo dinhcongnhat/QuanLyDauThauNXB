@@ -1,10 +1,14 @@
 import { Controller, Get, Post, Patch, Body, Param, Query, UseGuards, Request, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { DatSachService } from './dat-sach.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { PermissionsGuard } from '../auth/permissions.guard';
+import { RequirePermissions } from '../auth/permissions.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { JwtService } from '@nestjs/jwt';
 import { Public } from '../auth/public.decorator';
+import { ApprovalTargetType } from '@prisma/client';
+import { ApprovalsService } from '../approvals/approvals.service';
 import * as fs from 'fs';
 import * as path from 'path';
 const AdmZip = require('adm-zip');
@@ -175,11 +179,13 @@ function buildQDReplacements(data: any): Record<string, string> {
 // ─── Controller ───────────────────────────────────────────────────────────────────
 
 @Controller('dat-sach')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, PermissionsGuard)
+@RequirePermissions('feature:book-procurement')
 export class DatSachController {
   constructor(
     private readonly datSachService: DatSachService,
     private readonly jwtService: JwtService,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   // ─── Projects ───────────────────────────────────────────────
@@ -209,8 +215,10 @@ export class DatSachController {
   }
 
   @Patch('projects/:id/complete')
-  async markCompleted(@Param('id') id: string) {
-    return this.datSachService.markProjectCompleted(id);
+  async markCompleted(@Param('id') _id: string) {
+    throw new BadRequestException(
+      'Hồ sơ Đặt sách chỉ hoàn thành sau khi Quyết định được người được chỉ định phê duyệt',
+    );
   }
 
   // ─── GDN In Sách ───────────────────────────────────────────
@@ -311,7 +319,11 @@ export class DatSachController {
     @Body() body: { reviewerId: string },
     @Request() req: any,
   ) {
-    return this.datSachService.submitQDForReview(id, body.reviewerId, req.user.userId);
+    return this.approvals.submit(req.user.userId, {
+      targetType: ApprovalTargetType.DAT_SACH_DECISION,
+      targetId: id,
+      approverId: body.reviewerId,
+    });
   }
 
   @Post('project/:id/review-approve')
@@ -320,7 +332,12 @@ export class DatSachController {
     @Body() body: { comment?: string },
     @Request() req: any,
   ) {
-    return this.datSachService.approveQDReview(id, req.user.userId, body.comment);
+    return this.approvals.approveTarget(
+      ApprovalTargetType.DAT_SACH_DECISION,
+      id,
+      req.user.userId,
+      body.comment,
+    );
   }
 
   @Post('project/:id/review-rework')
@@ -329,7 +346,12 @@ export class DatSachController {
     @Body() body: { comment: string },
     @Request() req: any,
   ) {
-    return this.datSachService.reworkQD(id, req.user.userId, body.comment);
+    return this.approvals.rejectTarget(
+      ApprovalTargetType.DAT_SACH_DECISION,
+      id,
+      req.user.userId,
+      body.comment,
+    );
   }
 
   @Get('my-pending-reviews')

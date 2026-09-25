@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect } from 'react';
 import type { NotificationEvent } from '@/lib/socket';
+import { useNotificationStore } from '@/lib/notifications';
 import { formatDistanceToNow } from 'date-fns';
 import { vi } from 'date-fns/locale/vi';
 import { useRouter } from 'next/navigation';
@@ -57,56 +58,29 @@ interface NotificationPanelProps {
 }
 
 export default function NotificationPanel({ isOpen, onClose }: NotificationPanelProps) {
-  const [notifications, setNotifications] = useState<NotificationEvent[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(0);
+  const notifications = useNotificationStore((state) => state.notifications);
+  const isLoading = useNotificationStore((state) => state.isLoading);
+  const unreadCount = useNotificationStore((state) => state.unreadCount);
+  const fetchNotifications = useNotificationStore(
+    (state) => state.fetchNotifications,
+  );
+  const fetchUnreadCount = useNotificationStore(
+    (state) => state.fetchUnreadCount,
+  );
+  const markRead = useNotificationStore((state) => state.markRead);
+  const markAllRead = useNotificationStore((state) => state.markAllRead);
   const router = useRouter();
-
-  const loadNotifications = useCallback(async (reset = false) => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
-    setIsLoading(true);
-    try {
-      const resp = await fetch(`/api/notifications?page=1`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (resp.ok) {
-        const data = await resp.json();
-        setNotifications(data.notifications || []);
-      }
-    } catch (e) {
-      console.error('[NotificationPanel] Load failed:', e);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  const loadUnreadCount = useCallback(async () => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
-    try {
-      const resp = await fetch('/api/notifications/unread-count', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (resp.ok) {
-        const data = await resp.json();
-        setUnreadCount(data.count || 0);
-      }
-    } catch (e) {
-      console.error('[NotificationPanel] Unread count failed:', e);
-    }
-  }, []);
 
   useEffect(() => {
     if (isOpen) {
-      loadNotifications();
-      loadUnreadCount();
+      void fetchNotifications(true);
+      void fetchUnreadCount();
       document.body.style.overflow = 'hidden';
     } else {
       document.body.style.overflow = '';
     }
     return () => { document.body.style.overflow = ''; };
-  }, [isOpen, loadNotifications, loadUnreadCount]);
+  }, [isOpen, fetchNotifications, fetchUnreadCount]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -119,33 +93,11 @@ export default function NotificationPanel({ isOpen, onClose }: NotificationPanel
   }, [isOpen, onClose]);
 
   const handleMarkRead = async (id: string) => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
-    try {
-      await fetch(`/api/notifications/${encodeURIComponent(id)}/read`, {
-        method: 'PUT',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
-      setUnreadCount(prev => Math.max(0, prev - 1));
-    } catch (e) {
-      console.error('[NotificationPanel] Mark read failed:', e);
-    }
+    await markRead(id);
   };
 
   const handleMarkAllRead = async () => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
-    try {
-      await fetch('/api/notifications/read-all', {
-        method: 'PUT',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
-      setUnreadCount(0);
-    } catch (e) {
-      console.error('[NotificationPanel] Mark all read failed:', e);
-    }
+    await markAllRead();
   };
 
   const handleNotificationClick = async (notification: NotificationEvent) => {
@@ -178,7 +130,7 @@ export default function NotificationPanel({ isOpen, onClose }: NotificationPanel
         <div className="flex items-center justify-between px-4 py-4 border-b border-gray-200 shrink-0">
           <h2 className="text-lg font-semibold text-gray-900">Thông báo</h2>
           <div className="flex items-center gap-2">
-            {hasNotifications && (
+            {unreadCount > 0 && (
               <button
                 onClick={handleMarkAllRead}
                 className="text-xs text-orange-600 hover:text-orange-700 font-medium px-2 py-1 rounded hover:bg-orange-50 transition-colors"
